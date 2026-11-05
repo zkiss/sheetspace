@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { virtualGridGeometry } from '@test-support/domGeometry';
+import { GRID_CELL_HEIGHT, GRID_COLUMN_HEADER_HEIGHT } from '../grid/gridGeometry';
 import { App } from './App';
 
 it('retains native focus through DOM moves for repeated row and column shifts and history', async () => {
@@ -48,12 +49,23 @@ it('reveals the focused identity after an off-viewport reorder and history repla
   await waitFor(() => expect(body.scrollTop).toBeGreaterThan(0));
   expect(cell('A5')).toHaveTextContent('moving');
   expect(cell('A5')).toHaveFocus();
+  const expectRowVisible = (row: number) => {
+    const top = GRID_COLUMN_HEADER_HEIGHT + (row - 1) * GRID_CELL_HEIGHT - body.scrollTop;
+    expect(top).toBeGreaterThanOrEqual(GRID_COLUMN_HEADER_HEIGHT);
+    expect(top + GRID_CELL_HEIGHT).toBeLessThanOrEqual(body.clientHeight);
+  };
+  act(() => { body.scrollTop = 240; fireEvent.scroll(body); });
+  expect(GRID_COLUMN_HEADER_HEIGHT + 3 * GRID_CELL_HEIGHT - body.scrollTop).toBeLessThan(GRID_COLUMN_HEADER_HEIGHT);
   await user.keyboard('{Control>}z{/Control}');
   expect(cell('A4')).toHaveTextContent('moving');
   expect(cell('A4')).toHaveFocus();
+  await waitFor(() => expectRowVisible(4));
+  act(() => { body.scrollTop = 0; fireEvent.scroll(body); });
+  expect(GRID_COLUMN_HEADER_HEIGHT + 5 * GRID_CELL_HEIGHT).toBeGreaterThan(body.clientHeight);
   await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
   expect(cell('A5')).toHaveTextContent('moving');
   expect(cell('A5')).toHaveFocus();
+  await waitFor(() => expectRowVisible(5));
 });
 
 it('returns focus to the moved cell after a palette reorder', async () => {
