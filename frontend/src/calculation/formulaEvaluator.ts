@@ -42,6 +42,7 @@ import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { sheetCellNodeId } from './nodeIdentity';
 import type { Workbook } from '@workbook/core/model';
+import { resolveRowReference } from './rowReference';
 import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
@@ -259,12 +260,17 @@ export class FormulaEvaluator {
 
   private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
     if (reference.kind === 'named') return diagnosticError('#REF!', 'Unresolved name.');
-    if (reference.kind === 'row-reference') return diagnosticError('#REF!', 'Unresolved positional reference.');
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
       return diagnosticError('#REF!', 'Referenced sheet does not exist.');
     }
 
+    if (reference.kind === 'row-reference') {
+      const resolved = resolveRowReference(sheet, reference);
+      if (!resolved) return diagnosticError('#REF!', 'Referenced target does not exist.');
+      if (reference.endpoints.length === 1) return this.evaluateReferencedCell(sheet, resolved.keys[0]);
+      return { kind: 'range', values: this.evaluateRangeCells(sheet, resolved.keys), rowCount: resolved.rowCount, columnCount: resolved.columnCount };
+    }
     if (reference.kind === 'canonical') {
       if (!namedReferenceIsValid(reference, sheet)) return diagnosticError('#REF!', 'Referenced property does not exist.');
       const key = calculationCellKey(sheet, reference.coordinate);
@@ -294,11 +300,15 @@ export class FormulaEvaluator {
     if (expression.kind === 'group') {
       return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
     }
-    if (expression.kind !== 'cell' && expression.kind !== 'range' && expression.kind !== 'canonical') {
+    if (expression.kind !== 'cell' && expression.kind !== 'range' && expression.kind !== 'canonical' && expression.kind !== 'row-reference') {
       return { ok: false, error: '#VALUE!', message: 'Expected a reference.' };
     }
     const sheet = resolveFormulaReferenceSheet(expression, this.workbook, currentSheet);
     if (!sheet) return { ok: false, error: '#REF!', message: 'Referenced sheet does not exist.' };
+    if (expression.kind === 'row-reference') {
+      const resolved = resolveRowReference(sheet, expression);
+      return resolved ? { ok: true, value: { values: this.evaluateRangeCells(sheet, resolved.keys), rowCount: resolved.rowCount, columnCount: resolved.columnCount } } : { ok: false, error: '#REF!', message: 'Referenced target does not exist.' };
+    }
     if (expression.kind === 'cell') {
       const key = isAddressWithinBounds(expression.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length }) ? calculationCellKey(sheet, { rowId: sheet.rows[expression.address.rowIndex]!, columnId: sheet.columns[expression.address.columnIndex]! }) : undefined;
       return key ? { ok: true, value: { values: this.evaluateRangeCells(sheet, [key]), rowCount: 1, columnCount: 1 } } : { ok: false, error: '#REF!', message: 'Referenced cell does not exist.' };
