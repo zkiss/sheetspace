@@ -155,7 +155,7 @@ export function Workspace({
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onSettleSelectionGesture: (owner: symbol) => void;
   onRestoreGridFocus: () => number | null;
-  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onRestoreSelection: (selection: CellSelection | null) => boolean;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -1362,6 +1362,7 @@ export function Workspace({
                       select: (...args) => { cancelNavigationBeforeUserMovement.current(); onSelectCell(...args); },
                       extend: (...args) => { cancelNavigationBeforeUserMovement.current(); onExtendSelection(...args); },
                       focusSelection: onFocusSelection,
+                      focusCurrentSelection: onRestoreGridFocus,
                       settleSelectionGesture: onSettleSelectionGesture,
                       startEditing: (...args) => { cancelNavigationBeforeUserMovement.current(); onStartEdit(...args); },
                     }}

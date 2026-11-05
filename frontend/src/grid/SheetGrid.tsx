@@ -190,7 +190,7 @@ export function SheetGrid({
   selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
-  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
   /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
   clipboardInteraction?: {
     copy: () => { text: string; marker: string } | undefined;

@@ -50,7 +50,7 @@ function frames() {
 
 const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
 const consumed = vi.fn();
-function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, logicalSelection, creating = false, activeKey }: {
+function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, logicalSelection, creating = false, activeKey, live = false }: {
   sheet: ReturnType<typeof sheetDocument>;
   entryModel?: DataModel;
   replacement?: 'cell' | 'range' | 'edit';
@@ -58,6 +58,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, 
   logicalSelection?: CellSelection | null;
   creating?: boolean;
   activeKey?: string;
+  live?: boolean;
 }) {
   const workbook = useMemo(() => workbookWithSheets([sheet]), [sheet]);
   const interaction = useCellEditing({ commands, workbook });
@@ -87,6 +88,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, 
     },
   } : undefined;
   return <>
+    {live && <button onClick={() => interaction.activeCell && interaction.clearCellContent(interaction.activeCell)}>Clear selection</button>}
     <output data-testid="selection-state">{JSON.stringify({
       active: cellKeyForTarget(sheet, interaction.activeCell),
       anchor: range && cellKeyForTarget(sheet, range.anchor),
@@ -103,7 +105,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, 
         selectionOwner={interaction.selectionOwner}
         axisProjection={projectGridAxes(projection, creating ? { columns: [{ kind: 'creating', operationId: 'c', boundary: 1 }], rows: [{ kind: 'creating', operationId: 'r', boundary: 1 }] } : { columns: [], rows: [] })}
         cellInteraction={{ clear: interaction.clearCellContent, select: interaction.selectCell, extend: interaction.extendSelection,
-          focusSelection: interaction.focusSelection, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
+          focusSelection: interaction.focusSelection, focusCurrentSelection: interaction.focusCurrentSelection, settleSelectionGesture: interaction.settleSelectionGesture, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
         editingCell={interaction.editingCell}
         editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: interaction.cancelActiveEdit, commit: interaction.commitActiveEdit,
           commitAndNavigate: interaction.commitEditAndNavigate, updateValue: interaction.updateEditingCellValue,
@@ -116,7 +118,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, 
         navigationHighlightCellKey={null}
         scrollContainerRef={scrollContainerRef}
         selectedRange={selectedRange}
-        logicalSelection={logicalSelection}
+        logicalSelection={live ? range : logicalSelection}
         selectionMode={range?.mode}
         onSelectAxis={interaction.selectAxis}
         sheet={projection}
@@ -128,6 +130,30 @@ function state() { return JSON.parse(screen.getByTestId('selection-state').textC
 function activeCell(name: string, key: string) { return screen.getByRole('cell', { name: `${name} ${key} empty cell` }); }
 
 describe('exact selection presentation', () => {
+  it.each(['rows', 'columns'] as const)('connects modifier pointer selection to exact %s highlights', (mode) => {
+    commands.writeCells.mockClear();
+    const sheet = sheetDocument({ id: 'live', name: 'Live', rowCount: 4, columnCount: 4, cells: { A1: 'a', A2: 'b', A3: 'c', B1: 'd', C1: 'e' } });
+    render(<SelectionGrid sheet={sheet} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    const role = mode === 'rows' ? 'rowheader' : 'columnheader';
+    const first = screen.getByRole(role, { name: mode === 'rows' ? '1' : 'A' });
+    const third = screen.getByRole(role, { name: mode === 'rows' ? '3' : 'C' });
+    pointer(first, 'pointerdown');
+    pointer(grid, 'pointerup');
+    const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+    Object.defineProperty(event, 'pointerId', { value: 22 });
+    fireEvent(third, event);
+    pointer(grid, 'pointermove', 210, 110);
+    pointer(grid, 'pointerup', 210, 110);
+    expect(screen.getByTestId('sheet-grid').querySelector('[data-cell-key="A1"]')).toHaveClass('sheet-grid-cell-range-selected');
+    expect(screen.getByTestId('sheet-grid').querySelector(`[data-cell-key="${mode === 'rows' ? 'A2' : 'B1'}"]`)).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(screen.getByTestId('sheet-grid').querySelector(`[data-cell-key="${mode === 'rows' ? 'A3' : 'C1'}"]`)).toHaveClass('sheet-grid-cell-range-selected');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    const writes = commands.writeCells.mock.calls[0]![0] as { rowId: string; columnId: string }[];
+    const axis = sheet.content[mode];
+    expect(writes.some((write) => (mode === 'rows' ? write.rowId : write.columnId) === axis[2])).toBe(true);
+    expect(writes.every((write) => (mode === 'rows' ? write.rowId : write.columnId) !== axis[1])).toBe(true);
+  });
   it.each(['rows', 'columns'] as const)('renders reconciled %s after deletion with valid run borders', (mode) => {
     const sheet = sheetDocument({ id: 'delete', name: 'Delete', rowCount: 4, columnCount: 4 });
     const target = (i: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[mode === 'rows' ? i : 0]!, columnId: sheet.content.columns[mode === 'columns' ? i : 0]! } });
