@@ -3,25 +3,42 @@ import { namedColumns } from '../core/columnNames';
 import type { SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
 import { formulaMoveGeometry } from './formulaMoveGeometry';
+import { rowReferenceTarget } from './rowReferenceTarget';
 import type { FormulaCoordinate, FormulaMoveMapping, FormulaReferenceResolver } from './formulaTransformTypes';
+import type { FormulaPositionalCoordinate } from './syntaxTypes';
 export type { FormulaCoordinate, FormulaMoveMapping, FormulaMoveTarget, FormulaReferenceResolver } from './formulaTransformTypes';
 import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, parseUserFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
 export type FormulaSourceSpan = { start: number; end: number };
 export type FormulaQualifier = { kind: 'unqualified' } | { kind: 'explicit'; sheetId: SheetId; sourceSpan: FormulaSourceSpan } | { kind: 'broken'; sourceSpan: FormulaSourceSpan };
-export type FormulaReferenceEndpoint = { open?: boolean; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan } & ({ kind: 'canonical'; coordinate: FormulaCoordinate; propertyId?: string } | { kind: 'a1'; address: CellAddress } | { kind: 'named'; propertyName: string; row: number });
+export type FormulaReferenceEndpoint = { open?: boolean; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan } & ({ kind: 'recipe'; endpoint: FormulaReferenceLexeme['endpoints'][number] } | { kind: 'canonical'; coordinate: FormulaCoordinate; propertyId?: string } | { kind: 'a1'; address: CellAddress } | { kind: 'named'; propertyName: string; row: number });
 export type FormulaReferenceToken = { kind: 'cell' | 'range'; qualifier: FormulaQualifier; endpoints: readonly [FormulaReferenceEndpoint, FormulaReferenceEndpoint?]; sourceSpan: FormulaSourceSpan };
 export type FormulaTransformResult = { ok: true; raw: string } | { ok: false; reason: 'unresolved-coordinate' };
 export type FormulaCopyContext = { sourceSheetId?: SheetId; destinationSheetId?: SheetId };
 export type FormulaDisplayProjection = { raw: string; referenceSpans: readonly FormulaSourceSpan[] };
 
-type Endpoint = { open?: boolean; kind: 'a1' | 'canonical' | 'named'; address?: CellAddress; coordinate?: FormulaCoordinate; propertyId?: string; propertyName?: string; row?: number; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan };
+/** Resolve a stored endpoint against the current workbook without changing its recipe. */
+export function resolveStoredEndpoint(workbook: Workbook, sheetId: string, endpoint: FormulaReferenceLexeme['endpoints'][number], openRowIndex = 0): { address: CellAddress; name?: string; exists: boolean } | undefined {
+  const sheet = workbook.documents[sheetId];
+  if (!sheet || !('columnId' in endpoint.value)) return undefined;
+  const columnId = endpoint.value.columnId;
+  const columnIndex = sheet.content.columns.indexOf(columnId);
+  if (columnIndex < 0) return undefined;
+  const propertyId = 'propertyId' in endpoint.value ? endpoint.value.propertyId : undefined;
+  const property = propertyId && namedColumns(workbook, sheet).find((item) => item.id === propertyId && item.columnId === columnId);
+  if (propertyId && !property) return undefined;
+  const rowIndex = endpoint.kind === 'positional-canonical' ? endpoint.value.rowIndex : endpoint.kind === 'open-canonical' ? openRowIndex : 'rowId' in endpoint.value ? sheet.content.rows.indexOf(endpoint.value.rowId) : -1;
+  if (rowIndex < 0) return undefined;
+  return { address: { columnIndex, rowIndex }, ...(property ? { name: property.name } : {}), exists: rowIndex < sheet.content.rows.length };
+}
+
+type Endpoint = { open?: boolean; kind: 'a1' | 'canonical' | 'named' | 'recipe'; recipe?: FormulaReferenceLexeme['endpoints'][number]; address?: CellAddress; coordinate?: FormulaCoordinate; propertyId?: string; propertyName?: string; row?: number; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan };
 type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpoints: Endpoint[]; canonical: boolean };
 type Edit = FormulaSourceSpan & { value: string };
 
 /** Reference recognition is delegated to formulaSyntax, including malformed-formula recovery. */
-export function formulaReferenceTokens(raw: string, resolver?: FormulaReferenceResolver): FormulaReferenceToken[] { return lexemeMatches(raw, resolver).map(toToken); }
+export function formulaReferenceTokens(raw: string, resolver?: FormulaReferenceResolver, options: { stored?: boolean } = {}): FormulaReferenceToken[] { return lexemeMatches(raw, resolver, options).map(toToken); }
 
 function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
   return (qualifier: string | undefined, name: string) => {
@@ -38,7 +55,10 @@ function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
 export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver, stored = false): FormulaSyntaxResult {
   const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: stored ? undefined : namedColumnPredicate(resolver), stored });
   const diagnostics = analysis.referenceLexemes.map(matchFromLexeme)
-    .filter((match) => stored && !match.canonical || !referenceMatchResolves(match, resolver))
+    .filter((match) => {
+      const rowReference = analysis.references.find((reference) => reference.kind === 'row-reference' && reference.sourceSpan.start === match.sourceSpan.start);
+      return rowReference?.kind === 'row-reference' ? !rowReferenceTarget(rowReference, resolver) : stored && !match.canonical || !referenceMatchResolves(match, resolver);
+    })
     .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
   const references = analysis.references.map((reference) => stored ? reference : resolveNamedReference(reference, resolver));
   const resolvedByStart = new Map(references.map((reference) => [reference.sourceSpan.start, reference]));
@@ -106,6 +126,7 @@ function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolv
     ? parseUserFormulaSyntax(raw, namedColumnPredicate(resolver)).referenceLexemes.map(matchFromLexeme).filter((match) => !match.canonical)
     : rawMatches(raw, resolver);
   for (const match of matches) {
+    if (match.endpoints.some((endpoint) => endpoint.kind === 'recipe')) continue;
     const sheetId = rawTargetSheet(match.qualifier, resolver);
     const resolved = sheetId && match.endpoints.map((endpoint) => endpoint.kind === 'named'
       ? resolver.namedCoordinateAt?.(sheetId, endpoint.propertyName!, endpoint.row!)
@@ -124,8 +145,8 @@ function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolv
   return applyEdits(raw, edits);
 }
 
-export function formulaRawToDisplay(raw: string, resolver: FormulaReferenceResolver): string {
-  return displayProjection(raw, resolver).raw;
+export function formulaRawToDisplay(raw: string, resolver: FormulaReferenceResolver, options: { stored?: boolean } = {}): string {
+  return displayProjection(raw, resolver, options).raw;
 }
 
 export function formulaRawForStorage(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
@@ -156,9 +177,9 @@ export function formulaRawToDisplayProjection(raw: string, resolver: FormulaRefe
   return displayProjection(raw, resolver);
 }
 
-function displayProjection(raw: string, resolver: FormulaReferenceResolver): FormulaDisplayProjection {
+function displayProjection(raw: string, resolver: FormulaReferenceResolver, options: { stored?: boolean } = {}): FormulaDisplayProjection {
   const edits: Edit[] = [];
-  const matches = canonicalMatches(raw);
+  const matches = canonicalMatches(raw, options);
   for (const match of matches) {
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     const addresses = sheetId && match.endpoints.map((endpoint) => endpoint.coordinate && (endpoint.propertyId
@@ -183,30 +204,45 @@ function displayProjection(raw: string, resolver: FormulaReferenceResolver): For
   };
 }
 
-export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, destination: FormulaCoordinate, resolver: FormulaReferenceResolver, context: FormulaCopyContext = {}): FormulaTransformResult {
+export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, destination: FormulaCoordinate, resolver: FormulaReferenceResolver, context: FormulaCopyContext = {}, options: { stored?: boolean } = {}): FormulaTransformResult {
   const sourceSheetId = context.sourceSheetId ?? resolver.currentSheetId; const destinationSheetId = context.destinationSheetId ?? sourceSheetId;
   const origin = resolver.addressOf(sourceSheetId, source); const target = resolver.addressOf(destinationSheetId, destination);
   if (!origin || !target) return { ok: false, reason: 'unresolved-coordinate' };
   const edits: Edit[] = [];
-  for (const match of canonicalMatches(raw)) {
+  for (const match of lexemeMatches(raw, undefined, options).filter((item) => item.canonical)) {
     const originalSheet = targetSheet(match.qualifier, sourceSheetId);
     if (!originalSheet) return { ok: false, reason: 'unresolved-coordinate' };
     const resultSheet = match.qualifier.kind === 'unqualified' ? destinationSheetId : originalSheet;
-    const translated = [];
+    const translated: { endpoint: Endpoint; coordinate: FormulaCoordinate | FormulaPositionalCoordinate; propertyId?: string }[] = [];
     for (const endpoint of match.endpoints) {
+      const recipe = endpoint.recipe;
+      if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
+        const propertyId = recipe.value.propertyId;
+        const columnIndex = resolver.columnIndexOf?.(originalSheet, recipe.value.columnId, propertyId);
+        if (columnIndex === undefined) return { ok: false, reason: 'unresolved-coordinate' };
+        const rowIndex = recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0;
+        const address = translateCopyAddress({ columnIndex, rowIndex }, endpoint.anchors, origin, target);
+        const column = resolver.columnAt?.(resultSheet, address.columnIndex);
+        if (!column || (!endpoint.open && (!Number.isSafeInteger(address.rowIndex) || address.rowIndex < 0 || address.rowIndex >= Number.MAX_SAFE_INTEGER))) return { ok: false, reason: 'unresolved-coordinate' };
+        translated.push({ endpoint, coordinate: { columnId: column.columnId, rowIndex: address.rowIndex }, ...(propertyId && column.propertyId ? { propertyId: column.propertyId } : {}) });
+        continue;
+      }
       const address = endpoint.coordinate && resolver.addressOf(originalSheet, endpoint.coordinate);
       if (!address) return { ok: false, reason: 'unresolved-coordinate' };
       const translatedAddress = translateCopyAddress(address, endpoint.anchors, origin, target);
-      if (endpoint.open && translated[0]) translatedAddress.rowIndex = resolver.addressOf(resultSheet, translated[0].coordinate)!.rowIndex;
+      if (endpoint.open && translated[0]) {
+        const first = translated[0].coordinate;
+        translatedAddress.rowIndex = 'rowIndex' in first ? first.rowIndex : resolver.addressOf(resultSheet, first)!.rowIndex;
+      }
       const coordinate = resolver.coordinateAt(resultSheet, translatedAddress);
       if (!coordinate) return { ok: false, reason: 'unresolved-coordinate' };
       if (endpoint.propertyId && !resolver.namedAddressOf?.(originalSheet, endpoint.propertyId, endpoint.coordinate!)) return { ok: false, reason: 'unresolved-coordinate' };
-      translated.push({ endpoint, coordinate, named: endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate) });
+      const named = endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate);
+      translated.push({ endpoint, coordinate, ...(named ? { propertyId: named.propertyId } : {}) });
     }
-    const useNamedRange = translated.length === 2 && translated.every(({ named }) => named);
-    for (const { endpoint, coordinate, named } of translated) {
-      const useNamedEndpoint = named && (translated.length === 1 || useNamedRange);
-      edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? formatOpenCanonical(coordinate, endpoint.anchors, useNamedEndpoint ? named.propertyId : undefined) : useNamedEndpoint ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
+    const useNamedRange = translated.length === 2 && translated.every(({ propertyId }) => propertyId);
+    for (const { endpoint, coordinate, propertyId } of translated) {
+      edits.push({ ...endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinate, endpoint.anchors, translated.length === 1 || useNamedRange ? propertyId : undefined, endpoint.open) });
     }
   }
   return { ok: true, raw: applyEdits(raw, edits) };
@@ -218,8 +254,63 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
   if (!resolver) return { ok: true, raw };
   const geometry = formulaMoveGeometry(resolver, mappings);
   const edits: Edit[] = [];
-  for (const match of canonicalMatches(raw)) {
+  for (const match of lexemeMatches(raw, undefined, { stored: true }).filter((item) => item.canonical)) {
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
+    if (match.endpoints.some((endpoint) => endpoint.kind === 'recipe')) {
+      if (!sheetId) continue;
+      const deadNamedBinding = match.endpoints.some((endpoint) => {
+        const recipe = endpoint.recipe;
+        if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical') && 'propertyId' in recipe.value) {
+          return resolver.columnIndexOf?.(sheetId, recipe.value.columnId, recipe.value.propertyId) === undefined;
+        }
+        return endpoint.propertyId && endpoint.coordinate && !resolver.namedAddressOf?.(sheetId, endpoint.propertyId, endpoint.coordinate);
+      });
+      if (deadNamedBinding) {
+        if (match.qualifier.kind === 'unqualified' && sheetId !== (destinationSheetId ?? resolver.currentSheetId)) edits.push({ start: match.endpoints[0].sourceSpan.start, end: match.endpoints[0].sourceSpan.start, value: `${sheetId}!` });
+        continue;
+      }
+      const addresses = match.endpoints.map((endpoint) => {
+        const recipe = endpoint.recipe;
+        if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
+          const columnIndex = resolver.columnIndexOf?.(sheetId, recipe.value.columnId, recipe.value.propertyId);
+          return columnIndex === undefined ? undefined : { columnIndex, rowIndex: recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0 };
+        }
+        return endpoint.coordinate && resolver.addressOf(sheetId, endpoint.coordinate);
+      });
+      const hasPositionalEndpoint = match.endpoints.some((endpoint) => endpoint.recipe?.kind === 'positional-canonical');
+      if (!hasPositionalEndpoint && addresses.every((address) => address !== undefined) && match.endpoints.length === 2) {
+        const [first, last] = addresses as [CellAddress, CellAddress];
+        if (match.endpoints[1].open) {
+          const low = Math.min(first.columnIndex, last.columnIndex), high = Math.max(first.columnIndex, last.columnIndex);
+          if (mappings.some(({ source }) => {
+            const address = source.sheetId === sheetId && resolver.addressOf(sheetId, source.cell);
+            return address && address.rowIndex >= first.rowIndex && address.columnIndex >= low && address.columnIndex <= high;
+          })) return { ok: false, reason: 'unrepresentable-range' };
+        } else {
+          const moved = geometry(sheetId, [first, last]);
+          if (!moved.ok) return moved;
+        }
+      }
+      const targets = match.endpoints.map((endpoint) => {
+        if (endpoint.kind === 'recipe') return { sheetId, endpoint };
+        const mapping = mappings.find(({ source }) => source.sheetId === sheetId && source.cell.columnId === endpoint.coordinate?.columnId && source.cell.rowId === endpoint.coordinate.rowId);
+        return { sheetId: mapping?.destination.sheetId ?? sheetId, endpoint, coordinate: mapping?.destination.cell };
+      });
+      if (targets.some((target) => target.sheetId !== sheetId)) return { ok: false, reason: 'unrepresentable-range' };
+      const properties = targets.map(({ endpoint, coordinate }) => {
+        if (endpoint.recipe && 'propertyId' in endpoint.recipe.value) return endpoint.recipe.value.propertyId;
+        return coordinate && endpoint.propertyId ? resolver.namedAddressAt?.(sheetId, coordinate)?.propertyId : endpoint.propertyId;
+      });
+      const useNamed = targets.length === 1 || properties.every(Boolean);
+      for (const [index, target] of targets.entries()) {
+        const recipe = target.endpoint.recipe;
+        const coordinate = target.coordinate ?? (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical') ? { columnId: recipe.value.columnId, rowIndex: recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0 } : undefined);
+        if (!coordinate || (!target.coordinate && (useNamed || !properties[index]))) continue;
+        edits.push({ ...target.endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinate, target.endpoint.anchors, useNamed ? properties[index] : undefined, target.endpoint.open) });
+      }
+      if (match.qualifier.kind === 'unqualified' && sheetId !== (destinationSheetId ?? resolver.currentSheetId)) edits.push({ start: match.endpoints[0].sourceSpan.start, end: match.endpoints[0].sourceSpan.start, value: `${sheetId}!` });
+      continue;
+    }
     if (!sheetId || !referenceMatchResolves(match, resolver)) continue;
     const addresses = match.endpoints.map((endpoint) => resolver.addressOf(sheetId, endpoint.coordinate!)!);
     if (match.endpoints[1]?.open) {
@@ -255,6 +346,8 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
   const sheet = (id: SheetId) => workbook.documents[id];
   const namedAddressOf = (sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.id === propertyId && column.columnId === coordinate.columnId); if (!document || !property) return undefined; const rowIndex = document.content.rows.indexOf(coordinate.rowId); const columnIndex = document.content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { name: property.name, address: { rowIndex, columnIndex } }; };
   return { currentSheetId,
+    columnIndexOf: (sheetId, columnId, propertyId) => { const document = sheet(sheetId); const index = document?.content.columns.indexOf(columnId) ?? -1; return index < 0 || (propertyId && !namedColumns(workbook, document!).some((column) => column.id === propertyId && column.columnId === columnId)) ? undefined : index; },
+    columnAt: (sheetId, index) => { const document = sheet(sheetId); const columnId = document?.content.columns[index]; if (!document || !columnId) return undefined; const property = namedColumns(workbook, document).find((item) => item.columnId === columnId); return { columnId, ...(property ? { propertyId: property.id } : {}) }; },
     lastRowId: (sheetId) => sheet(sheetId)?.content.rows.slice(-1)[0],
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((entry) => entry.id === qualifier || entry.name === qualifier)?.id,
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
@@ -271,7 +364,7 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
 }
 
 function rawMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return lexemeMatches(raw, resolver).filter((match) => !match.canonical); }
-function lexemeMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return formulaReferenceLexemes(raw, namedColumnPredicate(resolver)).map(matchFromLexeme); }
+function lexemeMatches(raw: string, resolver?: FormulaReferenceResolver, options: { stored?: boolean } = {}): Match[] { return formulaReferenceLexemes(raw, namedColumnPredicate(resolver), options).map(matchFromLexeme); }
 function referenceMatchResolves(match: Match, resolver: FormulaReferenceResolver): boolean {
   const sheetId = match.canonical
     ? targetSheet(match.qualifier, resolver.currentSheetId)
@@ -288,21 +381,36 @@ function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match {
   const qualifier: FormulaQualifier = !lexeme.qualifier ? { kind: 'unqualified' } : lexeme.qualifier.broken ? { kind: 'broken', sourceSpan: lexeme.qualifier.sourceSpan } : { kind: 'explicit', sheetId: lexeme.qualifier.value, sourceSpan: lexeme.qualifier.sourceSpan };
   const endpoints = lexeme.endpoints.map((endpoint): Endpoint => {
     const base = { anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) };
+    if (endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical' || endpoint.rowMode === 'positional') return { ...base, kind: 'recipe', recipe: endpoint };
     if (endpoint.kind === 'a1') return { ...base, kind: 'a1', address: endpoint.value };
     if (endpoint.kind === 'named') return { ...base, kind: 'named', ...endpoint.value };
     return { ...base, kind: 'canonical', coordinate: { columnId: endpoint.value.columnId, rowId: endpoint.value.rowId }, ...(endpoint.kind === 'stored-named' ? { propertyId: endpoint.value.propertyId } : {}) };
   });
-  return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints[0]?.kind === 'canonical' || lexeme.endpoints[0]?.kind === 'stored-named' };
+  return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints.every((endpoint) => endpoint.kind === 'canonical' || endpoint.kind === 'stored-named' || endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical') };
 }
-function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => match.canonical); }
-function toToken(match: Match): FormulaReferenceToken { return { kind: match.endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: match.endpoints.map((endpoint) => endpoint.kind === 'canonical' ? { kind: 'canonical', coordinate: endpoint.coordinate!, ...(endpoint.propertyId ? { propertyId: endpoint.propertyId } : {}), anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) } : endpoint.kind === 'named' ? { kind: 'named', propertyName: endpoint.propertyName!, row: endpoint.row!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) } : { kind: 'a1', address: endpoint.address!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) }) as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan }; }
+function canonicalMatches(raw: string, options: { stored?: boolean } = {}): Match[] { return lexemeMatches(raw, undefined, options).filter((match) => match.canonical && !match.endpoints.some((endpoint) => endpoint.kind === 'recipe')); }
+function toToken(match: Match): FormulaReferenceToken {
+  const endpoints = match.endpoints.map((endpoint): FormulaReferenceEndpoint => {
+    const base = { anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) };
+    if (endpoint.kind === 'recipe') return { ...base, kind: 'recipe', endpoint: endpoint.recipe! };
+    if (endpoint.kind === 'canonical') return { ...base, kind: 'canonical', coordinate: endpoint.coordinate!, ...(endpoint.propertyId ? { propertyId: endpoint.propertyId } : {}) };
+    if (endpoint.kind === 'named') return { ...base, kind: 'named', propertyName: endpoint.propertyName!, row: endpoint.row! };
+    return { ...base, kind: 'a1', address: endpoint.address! };
+  });
+  return { kind: endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: endpoints as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan };
+}
 function targetSheet(qualifier: FormulaQualifier, current: SheetId): SheetId | undefined { return qualifier.kind === 'broken' ? undefined : qualifier.kind === 'explicit' ? qualifier.sheetId : current; }
 function rawTargetSheet(qualifier: FormulaQualifier, resolver: FormulaReferenceResolver): SheetId | undefined { return qualifier.kind === 'explicit' ? resolver.sheetByQualifier(qualifier.sheetId) : targetSheet(qualifier, resolver.currentSheetId); }
-export function formatCanonicalFormulaEndpoint(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor, propertyId?: string, open = false): string {
+export function formatCanonicalFormulaEndpoint(coordinate: FormulaCoordinate | FormulaPositionalCoordinate, anchors: FormulaAxisAnchor, propertyId?: string, open = false): string {
   if (open) return formatOpenCanonical(coordinate, anchors, propertyId);
+  if ('rowIndex' in coordinate) {
+    if (!Number.isSafeInteger(coordinate.rowIndex) || coordinate.rowIndex < 0 || coordinate.rowIndex >= Number.MAX_SAFE_INTEGER) throw new RangeError('Invalid positional row index');
+    const column = propertyId === undefined ? coordinate.columnId : `~${encodeStableId(propertyId)}~${encodeStableId(coordinate.columnId)}`;
+    return `${anchors.column ? '$' : ''}${column}[#${anchors.row ? '$' : ''}${coordinate.rowIndex + 1}]`;
+  }
   return propertyId === undefined ? formatCanonical(coordinate, anchors) : formatNamedCanonical(propertyId, coordinate, anchors);
 }
-function formatOpenCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor, propertyId?: string): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId ?? coordinate.columnId)}~${encodeStableId(coordinate.columnId)}`; }
+function formatOpenCanonical(coordinate: { columnId: string }, anchors: FormulaAxisAnchor, propertyId?: string): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId ?? coordinate.columnId)}~${encodeStableId(coordinate.columnId)}`; }
 function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${coordinate.columnId}[${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
 /**
  * Stable IDs admit every non-blank JavaScript string. Encode UTF-16 code units

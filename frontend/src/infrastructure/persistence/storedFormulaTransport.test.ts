@@ -6,6 +6,21 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { decodeWorkbookBundle, encodeWorkbookBundle } from './workbookApi';
 
 describe('stored formula transport', () => {
+  it('retains positional anchors and absent rows across bundle reload and reorder', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 1 });
+    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
+    const original = workbookWithSheets([source, output]);
+    const content = prepareUserFormula('=@Source!A[1]+@Source!A[#$1]+@Source!A[#9]', original, output.id);
+    const key = cellIdentityKey({ rowId: output.content.rows[0]!, columnId: output.content.columns[0]! });
+    const workbook = workbookWithSheets([source, { ...output, content: { ...output.content, cells: { [key]: content } } }]);
+    const loaded = decodeWorkbookBundle(encodeWorkbookBundle(workbook));
+    const reordered = { ...loaded.documents.source!, content: { ...loaded.documents.source!.content, rows: [...source.content.rows].reverse() } };
+    const updated = { ...loaded, documents: { ...loaded.documents, source: reordered } };
+    const restored = loaded.documents.output!.content.cells[key]!;
+    expect(restored).toBe(content);
+    expect(projectStoredFormula(restored, updated, output.id).text).toBe('=@Source!A[2]+@Source!A[#$1]+@Source!A[#9]');
+    expect(decodeWorkbookBundle(encodeWorkbookBundle(updated)).documents.output!.content.cells[key]).toBe(content);
+  });
   it('round trips formula text and retained identities in the existing cell content', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);

@@ -12,6 +12,7 @@ import {
   type FormulaReference,
 } from '@workbook/formula/syntax';
 import type { Workbook } from '@workbook/core/model';
+import { resolveRowReference } from './rowReference';
 import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
 
 type FormulaParser = (content: string, sheetId: string) => ReturnType<typeof parseFormula>;
@@ -150,6 +151,7 @@ function referenceDependencies(
   if (!targetSheet) {
     return new Set();
   }
+  if (reference.kind === 'row-reference') return new Set((resolveRowReference(targetSheet, reference)?.keys ?? []).map((key) => sheetCellNodeId(targetSheet.id, key)));
   if (reference.kind === 'cell') return new Set([sheetCellNodeId(targetSheet.id, reference.address.columnIndex >= 0 ? legacyKey(targetSheet, reference.address.rowIndex, reference.address.columnIndex) : '')]);
   if (reference.kind === 'range') {
     const dependencies = new Set<string>();

@@ -35,6 +35,14 @@ const workbook = {
 const resolver = workbookFormulaReferenceResolver(workbook, budget.id);
 
 describe('formula editor logic', () => {
+  it('highlights and hovers positional references while diagnosing missing positions', () => {
+    const raw = '=SUM(@Budget!Revenue[#$1]:Cost[#2])+@Budget!Revenue[#999]';
+    const analysis = analyzeFormulaEditor(raw, resolver);
+    expect(analysis.referenceIdentities[0]).toMatchObject({ kind: 'range', sheetId: budget.id });
+    expect(analysis.referenceIdentities[1]).toBeUndefined();
+    expect(analysis.diagnostics).toEqual([expect.objectContaining({ kind: 'reference' })]);
+    expect(formulaReferenceHover(analysis.references[0]!, resolver, () => [{ kind: 'number', value: 3 }])).toMatchObject({ kind: 'range', values: [{ value: 3 }] });
+  });
   it('highlights and hovers the full open named range through the current last row', () => {
     const raw = '=SUM(@Budget!Revenue[1]:Cost)';
     const analysis = analyzeFormulaEditor(raw, resolver);

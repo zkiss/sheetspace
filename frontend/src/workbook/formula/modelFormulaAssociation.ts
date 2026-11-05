@@ -10,7 +10,7 @@ export function modelFormulaRecipes(content: string, declaration: string): Model
 }
 
 export function modelFormulaAssociations(content: string, declaration: string): ModelReferenceAssociation[] | undefined {
-  const canonical = parseFormulaSyntax(maskOpaqueFormulaText(content)).referenceLexemes.filter((lexeme) => lexeme.endpoints.every((endpoint) => endpoint.kind === 'canonical' || endpoint.kind === 'stored-named'));
+  const canonical = parseFormulaSyntax(maskOpaqueFormulaText(content), { stored: true }).referenceLexemes.filter((lexeme) => lexeme.endpoints.every((endpoint) => endpoint.kind === 'canonical' || endpoint.kind === 'stored-named' || endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical'));
   const raw = opaqueFormulaText(content);
   const decode = (start: number, end: number) => raw.filter((span) => span.start >= start && span.end <= end).reduceRight((text, span) => text.slice(0, span.start - start) + span.text + text.slice(span.end - start), content.slice(start, end));
   const references = parseUserFormulaSyntax(declaration, () => true).referenceLexemes;

@@ -1,6 +1,6 @@
 import { activateCellEditor } from '@test-support/appScreen';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
@@ -72,22 +72,31 @@ describe('axis resize application integration', () => {
     expect(apiClient.writeAxisSizes).toHaveBeenCalledTimes(2);
   });
   it('reveals a distant reference using variable offsets and keeps headers and selected cells aligned', async () => {
-    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1000, columnCount: 100 });
-    inputs.presentation = { rowHeights: { [inputs.content.rows[0]]: 80 }, columnWidths: { [inputs.content.columns[0]]: 160 } };
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!K[100]:L[101])' } });
-    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
-    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    const body = within(frame).getByTestId('sheet-frame-body');
-    act(() => { virtualGridGeometry(body, { height: 160, width: 240 }); });
-    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    navigateFirstReference(screen.getByRole('cell', { name: 'Outputs A1 cell' }), 'Outputs A1 editor');
-    expect(body.scrollLeft).toBe(160 + 9 * 76);
-    expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
-    fireEvent.scroll(body);
-    const target = await within(frame).findByRole('cell', { name: 'Inputs K100 empty cell' });
-    expect(target).toHaveAttribute('data-navigation-highlight', 'true');
-    expect(target).toHaveAttribute('data-reference-selected', 'true');
-    expect(target).toHaveStyle({ left: `${40 + 160 + 9 * 76}px` });
-    expect(within(frame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(500);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    try {
+      const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1000, columnCount: 100 });
+      inputs.presentation = { rowHeights: { [inputs.content.rows[0]]: 80 }, columnWidths: { [inputs.content.columns[0]]: 160 } };
+      const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!K[100]:L[101])' } });
+      render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
+      const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+      const body = within(frame).getByTestId('sheet-frame-body');
+      act(() => { virtualGridGeometry(body, { height: 160, width: 240 }); });
+      fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+      navigateFirstReference(screen.getByRole('cell', { name: 'Outputs A1 cell' }), 'Outputs A1 editor');
+      expect(body.scrollLeft).toBe(160 + 9 * 76);
+      expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
+      fireEvent.scroll(body);
+      for (let frameNumber = 0; frameNumber < 20 && !within(frame).queryByRole('cell', { name: 'Inputs K100 empty cell' }); frameNumber++) {
+        await act(async () => { vi.advanceTimersByTime(16); });
+      }
+      const target = within(frame).getByRole('cell', { name: 'Inputs K100 empty cell' });
+      expect(target).toHaveAttribute('data-navigation-highlight', 'true');
+      expect(target).toHaveAttribute('data-reference-selected', 'true');
+      expect(target).toHaveStyle({ left: `${40 + 160 + 9 * 76}px` });
+      expect(within(frame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(500);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
   });
 });

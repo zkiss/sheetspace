@@ -1,6 +1,7 @@
 {
   "valid": [
     { "content": "=1+2", "fragments": [] },
+    { "content": "=@sheet:column:1[#$2]+@sheet:column:1[#99]", "fragments": [] },
     { "content": "=~{0040004d0069007300730069006e0067}", "fragments": ["@Missing"] },
     { "content": "=~{0022007d007e007b03bbd83dde00}", "fragments": ["\"}~{λ😀"] },
     { "content": "=\"~{not a marker}\"+~{0040}", "fragments": ["@"] },

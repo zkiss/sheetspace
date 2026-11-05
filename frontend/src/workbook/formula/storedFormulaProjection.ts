@@ -1,5 +1,7 @@
 import type { Workbook } from '../core/model';
-import { formulaRawToDisplay, workbookFormulaReferenceResolver } from './reference';
+import { columnIndexToLabel } from '../core/address';
+import { formulaRawToDisplay, resolveStoredEndpoint, workbookFormulaReferenceResolver } from './reference';
+import { formatPropertyReferenceToken } from './syntax';
 import { opaqueFormulaText } from './opaqueFormulaText';
 import { analyzeStoredFormula, type StoredFormulaAnalysis } from './storedFormulaAnalysis';
 import type { FormulaSourceSpan } from './syntax';
@@ -16,8 +18,8 @@ export function projectStoredFormula(content: string, workbook: Workbook, curren
   const resolver = workbookFormulaReferenceResolver(workbook, currentSheetId);
   const edits = [
     ...opaqueFormulaText(content).map((span) => ({ ...span, reference: false })),
-    ...analysis.references.filter(({ reference }) => reference).map(({ lexeme }) => ({
-      ...lexeme.sourceSpan, text: formulaRawToDisplay(`=${content.slice(lexeme.sourceSpan.start, lexeme.sourceSpan.end)}`, resolver).slice(1), reference: true,
+    ...analysis.references.filter(({ reference, rowReference }) => reference || rowReference).map(({ lexeme, rowReference }) => ({
+      ...lexeme.sourceSpan, text: rowReference ? displayRowReference(lexeme, workbook, currentSheetId) : formulaRawToDisplay(`=${content.slice(lexeme.sourceSpan.start, lexeme.sourceSpan.end)}`, resolver, { stored: true }).slice(1), reference: true,
     })),
   ].sort((left, right) => left.start - right.start);
   const references: StoredFormulaProjection['references'] = [];
@@ -41,4 +43,19 @@ export function projectStoredFormula(content: string, workbook: Workbook, curren
     return offset + shift;
   };
   return { text: text + content.slice(cursor), references, analysis, displaySpan: (span) => ({ start: position(span.start, false), end: position(span.end, true) }) };
+}
+
+function displayRowReference(lexeme: StoredFormulaAnalysis['references'][number]['lexeme'], workbook: Workbook, currentSheetId: string): string {
+  const sheetId = lexeme.qualifier?.value ?? currentSheetId;
+  const resolver = workbookFormulaReferenceResolver(workbook, currentSheetId);
+  const qualifier = lexeme.qualifier ? resolver.displaySheetQualifier?.(sheetId) : '';
+  const start = resolveStoredEndpoint(workbook, sheetId, lexeme.endpoints[0]);
+  const endpoints = lexeme.endpoints.map((endpoint) => {
+    const resolved = resolveStoredEndpoint(workbook, sheetId, endpoint, start?.address.rowIndex);
+    if (!resolved) return undefined;
+    const label = resolved.name ? formatPropertyReferenceToken(resolved.name) : columnIndexToLabel(resolved.address.columnIndex);
+    const column = `${!resolved.name && resolver.hasNamedColumn?.(sheetId, label) ? '%' : ''}${endpoint.anchors.column ? '$' : ''}${label}`;
+    return endpoint.open ? column : `${column}[${endpoint.kind === 'positional-canonical' ? '#' : ''}${endpoint.anchors.row ? '$' : ''}${resolved.address.rowIndex + 1}]`;
+  });
+  return lexeme.qualifier && !qualifier || endpoints.some((endpoint) => !endpoint) ? '#REF!' : `@${qualifier ? `${qualifier}!` : ''}${endpoints.join(':')}`;
 }

@@ -6,6 +6,6 @@ export type StoredFormulaCopyResult = { ok: true; content: string } | { ok: fals
 
 export function copyStoredFormula(content: string, source: FormulaCoordinate, destination: FormulaCoordinate, workbook: Workbook, context: Required<FormulaCopyContext>): StoredFormulaCopyResult {
   requireStoredFormula(content);
-  const result = copyCanonicalFormula(content, source, destination, workbookFormulaReferenceResolver(workbook, context.sourceSheetId), context);
+  const result = copyCanonicalFormula(content, source, destination, workbookFormulaReferenceResolver(workbook, context.sourceSheetId), context, { stored: true });
   return result.ok ? { ok: true, content: result.raw } : result;
 }

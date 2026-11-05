@@ -5,6 +5,7 @@ import { findSheetById } from '@workbook/read/queries';
 import { analyzeFormulaSyntax, formulaRawForDisplay, formulaRawToDisplayProjection, formulaReferenceTokens, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+import { rowReferenceTarget } from '@workbook/formula/rowReferenceTarget';
 import {
   collectFormulaReferences,
   parseFormulaSyntax,
@@ -28,9 +29,9 @@ export function inspectStoredFormula(content: string, workbook: Workbook, curren
   const projection = projectStoredFormula(content, workbook, currentSheet.id);
   const analysis = projection.analysis;
   if (analysis.syntax.result.kind === 'not-formula' || analysis.references.length === 0) return undefined;
-  const references = analysis.references.map(({ lexeme, reference, live }) => {
+  const references = analysis.references.map(({ lexeme, reference, rowReference, live }) => {
     const span = projection.references.find(({ sourceSpan }) => sourceSpan.start === lexeme.sourceSpan.start)?.displaySpan ?? lexeme.sourceSpan;
-    if (reference) return inspectionReference(reference, projection.text, span, workbook, currentSheet, !live);
+    if (reference || rowReference) return inspectionReference((reference ?? rowReference)!, projection.text, span, workbook, currentSheet, !live);
     return {
       kind: 'reference' as const, text: projection.text.slice(span.start, span.end), sourceSpan: span, displaySpan: span,
       target: { kind: lexeme.endpoints.length > 1 ? 'range' as const : 'cell' as const, sheetId: currentSheet.id },
@@ -45,6 +46,9 @@ export function inspectFormula(
   workbook: Workbook,
   currentSheet: SheetDocument,
 ): FormulaInspection | undefined {
+  if (formulaReferenceTokens(canonicalRaw).some((token) => token.endpoints.some((endpoint) => endpoint?.kind === 'recipe' && (endpoint.endpoint.kind === 'positional-canonical' || endpoint.endpoint.kind === 'open-canonical')))) {
+    return inspectStoredFormula(canonicalRaw, workbook, currentSheet);
+  }
   const parsed = analyzeFormulaSyntax(canonicalRaw, workbookFormulaReferenceResolver(workbook, currentSheet.id));
   if (parsed.result.kind === 'not-formula' || parsed.references.length === 0) {
     return undefined;
@@ -132,6 +136,13 @@ function inspectionReference(
   currentSheet: SheetDocument,
   hasReferenceDiagnostic: boolean,
 ): FormulaInspectionReference {
+  if (reference.kind === 'row-reference') {
+    const resolved = rowReferenceTarget(reference, workbookFormulaReferenceResolver(workbook, currentSheet.id));
+    const target: FormulaReferenceTarget = resolved?.end
+      ? { kind: 'range', sheetId: resolved.sheetId, range: { start: resolved.start, end: resolved.end } }
+      : { kind: 'cell', sheetId: resolved?.sheetId ?? reference.sheetId ?? currentSheet.id, identity: resolved?.start };
+    return { kind: 'reference', text: displayRaw.slice(displaySpan.start, displaySpan.end), sourceSpan: reference.sourceSpan, displaySpan, target, broken: hasReferenceDiagnostic || !resolved, navigable: !hasReferenceDiagnostic && Boolean(resolved) };
+  }
   if (reference.kind === 'named') {
     return {
       kind: 'reference',

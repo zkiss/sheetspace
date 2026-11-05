@@ -15,6 +15,10 @@ export function instantiateStoredModelFormula(template: StoredFormulaContent, wo
     let startRowId: string | undefined;
     const endpoints = stored.endpoints.map((endpoint, index) => {
       const recipe = source.endpoints[index];
+      if (endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical') {
+        const position = endpoint.kind === 'positional-canonical' ? endpoint.value.rowIndex + (recipe.anchors.row ? 0 : rowIndex) : 0;
+        return formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowIndex: position }, endpoint.anchors, endpoint.value.propertyId, endpoint.open);
+      }
       if ((endpoint.kind !== 'canonical' && endpoint.kind !== 'stored-named') || (recipe.kind !== 'a1' && recipe.kind !== 'named')) throw new Error('Invalid model reference recipe');
       const baseRow = recipe.kind === 'a1' ? recipe.value.rowIndex : recipe.value.row - 1;
       const rowId = endpoint.open ? startRowId : sheet.content.rows[baseRow + (recipe.anchors.row ? 0 : rowIndex)];

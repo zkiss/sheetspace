@@ -9,6 +9,30 @@ import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('displays and navigates a positional reference after row reorder', () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 }, rowCount: 3 });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });
+  const workbook = workbookWithSheets([inputs, outputs]);
+  outputs.content.cells[cellIdentityKey(cellIdentityAt(outputs.content, 'A1')!)] = prepareCellInput('=@Inputs!B[#$2]', workbook, outputs.id);
+  const reordered = { ...inputs, content: { ...inputs.content, rows: [...inputs.content.rows].reverse() } };
+  render(<App initialWorkbook={workbookWithSheets([reordered, outputs])} />);
+  act(() => { measuredElementGeometry(workspaceSurface(), { width: 800, height: 600 }); });
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  expect(editor).toHaveValue('=@Inputs!B[#$2]');
+  act(() => {
+    for (const name of ['Inputs', 'Outputs']) virtualGridGeometry(within(screen.getByRole('article', { name: `Sheet ${name}` })).getByTestId('sheet-frame-body'), { width: 238, height: 126 });
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
+  expect(screen.getByRole('button', { name: 'Navigate to @Inputs!B[#$2]' })).toBeInTheDocument();
+  editor.setSelectionRange(5, 5);
+  fireEvent.keyDown(editor, { key: 'F4' });
+  expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
+});
+
 it('does not navigate to a same-name replacement when inspecting a dead reference', () => {
   const old = sheetDocument({ id: 'old', name: 'Inputs' });
   const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });

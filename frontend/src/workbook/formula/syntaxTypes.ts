@@ -11,8 +11,16 @@ export type FormulaErrorCode =
 
 export type FormulaSourceSpan = { start: number; end: number };
 export type FormulaNamedColumnPredicate = (qualifier: string | undefined, name: string, payloadSpan: FormulaSourceSpan) => boolean;
+export type FormulaPositionalCoordinate = { columnId: string; rowIndex: number };
 
 export type FormulaReference =
+  | {
+      kind: 'row-reference';
+      sheetId?: string;
+      endpoints: FormulaReferenceLexeme['endpoints'];
+      sourceSpan: FormulaSourceSpan;
+      sheetReferenceSpan?: FormulaSourceSpan;
+    }
   | {
       kind: 'named';
       sheetId?: string;
@@ -123,10 +131,12 @@ export type FormulaSyntaxResult = {
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
   qualifier?: { value: string; sourceSpan: FormulaSourceSpan; payloadSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly ({ open?: boolean; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan; payloadSpans: { column: FormulaSourceSpan; row: FormulaSourceSpan } } & (
+  endpoints: readonly ({ open?: boolean; rowMode?: 'positional'; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan; payloadSpans: { column: FormulaSourceSpan; row: FormulaSourceSpan } } & (
     | { kind: 'a1'; value: CellAddress }
     | { kind: 'canonical'; value: { columnId: string; rowId: string } }
     | { kind: 'named'; value: { propertyName: string; row: number } }
     | { kind: 'stored-named'; value: { propertyId: string; columnId: string; rowId: string } }
+    | { kind: 'positional-canonical'; value: FormulaPositionalCoordinate & { propertyId?: string } }
+    | { kind: 'open-canonical'; open: true; value: { columnId: string; propertyId?: string } }
   ))[];
 };

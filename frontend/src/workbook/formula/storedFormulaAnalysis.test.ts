@@ -3,12 +3,54 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import type { Workbook } from '../core/model';
 import { prepareUserFormula } from './formulaPreparation';
 import { analyzeStoredFormula } from './storedFormulaAnalysis';
+import { projectStoredFormula } from './storedFormulaProjection';
 
 const sheet = sheetDocument({ id: 'inputs-id', name: 'Inputs', rowCount: 2, columnCount: 2 });
 const workbook = workbookWithSheets([sheet]);
 const prepare = (text: string) => prepareUserFormula(text, workbook, sheet.id);
 
 describe('stored identity analysis', () => {
+  it('orders a missing positional reference before a later syntax error while retaining recovered references', () => {
+    const content = prepare('=@A[#3]+)+@B[1]');
+    const analysis = analyzeStoredFormula(content, workbook, sheet.id);
+
+    expect(analysis.diagnostics.map(({ kind, code, sourceSpan }) => ({ kind, code, text: content.slice(sourceSpan.start, sourceSpan.end) }))).toEqual([
+      { kind: 'reference', code: '#REF!', text: '@inputs-id:column:1[#3]' },
+      { kind: 'syntax', code: '#PARSE!', text: ')' },
+    ]);
+    expect(analysis.syntax.diagnostics).toEqual(analysis.diagnostics);
+    expect(analysis.result).toMatchObject({ kind: 'error', error: '#PARSE!' });
+    expect(analysis.references.map(({ live }) => live)).toEqual([false, true]);
+    expect(analysis.references[0].rowReference).toBeDefined();
+  });
+
+  it('orders missing positional and deleted stable targets by their source spans', () => {
+    const content = prepare('=@A[#3]+@B[1]');
+    const changed = workbookWithSheets([{ ...sheet, content: { ...sheet.content, columns: [sheet.content.columns[0], 'replacement'] } }]);
+    const analysis = analyzeStoredFormula(content, changed, sheet.id);
+
+    expect(analysis.diagnostics.map(({ kind, code, sourceSpan }) => ({ kind, code, text: content.slice(sourceSpan.start, sourceSpan.end) }))).toEqual(
+      [{ kind: 'reference', code: '#REF!', text: '@inputs-id:column:1[#3]' }, { kind: 'reference', code: '#REF!', text: '@inputs-id:column:2[inputs-id:row:1]' }],
+    );
+    expect(analysis.references.map(({ live }) => live)).toEqual([false, false]);
+  });
+
+  it('recovers multiple positional recipes after growth without changing stored content', () => {
+    const content = prepare('=@A[#3]+@B[1]+SUM(@A[#4]:B)');
+    const missing = analyzeStoredFormula(content, workbook, sheet.id);
+    expect(missing.references.map(({ live }) => live)).toEqual([false, true, false]);
+    expect(missing.diagnostics.map(({ sourceSpan, code }) => [content.slice(sourceSpan.start, sourceSpan.end), code])).toEqual([
+      ['@inputs-id:column:1[#3]', '#REF!'], [content.slice(content.indexOf('@inputs-id:column:1[#4]'), -1), '#REF!'],
+    ]);
+    const grown = workbookWithSheets([{ ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, 'new-3', 'new-4'] } }]);
+    const recovered = analyzeStoredFormula(content, grown, sheet.id);
+    const projection = projectStoredFormula(content, grown, sheet.id);
+    expect(recovered.references.map(({ live }) => live)).toEqual([true, true, true]);
+    expect(recovered.diagnostics).toEqual([]);
+    expect(projection.analysis).toEqual(recovered);
+    expect(projection.text).toBe('=@A[#3]+@B[1]+SUM(@A[#4]:B)');
+    expect(prepareUserFormula(projection.text, grown, sheet.id)).toBe(content);
+  });
   it('overlays complete references independently in a mixed invalid expression', () => {
     const content = prepare('=@Inputs!A[1]+@Missing!B[2]+@A[0]+???+@B[2]');
 

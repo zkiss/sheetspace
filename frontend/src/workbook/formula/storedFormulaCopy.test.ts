@@ -34,6 +34,41 @@ describe('stored formula copy', () => {
     expect(analyzeStoredFormula(result, workbook, source.id).references.every(({ live }) => live)).toBe(true);
   });
 
+  it.each([
+    ['=@B[#2]', '=@C[#3]'], ['=@$B[#2]', '=@$B[#3]'],
+    ['=@B[#$2]', '=@C[#$2]'], ['=@$B[#$2]', '=@$B[#$2]'],
+    ['=SUM(@B[#3]:A[1])', '=SUM(@C[#4]:B[2])'],
+    ['=SUM(@B[3]:A[#1])', '=SUM(@C[4]:B[#2])'],
+    ['=SUM(@B[#3]:A[#1])', '=SUM(@C[#4]:B[#2])'],
+    ['=SUM(@B[#2]:A)', '=SUM(@C[#3]:B)'],
+  ])('copies positional and mixed endpoint recipes: %s', (text, expected) => {
+    expect(projectStoredFormula(copy(prepare(text)), workbook, source.id).text).toBe(expected);
+  });
+
+  it('shifts missing positional rows without binding them and supports negative displacement', () => {
+    const content = prepare('=@B[#9]+@B[#$9]');
+    const result = copy(content, 'B2', 'A1');
+    expect(projectStoredFormula(result, workbook, source.id).text).toBe('=@A[#8]+@A[#$9]');
+    expect(copy(result, 'A1', 'B2')).toBe(content);
+  });
+
+  it('copies named and qualified positional references using destination bindings', () => {
+    const book = modeledWorkbook();
+    book.documents.other = { ...other, modelId: 'model', modelColumnBindings: { revenue: other.content.columns[0], cost: other.content.columns[1] } };
+    const content = prepare("=@'Sales'' 🧮'[#2]+@Source!'Sales'' 🧮'[#$2]", book);
+    expect(projectStoredFormula(copy(content, 'A1', 'B2', other, book), book, other.id).text).toBe('=@Cost[#3]+@Source!Cost[#$2]');
+  });
+
+  it('rejects positional underflow and invalid columns without partial edits', () => {
+    const context = { sourceSheetId: source.id, destinationSheetId: source.id };
+    for (const text of ['=@B[#2]+@B[#1]', '=@B[#2]+@A[#2]']) {
+      const content = prepare(text);
+      expect(copyStoredFormula(content, cellIdentityAt(source.content, 'B2')!, cellIdentityAt(source.content, 'A1')!, workbook, context)).toEqual({ ok: false, reason: 'unresolved-coordinate' });
+      expect(projectStoredFormula(content, workbook, source.id).text).toBe(text);
+    }
+    expect(copyStoredFormula(prepare('=@A[#2]'), cellIdentityAt(source.content, 'A1')!, { rowId: 'missing', columnId: 'missing' }, workbook, context)).toEqual({ ok: false, reason: 'unresolved-coordinate' });
+  });
+
   it('copies implicit targets to the destination sheet while retaining explicit targets', () => {
     const content = prepare('=@A[1]+@Source!$B[$2]+@Other!C[1]');
 

@@ -18,6 +18,49 @@ function move(content: string, mappings: ReturnType<typeof mapping>[] = [], dest
 }
 
 describe('stored formula move', () => {
+  it('keeps positional targets in place while relocating the formula', () => {
+    const content = prepare('=@B[#2]+@B[2]+@B[#$9]');
+    const result = move(content, [mapping('B2', 'B3')], other.id);
+    expect(projectStoredFormula(result, workbook, other.id).text).toBe('=@Source!B[#2]+@Source!B[3]+@Source!B[#$9]');
+  });
+
+  it('moves stable mixed endpoints independently and rejects split sheets', () => {
+    const content = prepare('=SUM(@A[#1]:B[1])');
+    expect(projectStoredFormula(move(content, [mapping('A1', 'B1'), mapping('B1', 'C1')]), workbook, source.id).text).toBe('=SUM(@A[#1]:C[1])');
+    expect(moveStoredFormula(content, workbook, source.id, source.id, [mapping('B1', 'B3', other)])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  });
+
+  it('keeps both positional endpoints when contents move', () => {
+    const content = prepare('=SUM(@A[#1]:B[#2])');
+    for (const mapped of [mapping('A1', 'E1'), mapping('B2', 'E2', other), mapping('B1', 'E1'), mapping('B1', 'E1', other)]) {
+      expect(move(content, [mapped])).toBe(content);
+    }
+  });
+
+  it.each([
+    ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1')],
+    ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1', other)],
+    ['=SUM(@A[#1]:B)', mapping('B2', 'C2')],
+  ])('retains positional range targets when members move: %s', (text, mapped) => {
+    expect(move(prepare(text), [mapped])).toBe(prepare(text));
+  });
+
+  it.each([
+    ['=SUM(@A[#1]:C[1])', 'C1', 'E1', '=SUM(@A[#1]:E[1])'],
+    ['=SUM(@C[1]:A[#1])', 'C1', 'A1', '=SUM(@A[1]:A[#1])'],
+    ['=SUM(@C[#1]:A[1])', 'A1', 'E1', '=SUM(@C[#1]:E[1])'],
+  ])('uses transformed endpoints rather than moved membership: %s', (text, from, to, expected) => {
+    expect(projectStoredFormula(move(prepare(text), [mapping(from, to)]), workbook, source.id).text).toBe(expected);
+  });
+
+  it('retains stable open range membership restrictions', () => {
+    expect(moveStoredFormula(prepare('=SUM(@A[1]:B)'), workbook, source.id, source.id, [mapping('B2', 'C2')])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  });
+
+  it('retains a positional start and open end during formula relocation', () => {
+    const content = prepare('=SUM(@A[#2]:B)');
+    expect(projectStoredFormula(move(content, [], other.id), workbook, other.id).text).toBe('=SUM(@Source!A[#2]:B)');
+  });
   it('maps targets once, retaining anchors and unrelated text', () => {
     const content = prepare('=SUM(@$A[$1], @B[1], @C[1], "@A[1]")');
 
@@ -99,12 +142,31 @@ describe('stored formula move', () => {
       ['=@Revenue', [mapping('A1', 'B1')], '=@Cost[1]'],
       ['=@Revenue', [mapping('A1', 'C1')], '=@C[1]'],
       ['=SUM(@Revenue[1]:Cost[1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@B[1]:C[1])'],
+      ['=SUM(@Revenue[#1]:Cost[1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@A[#1]:C[1])'],
+      ['=SUM(@Cost[1]:Revenue[#1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@C[1]:A[#1])'],
+      ['=SUM(@Revenue[#1]:Cost[1])', [mapping('B1', 'A1')], '=SUM(@Revenue[#1]:Revenue[1])'],
     ] as const) {
       const content = prepareUserFormula(text, book, source.id);
       const result = move(content, [...mappings], source.id, book);
 
       expect(projectStoredFormula(result, book, source.id).text).toBe(expected);
       expect(analyzeStoredFormula(result, book, source.id).references.every(({ live }) => live)).toBe(true);
+    }
+    const dead = prepareUserFormula('=SUM(@Revenue[#1]:Cost[1])', book, source.id);
+    const changed = structuredClone(book);
+    changed.documents.source.modelColumnBindings.revenue = "missing";
+    expect(move(dead, [mapping('B1', 'C1')], source.id, changed)).toBe(dead);
+    const relocationBook = { ...changed, documents: { ...changed.documents, other: { ...changed.documents.source, id: other.id, name: other.name, modelColumnBindings: { revenue: source.content.columns[0], cost: source.content.columns[1] } } } };
+    for (const text of ['=@Revenue[#1]', '=SUM(@Revenue[#1]:Cost[1])']) {
+      const original = prepareUserFormula(text, book, source.id);
+      const relocated = move(original, [mapping('B1', 'C1')], other.id, relocationBook);
+      const analysis = analyzeStoredFormula(relocated, relocationBook, other.id);
+
+      expect(analyzeStoredFormula(original, relocationBook, other.id).references[0].live).toBe(true);
+      expect(relocated).toBe(original.replace('@', '@source!'));
+      expect(analysis.references[0].lexeme.qualifier?.value).toBe(source.id);
+      expect(analysis.references[0].live).toBe(false);
+      expect(projectStoredFormula(relocated, relocationBook, other.id).text).toContain('#REF!');
     }
   });
 
