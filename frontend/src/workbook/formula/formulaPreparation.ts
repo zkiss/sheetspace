@@ -69,11 +69,11 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
 
 function bindEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number], sheet: SheetDocument | undefined, workbook: Workbook, modelTemplate: boolean): string | undefined {
   if (!sheet || endpoint.kind !== 'a1' && endpoint.kind !== 'named') return undefined;
-  if (endpoint.rowMode !== 'positional' && (endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1) >= 2147483647) return undefined;
+  if (!endpoint.open && endpoint.rowMode !== 'positional' && (endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1) >= 2147483647) return undefined;
   const property = endpoint.kind === 'named' ? namedColumns(workbook, sheet).find((property) => property.name === (endpoint.value as { propertyName: string }).propertyName) : undefined;
   const columnId = endpoint.kind === 'a1' ? sheet.content.columns[endpoint.value.columnIndex] : property?.columnId;
   const rowIndex = endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1;
-  if (columnId && sheet.content.columns.includes(columnId) && endpoint.rowMode === 'positional') return formatCanonicalFormulaEndpoint({ columnId, rowIndex }, endpoint.anchors, property?.id);
+  if (columnId && sheet.content.columns.includes(columnId) && (endpoint.open || endpoint.rowMode === 'positional')) return formatCanonicalFormulaEndpoint({ columnId, rowIndex }, endpoint.anchors, property?.id, endpoint.open);
   const rowId = sheet.content.rows[rowIndex] ?? (modelTemplate ? 'unavailable-model-row' : undefined);
   if (!columnId || !rowId || !sheet.content.columns.includes(columnId)) return undefined;
   return formatCanonicalFormulaEndpoint({ columnId, rowId }, endpoint.anchors, property?.id, endpoint.open);

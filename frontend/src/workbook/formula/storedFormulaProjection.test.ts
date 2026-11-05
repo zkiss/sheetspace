@@ -32,6 +32,25 @@ describe('stored editable projection', () => {
     expect(projectStoredFormula(content, grown, sheet.id).analysis.references[0].live).toBe(true);
   });
 
+  it.each([
+    ['=SUM(@A[#3]:B)', workbook],
+    ['=SUM(@Inputs!Cost[#$3]:$Cost)', modeledWorkbook()],
+  ])('retains and recovers an open range with a missing positional start: %s', (text, original) => {
+    const content = prepareUserFormula(text, original, sheet.id);
+    const missing = projectStoredFormula(content, original, sheet.id);
+    expect(missing.text).toBe(text);
+    expect(missing.analysis.references).toHaveLength(1);
+    expect(missing.analysis.references[0].live).toBe(false);
+    expect(prepareUserFormula(missing.text, original, sheet.id)).toBe(content);
+    expect(prepareFormulaEdit(`${missing.text}+1`, content, original, sheet.id)).toBe(`${content}+1`);
+    const target = original.documents[sheet.id];
+    const grown = { ...original, documents: { ...original.documents, [sheet.id]: { ...target, content: { ...target.content, rows: [...target.content.rows, 'new-row'] } } } };
+    const recovered = projectStoredFormula(content, grown, sheet.id);
+    expect(recovered.text).toBe(text);
+    expect(recovered.analysis.references[0].live).toBe(true);
+    expect(prepareUserFormula(recovered.text, grown, sheet.id)).toBe(content);
+  });
+
   it('projects mixed and open endpoints independently', () => {
     const content = prepare('=SUM(@A[2]:B[#1])+SUM(@A[#1]:B)');
     const projection = projectStoredFormula(content, workbookWithSheets([reordered]), sheet.id);
