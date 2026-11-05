@@ -1228,11 +1228,11 @@ export function Workspace({
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const formulaResolver = workbookFormulaReferenceResolver(workbook, sheet.id);
-          const selectedRange = selectionRange?.anchor.sheetId === sheet.id
-            ? selectionEndpointAddressRange(sheet, selectionRange)
-            : referenceSelection?.kind === 'range'
-            && referenceSelection.sheetId === sheet.id
+          const presentingReferenceRange = referenceSelection?.kind === 'range' && referenceSelection.sheetId === sheet.id;
+          const selectedRange = presentingReferenceRange
             ? addressRangeOf(sheet.content, referenceSelection.range)
+            : selectionRange?.anchor.sheetId === sheet.id
+            ? selectionEndpointAddressRange(sheet, selectionRange)
             : undefined;
           const highlightTarget = navigationHighlight?.kind === 'cell'
             ? navigationHighlight.target
@@ -1342,7 +1342,7 @@ export function Workspace({
                     pendingCutCells={pendingCutCells}
                     columnLabels={columnLabels}
                     calculatedColumnIds={calculatedColumnIds}
-                    logicalSelection={selectionRange}
+                    logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
