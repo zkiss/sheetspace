@@ -141,8 +141,8 @@ function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolv
   return applyEdits(raw, edits);
 }
 
-export function formulaRawToDisplay(raw: string, resolver: FormulaReferenceResolver): string {
-  return displayProjection(raw, resolver).raw;
+export function formulaRawToDisplay(raw: string, resolver: FormulaReferenceResolver, options: { stored?: boolean } = {}): string {
+  return displayProjection(raw, resolver, options).raw;
 }
 
 export function formulaRawForStorage(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
@@ -173,9 +173,9 @@ export function formulaRawToDisplayProjection(raw: string, resolver: FormulaRefe
   return displayProjection(raw, resolver);
 }
 
-function displayProjection(raw: string, resolver: FormulaReferenceResolver): FormulaDisplayProjection {
+function displayProjection(raw: string, resolver: FormulaReferenceResolver, options: { stored?: boolean } = {}): FormulaDisplayProjection {
   const edits: Edit[] = [];
-  const matches = canonicalMatches(raw);
+  const matches = canonicalMatches(raw, options);
   for (const match of matches) {
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     const addresses = sheetId && match.endpoints.map((endpoint) => endpoint.coordinate && (endpoint.propertyId
@@ -312,7 +312,7 @@ function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match {
   });
   return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints.every((endpoint) => endpoint.kind === 'canonical' || endpoint.kind === 'stored-named' || endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical') };
 }
-function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => match.canonical && !match.endpoints.some((endpoint) => endpoint.kind === 'recipe')); }
+function canonicalMatches(raw: string, options: { stored?: boolean } = {}): Match[] { return lexemeMatches(raw, undefined, options).filter((match) => match.canonical && !match.endpoints.some((endpoint) => endpoint.kind === 'recipe')); }
 function toToken(match: Match): FormulaReferenceToken {
   const endpoints = match.endpoints.map((endpoint): FormulaReferenceEndpoint => {
     const base = { anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) };

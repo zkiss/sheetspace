@@ -19,7 +19,7 @@ export function projectStoredFormula(content: string, workbook: Workbook, curren
   const edits = [
     ...opaqueFormulaText(content).map((span) => ({ ...span, reference: false })),
     ...analysis.references.filter(({ reference, rowReference }) => reference || rowReference).map(({ lexeme, rowReference }) => ({
-      ...lexeme.sourceSpan, text: rowReference ? displayRowReference(lexeme, workbook, currentSheetId) : formulaRawToDisplay(`=${content.slice(lexeme.sourceSpan.start, lexeme.sourceSpan.end)}`, resolver).slice(1), reference: true,
+      ...lexeme.sourceSpan, text: rowReference ? displayRowReference(lexeme, workbook, currentSheetId) : formulaRawToDisplay(`=${content.slice(lexeme.sourceSpan.start, lexeme.sourceSpan.end)}`, resolver, { stored: true }).slice(1), reference: true,
     })),
   ].sort((left, right) => left.start - right.start);
   const references: StoredFormulaProjection['references'] = [];

@@ -14,6 +14,18 @@ function modeledWorkbook(name = 'Cost'): Workbook {
 }
 
 describe('stored editable projection', () => {
+  it('projects ambiguous alphabetic stable identities after reorder and preserves them through edits', () => {
+    const originalSheet = { ...sheet, content: { ...sheet.content, columns: ['B', 'A'], rows: ['2', '1'] } };
+    const original = workbookWithSheets([originalSheet]);
+    const content = prepareUserFormula('=@$A[$1]+SUM(@A[1]:B[2])+@A[#1]', original, sheet.id);
+    expect(content).toContain('@$B[$2]');
+    const changed = workbookWithSheets([{ ...originalSheet, content: { ...originalSheet.content, columns: ['A', 'B'], rows: ['1', '2'] } }]);
+    const draft = projectStoredFormula(content, changed, sheet.id).text;
+    expect(draft).toBe('=@$B[$2]+SUM(@B[2]:A[1])+@B[#1]');
+    expect(prepareUserFormula(draft, changed, sheet.id)).toBe(content);
+    expect(prepareFormulaEdit(`${draft}+1`, content, changed, sheet.id)).toBe(`${content}+1`);
+  });
+
   it('preserves positional rows independently from stable rows through reorder and edits', () => {
     const content = prepare('=@A[1]+@A[#$1]');
     const changed = workbookWithSheets([reordered]);
