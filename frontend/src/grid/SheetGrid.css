@@ -110,3 +110,23 @@
 .sheet-grid-resize-handle-column { right: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; }
 .sheet-grid-resize-handle-row { bottom: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
 .sheet-grid-resize-handle:hover { background: var(--accent); }
+
+.sheet-grid-gather-handle {
+  cursor: grab;
+  border: 0;
+  padding: 0 2px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  touch-action: none;
+}
+
+.sheet-grid-gather-handle:hover, .sheet-grid-gather-handle:focus-visible { opacity: 1; }
+.sheet-grid-gather-preview {
+  position: absolute;
+  border: 2px solid #2778dc;
+  background: rgb(39 120 220 / 12%);
+  pointer-events: none;
+  z-index: 20;
+  box-sizing: border-box;
+}

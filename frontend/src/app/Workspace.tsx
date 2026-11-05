@@ -1346,6 +1346,8 @@ export function Workspace({
                     calculatedColumnIds={calculatedColumnIds}
                     logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
+                    allowColumnGather={sheet.modelId === undefined}
+                    onGatherAxis={(axis, ids, gap) => commands.gatherAxis(sheet.id, axis, ids, gap)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onReferenceViewport={reportReferenceViewport}
