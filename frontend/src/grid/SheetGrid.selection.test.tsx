@@ -234,6 +234,43 @@ describe('exact selection presentation', () => {
     expect(activeCell('Exact', 'A1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
     expect(activeCell('Exact', mode === 'rows' ? 'A2' : 'B1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
   });
+
+  it.each(['rows', 'columns'] as const)('retains the active identity through %s reorder and reversal', async (axis) => {
+    const sheet = sheetDocument({ id: 'reorder-focus', name: 'Reorder focus', rowCount: 4, columnCount: 4 });
+    const view = render(<SelectionGrid sheet={sheet} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    virtualGridGeometry(grid.parentElement!);
+    pointer(activeCell(sheet.name, 'B2'), 'pointerdown', 130, 66);
+    pointer(grid, 'pointerup', 130, 66);
+    await waitFor(() => expect(activeCell(sheet.name, 'B2')).toHaveFocus());
+
+    const content = { ...sheet.content, [axis]: [...sheet.content[axis]] };
+    [content[axis][1], content[axis][2]] = [content[axis][2]!, content[axis][1]!];
+    view.rerender(<SelectionGrid sheet={{ ...sheet, content }} live />);
+    const moved = axis === 'rows' ? 'B3' : 'C2';
+    await waitFor(() => expect(state()).toMatchObject({ active: moved, anchor: moved, extent: moved }));
+    expect(activeCell(sheet.name, moved)).toHaveFocus();
+
+    view.rerender(<SelectionGrid sheet={sheet} live />);
+    await waitFor(() => expect(state()).toMatchObject({ active: 'B2', anchor: 'B2', extent: 'B2' }));
+    expect(activeCell(sheet.name, 'B2')).toHaveFocus();
+  });
+
+  it('keeps a newer selection when an earlier order is restored', async () => {
+    const sheet = sheetDocument({ id: 'reorder-history', name: 'Reorder history', rowCount: 4, columnCount: 4 });
+    const content = { ...sheet.content, rows: [...sheet.content.rows] };
+    [content.rows[1], content.rows[2]] = [content.rows[2]!, content.rows[1]!];
+    const view = render(<SelectionGrid sheet={{ ...sheet, content }} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    virtualGridGeometry(grid.parentElement!);
+    pointer(activeCell(sheet.name, 'C3'), 'pointerdown', 210, 92);
+    pointer(grid, 'pointerup', 210, 92);
+    await waitFor(() => expect(activeCell(sheet.name, 'C3')).toHaveFocus());
+
+    view.rerender(<SelectionGrid sheet={sheet} live />);
+    await waitFor(() => expect(state()).toMatchObject({ active: 'C2', anchor: 'C2', extent: 'C2' }));
+    expect(activeCell(sheet.name, 'C2')).toHaveFocus();
+  });
 });
 
 // Native offsets stop at the content size, unlike JSDOM's default writable properties.
