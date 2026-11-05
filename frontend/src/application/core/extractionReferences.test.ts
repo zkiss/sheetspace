@@ -29,6 +29,14 @@ function plan(workbook: Workbook, selection?: ExtractionRequest['selection'], ta
 function display(raw: string, workbook: Workbook, sheetId: string) { return projectStoredFormula(raw, workbook, sheetId).text; }
 
 describe('extraction reference planning', () => {
+  it('retains positional targets when extracting cells and relocating their formula', () => {
+    const workbook = setup();
+    setFormula(workbook, 'source', 'A1', '=@B[#1]');
+    const prepared = plan(workbook), result = prepareExtractionReferences(prepared);
+    expect(result.ok).toBe(true); if (!result.ok) return;
+    const moved = result.writes.find((write) => write.sheetId === ids[0] && write.columnId === ids[2])!;
+    expect(display(moved.raw, prepared.workbook, ids[0]!)).toBe('=@Source!B[#1]');
+  });
   it('moves formulas and blank identities, retargets inbound references and leaves unrelated formulas alone', () => {
     const workbook = setup();
     setFormula(workbook, 'source', 'A1', '=@$B[$1]+@C[2]');

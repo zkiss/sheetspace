@@ -10,6 +10,12 @@ const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 3, columnCo
 const workbook = workbookWithSheets([sheet]);
 
 describe('stored model formula instantiation', () => {
+  it('instantiates positional recipes without binding missing rows', () => {
+    const declaration = '=@A[#3]+@B[#$2]';
+    const template = prepareModelFormula(declaration, workbook, sheet.id);
+    const instance = instantiatePreparedModelFormula(template, workbook, 1, declaration, sheet.id);
+    expect(projectStoredFormula(instance, workbook, sheet.id).text).toBe('=@A[#4]+@B[#$2]');
+  });
   it('agrees with the shared inline row recipe fixtures', () => {
     for (const fixture of fixtures) {
       const target = { ...sheet, content: { ...sheet.content, rows: fixture.rows ?? [] } };

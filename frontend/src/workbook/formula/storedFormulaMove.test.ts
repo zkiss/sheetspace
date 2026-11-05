@@ -18,6 +18,27 @@ function move(content: string, mappings: ReturnType<typeof mapping>[] = [], dest
 }
 
 describe('stored formula move', () => {
+  it('keeps positional targets in place while relocating the formula', () => {
+    const content = prepare('=@B[#2]+@B[2]+@B[#$9]');
+    const result = move(content, [mapping('B2', 'B3')], other.id);
+    expect(projectStoredFormula(result, workbook, other.id).text).toBe('=@Source!B[#2]+@Source!B[3]+@Source!B[#$9]');
+  });
+
+  it('moves stable mixed endpoints independently and rejects split sheets', () => {
+    const content = prepare('=SUM(@A[#1]:B[2])');
+    expect(projectStoredFormula(move(content, [mapping('B2', 'B3')]), workbook, source.id).text).toBe('=SUM(@A[#1]:B[3])');
+    expect(moveStoredFormula(content, workbook, source.id, source.id, [mapping('B2', 'B3', other)])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  });
+
+  it('keeps both positional endpoints when contents move', () => {
+    const content = prepare('=SUM(@A[#1]:B[#2])');
+    expect(move(content, [mapping('A1', 'A2'), mapping('B2', 'B3')])).toBe(content);
+  });
+
+  it('retains a positional start and open end during formula relocation', () => {
+    const content = prepare('=SUM(@A[#2]:B)');
+    expect(projectStoredFormula(move(content, [], other.id), workbook, other.id).text).toBe('=SUM(@Source!A[#2]:B)');
+  });
   it('maps targets once, retaining anchors and unrelated text', () => {
     const content = prepare('=SUM(@$A[$1], @B[1], @C[1], "@A[1]")');
 
