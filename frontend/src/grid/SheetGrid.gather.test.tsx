@@ -15,7 +15,7 @@ function pointer(element: Element, type: string, x: number, y: number, pointerId
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false) {
+function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false) {
   const original = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
   const sheet = long ? { ...original, rows: Array.from({ length: 30 }, (_, i) => `row-${i}`), columns: Array.from({ length: 30 }, (_, i) => `column-${i}`) } : original;
   const ref = createRef<HTMLDivElement>();
@@ -24,7 +24,9 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long
   const selection = { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
   const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; modelId?: string; selectionOwner?: symbol; sheet?: typeof sheet } = {}) => {
     const currentSheet = changes.sheet ?? sheet;
-    return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet)}
+    const slots = special ? { rows: [{ kind: 'creating' as const, operationId: 'pending-row', boundary: 30 }], columns: [{ kind: 'creating' as const, operationId: 'pending-column', boundary: 30 }] } : undefined;
+    return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet, slots)}
+    presentation={special ? { rowHeights: { 'row-1': 50 }, columnWidths: { 'column-1': 160 } } : undefined}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()} navigationHighlightCellKey={null}
@@ -47,18 +49,73 @@ describe('header gather controls', () => {
     container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 200, height: 80 });
     const row = axis === 'rows';
     const x = row ? 20 : 205; const y = row ? 85 : 15;
-    pointer(screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' }), 'pointerdown', 20, 25);
+    const source = screen.getByRole('button', { name: row ? 'Drag row 3' : 'Drag column C' });
+    const capture = vi.fn(); const release = vi.fn();
+    Object.assign(grid, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release });
+    pointer(source, 'pointerdown', 60, 45);
+    expect(capture).toHaveBeenCalledWith(1);
     pointer(grid, 'pointermove', x, y);
     const before = screen.getByTestId('axis-gather-preview').getAttribute('style');
     expect(callback).toBeDefined();
     act(() => { const next = callback!; callback = undefined; next(16); });
     expect(row ? container.scrollTop : container.scrollLeft).toBeGreaterThan(12);
-    act(() => { for (let i = 0; i < 5 && callback; i++) { const next = callback; callback = undefined; next(32 + i * 16); } });
+    act(() => { for (let i = 0; i < 24 && callback; i++) { const next = callback; callback = undefined; next(32 + i * 16); fireEvent.scroll(container); } });
     expect(screen.getByTestId('axis-gather-preview').getAttribute('style')).not.toBe(before);
     expect(activity).toHaveBeenLastCalledWith(sheet.id, true);
+    expect(source).not.toBeInTheDocument();
     pointer(grid, 'pointerup', x, y);
+    expect(gather).toHaveBeenCalledWith(row ? 'row' : 'column', row ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]], row ? 24 : 11);
     expect(gather).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(1);
+    expect(activity).toHaveBeenLastCalledWith(sheet.id, false);
     expect(callback).toBeUndefined();
+  });
+  it.each(['rows', 'columns'] as const)('uses variable %s sizes at the saved endpoint and rejects the adjacent placeholder', (axis) => {
+    const { sheet, grid, container, gather } = setup(axis, true, true, true);
+    const row = axis === 'rows';
+    const button = screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' });
+    pointer(button, 'pointerdown', 20, 30);
+    // The last saved midpoint lies 29 default sizes plus the extra size of axis 2 away.
+    const lastMidpoint = row ? 29 * 26.4 + (50 - 26.4) + 13.2 : 29 * 76 + 84 + 38;
+    const header = row ? 26.4 : 40;
+    const position = row ? 100 : 200;
+    if (row) container.scrollTop = lastMidpoint - position + header;
+    else container.scrollLeft = lastMidpoint - position + header;
+    fireEvent.scroll(container);
+    pointer(grid, 'pointermove', row ? 20 : position, row ? position : 10);
+    pointer(grid, 'pointerup', row ? 20 : position, row ? position : 10);
+    expect(gather).toHaveBeenCalledWith(row ? 'row' : 'column', row ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]], 30);
+    pointer(button, 'pointerdown', 20, 30);
+    if (row) container.scrollTop += 14; else container.scrollLeft += 39;
+    fireEvent.scroll(container);
+    pointer(grid, 'pointermove', row ? 20 : position, row ? position : 10);
+    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    pointer(grid, 'pointerup', row ? 20 : position, row ? position : 10);
+    expect(gather).toHaveBeenCalledTimes(1);
+  });
+  it.each(['rows', 'columns'] as const)('cleans up %s frame work on cancellation and starts a fresh gesture', (axis) => {
+    let callback: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { callback = undefined; });
+    const { sheet, grid, container, gather, activity } = setup(axis, true, true);
+    Object.defineProperties(container, { scrollHeight: { configurable: true, value: 900 }, scrollWidth: { configurable: true, value: 3000 } });
+    const row = axis === 'rows';
+    const button = screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' });
+    pointer(button, 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', row ? 20 : 395, row ? 155 : 10);
+    const stale = callback!;
+    expect(stale).toBeDefined();
+    pointer(grid, 'pointercancel', row ? 20 : 395, row ? 155 : 10);
+    expect(callback).toBeUndefined();
+    expect(activity).toHaveBeenLastCalledWith(sheet.id, false);
+    act(() => stale(16));
+    expect(container.scrollTop).toBe(0);
+    expect(container.scrollLeft).toBe(0);
+    pointer(grid, 'pointerup', row ? 20 : 395, row ? 155 : 10);
+    expect(gather).not.toHaveBeenCalled();
+    pointer(button, 'pointerdown', 20, 30);
+    pointer(grid, 'pointerup', 20, 30);
+    expect(gather).not.toHaveBeenCalled();
   });
   it('updates the stationary target on external scrolling and cancels queued work over an invalid surface', () => {
     let callback: FrameRequestCallback | undefined;

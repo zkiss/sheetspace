@@ -23,6 +23,18 @@ describe('axis drop geometry', () => {
     expect(axisDropGap(entries.slice(0, 2), createGridAxisMetrics(entries.slice(0, 2), 10), 20)).toBeUndefined();
   });
 
+  it('accepts both saved endpoint gaps but not adjacent creating slots', () => {
+    const axes: readonly GridAxisEntry<string>[] = [
+      { kind: 'creating', operationId: 'before', boundary: 0 },
+      { kind: 'saved', id: 'a', durableIndex: 0 },
+      { kind: 'saved', id: 'b', durableIndex: 1 },
+      { kind: 'creating', operationId: 'after', boundary: 2 },
+    ];
+    const sizes = createGridAxisMetrics(axes, [10, 20, 40, 10]);
+    expect([9, 10, 69, 70, 80].map((offset) => axisDropGap(axes, sizes, offset)))
+      .toEqual([undefined, 0, 2, undefined, undefined]);
+  });
+
   it('converts screen coordinates to scrolled logical coordinates at visual scale', () => {
     expect(axisPointerOffset(160, 100, 2, 20)).toBe(50);
     expect(axisPointerOffset(160, 100, 0, 20)).toBeUndefined();
