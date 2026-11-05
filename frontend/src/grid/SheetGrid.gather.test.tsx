@@ -21,14 +21,19 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true) {
   const gather = vi.fn(); const select = vi.fn(); const activity = vi.fn();
   const anchor = cellTargetAt(sheet, 'A1')!;
   const selection = { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
-  render(<div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={sheet.id} axisProjection={projectGridAxes(sheet)}
+  const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; selectionOwner?: symbol; sheet?: typeof sheet } = {}) => {
+    const currentSheet = changes.sheet ?? sheet;
+    return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet)}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()} navigationHighlightCellKey={null}
-    logicalSelection={selection} onSelectAxis={select} onGatherAxis={gather} allowColumnGather={allowColumnGather}
-    onPointerInteractionChange={activity} scrollContainerRef={ref} sheet={sheet} /></div>);
+    logicalSelection={selection} selectionOwner={changes.selectionOwner} interactionsEnabled={changes.interactionsEnabled}
+    onSelectAxis={select} onGatherAxis={gather} allowColumnGather={changes.allowColumnGather ?? allowColumnGather}
+    onPointerInteractionChange={activity} scrollContainerRef={ref} sheet={currentSheet} /></div>;
+  };
+  const rendered = render(view());
   virtualGridGeometry(ref.current!, { width: 400, height: 160 });
-  return { sheet, gather, select, activity, container: ref.current!, grid: screen.getByTestId('sheet-grid') };
+  return { sheet, gather, select, activity, container: ref.current!, grid: screen.getByTestId('sheet-grid'), rerender: (changes: Parameters<typeof view>[0]) => rendered.rerender(view(changes)), unmount: rendered.unmount };
 }
 afterEach(cleanup);
 describe('header gather controls', () => {
@@ -96,6 +101,56 @@ describe('header gather controls', () => {
     expect(screen.getByTestId('axis-gather-preview')).toHaveStyle({ top: '52.8px', height: '52.8px' });
     pointer(grid, 'pointerup', 20, 47);
     expect(gather).toHaveBeenCalledWith('row', [sheet.rows[0], sheet.rows[2]], 3);
+  });
+  it.each(['rows', 'columns'] as const)('accounts for scaled non-overlay scrollbars when gathering %s', (axis) => {
+    const { sheet, gather, grid, container } = setup(axis);
+    Object.defineProperties(container, { offsetWidth: { configurable: true, value: 420 }, offsetHeight: { configurable: true, value: 180 } });
+    container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 210, height: 90 });
+    container.scrollTop = 26.4; container.scrollLeft = 20;
+    const row = axis === 'rows';
+    pointer(screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' }), 'pointerdown', 20, 25);
+    pointer(grid, 'pointermove', row ? 20 : 110, row ? 47 : 15);
+    pointer(grid, 'pointerup', row ? 20 : 110, row ? 47 : 15);
+    expect(gather).toHaveBeenCalledWith(row ? 'row' : 'column', row ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]], row ? 3 : 2);
+  });
+  it.each(['owner', 'sheet', 'order', 'disabled', 'model'] as const)('cancels on %s changes', (change) => {
+    const { sheet, gather, grid, rerender } = setup('columns');
+    pointer(screen.getByRole('button', { name: 'Drag column A' }), 'pointerdown', 50, 10);
+    pointer(grid, 'pointermove', 230, 10);
+    rerender(change === 'owner' ? { selectionOwner: Symbol('external') }
+      : change === 'sheet' ? { activeSheetId: 'other' }
+        : change === 'order' ? { sheet: { ...sheet, columns: [...sheet.columns].reverse() } }
+          : change === 'disabled' ? { interactionsEnabled: false } : { allowColumnGather: false });
+    pointer(grid, 'pointerup', 230, 10);
+    expect(gather).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+  });
+  it('cancels when hidden and on unmount', () => {
+    const { gather, grid, unmount } = setup();
+    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 20, 100);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    fireEvent(document, new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    pointer(grid, 'pointerup', 20, 100);
+    pointer(button, 'pointerdown', 20, 30); unmount(); pointer(grid, 'pointerup', 20, 100);
+    expect(gather).not.toHaveBeenCalled();
+  });
+  it('captures on the stable grid and ignores non-primary starts', () => {
+    const { grid, gather } = setup();
+    const capture = vi.fn(); const release = vi.fn();
+    Object.assign(grid, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release });
+    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const secondary = new MouseEvent('pointerdown', { bubbles: true, button: 0 });
+    Object.defineProperties(secondary, { pointerId: { value: 2 }, isPrimary: { value: false } });
+    fireEvent(button, secondary);
+    expect(capture).not.toHaveBeenCalled();
+    pointer(button, 'pointerdown', 20, 30);
+    expect(capture).toHaveBeenCalledWith(1);
+    button.remove();
+    pointer(grid, 'pointerup', 20, 100);
+    expect(release).toHaveBeenCalledWith(1);
+    expect(gather).toHaveBeenCalledTimes(1);
   });
   it('cancels on lost capture or window blur and starts a fresh gesture', () => {
     const { gather, grid } = setup();

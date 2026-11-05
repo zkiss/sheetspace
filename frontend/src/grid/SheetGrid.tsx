@@ -226,7 +226,7 @@ export function SheetGrid({
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const gather = useAxisGather({ sheet, selection: logicalSelection, selectionOwner, activeSheetId,
     enabled: interactionsEnabled, allowColumns: allowColumnGather, columns, rows, columnMetrics, rowMetrics,
-    gridRef, scrollContainerRef, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, gather: onGatherAxis });
+    gridRef, scrollContainerRef, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
   useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);

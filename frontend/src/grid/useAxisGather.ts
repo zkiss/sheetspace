@@ -6,7 +6,6 @@ import type { CellSelection, SelectionGesture, CellTarget } from './cellInteract
 import type { GridAxisProjection } from './gridAxisProjection';
 import type { GridAxisMetrics } from './gridAxisMetrics';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from './gridGeometry';
-import { logicalUnitsPerRenderedPixel } from './gridScrollInput';
 import { axisDropGap, axisGatherBlock } from './axisDropGeometry';
 import { resizeTargetIds } from './useAxisResize';
 import { projectSelection } from '@workbook/read/selection';
@@ -19,11 +18,11 @@ type Options = {
   columnMetrics: GridAxisMetrics; rowMetrics: GridAxisMetrics;
   gridRef: RefObject<HTMLDivElement>; scrollContainerRef: RefObject<HTMLElement>;
   select?: (mode: 'rows' | 'columns', target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
-  settle?: (owner: symbol) => void; gather?: (axis: Axis, ids: readonly string[], gap: number) => void;
+  settle?: (owner: symbol) => void; focus?: (target: CellTarget) => void; gather?: (axis: Axis, ids: readonly string[], gap: number) => void;
 };
 type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; owner: symbol | null | undefined;
   gesture?: symbol; awaitingOwner: boolean; selection?: CellSelection | null; activeSheetId: string | null | undefined; pointerId: number; element: HTMLElement;
-  x: number; y: number; moved: boolean };
+  x: number; y: number; moved: boolean; focusTarget?: CellTarget };
 type Preview = { axis: Axis; start: number; size: number; gap: number };
 
 export function useAxisGather(options: Options) {
@@ -60,8 +59,9 @@ export function useAxisGather(options: Options) {
   function target(x: number, y: number): Preview | null {
     const current = session.current; const next = latest.current; const container = next.scrollContainerRef.current;
     if (!current || !container) return null;
-    const rect = container.getBoundingClientRect(); const scale = logicalUnitsPerRenderedPixel(container, rect);
-    const px = (x - rect.left) * scale.x; const py = (y - rect.top) * scale.y;
+    const rect = container.getBoundingClientRect();
+    const px = (x - rect.left) * (rect.width ? container.offsetWidth / rect.width : 1) - container.clientLeft;
+    const py = (y - rect.top) * (rect.height ? container.offsetHeight / rect.height : 1) - container.clientTop;
     if (px < 0 || py < 0 || px > container.clientWidth || py > container.clientHeight) return null;
     if (current.axis === 'row' ? px >= GRID_ROW_HEADER_WIDTH : py >= GRID_COLUMN_HEADER_HEIGHT) return null;
     if (current.axis === 'row' ? py < GRID_COLUMN_HEADER_HEIGHT : px < GRID_ROW_HEADER_WIDTH) return null;
@@ -84,17 +84,18 @@ export function useAxisGather(options: Options) {
     const projection = next.selection && projectSelection({ id: next.sheet.id, content: next.sheet }, next.selection);
     const sourceSelected = next.selection?.mode === (axis === 'row' ? 'rows' : 'columns')
       && (axis === 'row' ? projection?.rows : projection?.columns)?.includes(id);
-    let gesture: symbol | undefined;
+    let gesture: symbol | undefined; let focusTarget: CellTarget | undefined;
     if (!sourceSelected) {
       const index = (axis === 'row' ? next.sheet.rows : next.sheet.columns).indexOf(id);
       const targetCell = cellTargetAt(next.sheet, cellKey({ rowIndex: axis === 'row' ? index : 0, columnIndex: axis === 'column' ? index : 0 }));
       if (!targetCell || !next.select) return;
+      focusTarget = targetCell;
       gesture = Symbol('axis-gather');
       next.select(axis === 'row' ? 'rows' : 'columns', targetCell, false, { owner: gesture, start: true });
     }
     session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id,
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
-      pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, moved: false };
+      pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, moved: false, focusTarget };
     setActive(true); element.setPointerCapture?.(event.pointerId);
   }
   function move(event: PointerEvent<HTMLDivElement>) {
@@ -108,6 +109,7 @@ export function useAxisGather(options: Options) {
     const valid = owns() && (!current.awaitingOwner || latest.current.selectionOwner === undefined);
     const moved = current.moved || Math.hypot(event.clientX - current.x, event.clientY - current.y) > 4;
     const result = valid && moved ? target(event.clientX, event.clientY) : null;
+    if (valid && current.focusTarget) latest.current.focus?.(current.focusTarget);
     cancel();
     if (result) latest.current.gather?.(current.axis, current.ids, result.gap);
   }
