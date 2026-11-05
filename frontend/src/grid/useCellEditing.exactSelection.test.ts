@@ -5,6 +5,24 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('exact content selection', () => {
+  it.each(['rows', 'columns'] as const)('keeps a newer queued %s selection after a stale gesture settles', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 4, columnCount: 4 });
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const workbook = workbookWithSheets([sheet]);
+    const { result } = renderHook(() => useCellEditing({ commands, workbook }));
+    const first = cellTargetAt(sheet, 'A1')!;
+    const newer = cellTargetAt(sheet, mode === 'rows' ? 'A4' : 'D1')!;
+    const owner = Symbol('old gesture');
+    act(() => {
+      result.current.selectAxis(mode, first, false, { owner, start: true });
+      result.current.selectAxis(mode, newer, false);
+      result.current.extendSelection(first, { owner });
+      result.current.settleSelectionGesture(owner);
+    });
+    expect(result.current.activeCell).toEqual(newer);
+    expect(result.current.selectionRange?.members).toEqual([mode === 'rows' ? newer.cell.rowId : newer.cell.columnId]);
+    expect(result.current.selectionOwner).toBeNull();
+  });
   it.each(['rows', 'columns'] as const)('invalidates queued %s gesture when an orthogonal anchor disappears', (mode) => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
     const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
