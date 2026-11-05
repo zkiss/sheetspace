@@ -1,10 +1,8 @@
 import type { SheetDocument } from '@workbook/core/model';
 
-export type FormattingSelection = {
-  mode: 'cells' | 'rows' | 'columns';
-  anchor: { sheetId: string; cell: { rowId: string; columnId: string } };
-  extent: { sheetId: string; cell: { rowId: string; columnId: string } };
-};
+import { projectSelection, type Selection } from './selection';
+
+export type FormattingSelection = Selection;
 
 export type ValidFormattingSelection = {
   valid: true;
@@ -12,6 +10,8 @@ export type ValidFormattingSelection = {
   mode: FormattingSelection['mode'];
   rows: readonly string[];
   columns: readonly string[];
+  selectedRows: readonly string[];
+  selectedColumns: readonly string[];
   rowStart: number;
   rowEnd: number;
   columnStart: number;
@@ -32,22 +32,20 @@ export function validateFormattingSelection(
   selection: FormattingSelection | null,
 ): FormattingSelectionValidation {
   if (!sheet || !selection || selection.anchor.sheetId !== sheet.id || selection.extent.sheetId !== sheet.id) return { valid: false };
-  const anchorRow = sheet.content.rows.indexOf(selection.anchor.cell.rowId);
-  const extentRow = sheet.content.rows.indexOf(selection.extent.cell.rowId);
-  const anchorColumn = sheet.content.columns.indexOf(selection.anchor.cell.columnId);
-  const extentColumn = sheet.content.columns.indexOf(selection.extent.cell.columnId);
-  if (anchorRow < 0 || extentRow < 0 || anchorColumn < 0 || extentColumn < 0) return { valid: false };
+  const projection = projectSelection(sheet, selection);
+  if (!projection) return { valid: false };
+  const { anchorRow, extentRow, anchorColumn, extentColumn } = projection.endpoints;
 
-  const rowStart = Math.min(anchorRow, extentRow);
-  const rowEnd = Math.max(anchorRow, extentRow);
-  const columnStart = Math.min(anchorColumn, extentColumn);
-  const columnEnd = Math.max(anchorColumn, extentColumn);
+  const rowStart = selection.mode === 'rows' ? projection.bounds.rowStart : Math.min(anchorRow, extentRow);
+  const rowEnd = selection.mode === 'rows' ? projection.bounds.rowEnd : Math.max(anchorRow, extentRow);
+  const columnStart = selection.mode === 'columns' ? projection.bounds.columnStart : Math.min(anchorColumn, extentColumn);
+  const columnEnd = selection.mode === 'columns' ? projection.bounds.columnEnd : Math.max(anchorColumn, extentColumn);
   const effectiveRowStart = selection.mode === 'columns' ? 0 : rowStart;
   const effectiveRowEnd = selection.mode === 'columns' ? sheet.content.rows.length - 1 : rowEnd;
   const effectiveColumnStart = selection.mode === 'rows' ? 0 : columnStart;
   const effectiveColumnEnd = selection.mode === 'rows' ? sheet.content.columns.length - 1 : columnEnd;
-  const selectedRows = rowEnd - rowStart + 1;
-  const selectedColumns = columnEnd - columnStart + 1;
+  const selectedRows = projection.rows;
+  const selectedColumns = projection.columns;
 
   return {
     valid: true,
@@ -55,6 +53,8 @@ export function validateFormattingSelection(
     mode: selection.mode,
     rows: sheet.content.rows,
     columns: sheet.content.columns,
+    selectedRows,
+    selectedColumns,
     rowStart,
     rowEnd,
     columnStart,
@@ -63,7 +63,7 @@ export function validateFormattingSelection(
     effectiveRowEnd,
     effectiveColumnStart,
     effectiveColumnEnd,
-    effectiveSize: (effectiveRowEnd - effectiveRowStart + 1) * (effectiveColumnEnd - effectiveColumnStart + 1),
-    writeCount: selection.mode === 'cells' ? selectedRows * selectedColumns : selection.mode === 'rows' ? selectedRows : selectedColumns,
+    effectiveSize: selectedRows.length * selectedColumns.length,
+    writeCount: selection.mode === 'cells' ? selectedRows.length * selectedColumns.length : selection.mode === 'rows' ? selectedRows.length : selectedColumns.length,
   };
 }

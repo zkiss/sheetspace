@@ -9,6 +9,7 @@ import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator
 export class WorkbookPersistenceTransport implements PersistenceTransport {
   /** Transactions that failed recovery must prove their original state again before manual retry. */
   private readonly unsafeCellWriteFailures = new Map<WorkbookOperationId, unknown>();
+  private readonly unsafeAxisOrderFailures = new Map<WorkbookOperationId, unknown>();
 
   constructor(
     private readonly api: Partial<WorkbookApi> = {},
@@ -45,6 +46,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
     // A structural snapshot is a compare-and-swap, never a revision-only replay.
     if (intent.kind === 'model-lifecycle') return this.request(intent);
+    if (intent.kind === 'write-axis-order') return this.writeAxisOrder(operationId, intent);
     if (intent.kind === 'write-cells' && operationId !== undefined && this.unsafeCellWriteFailures.has(operationId)) {
       const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
       if (recovered) return recovered;
@@ -65,6 +67,44 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
         return saved.kind === 'saved' ? { ...saved, missingSheetIds } : saved;
       }
       return this.request(intent);
+    }
+  }
+  private async writeAxisOrder(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-axis-order' }>): Promise<TransportResult> {
+    if (operationId === undefined) return { kind: 'blocked', reason: 'Missing operation ID for an axis order.' };
+    if (this.revision(intent.sheetId) === undefined) return { kind: 'blocked', reason: 'Missing revision for an axis order.' };
+    let provenRevision!: number;
+    const recover = async (failure: unknown): Promise<TransportResult | undefined> => {
+      const latest = await this.loadSheets([intent.sheetId]);
+      const result = latest[0];
+      if (result.kind === 'missing') return { kind: 'missing-sheet', sheetIds: [intent.sheetId] };
+      const sheet = result.sheet;
+      this.recordRevision(sheet.id, sheet.revision);
+      const order = intent.axis === 'row' ? sheet.content.rows : sheet.content.columns;
+      const matches = (expected: readonly string[]) => order.length === expected.length && order.every((id, index) => id === expected[index]);
+      if (matches(intent.after)) {
+        if (operationId !== undefined) this.unsafeAxisOrderFailures.delete(operationId);
+        return this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]);
+      }
+      if (!matches(intent.before)) throw failure;
+      provenRevision = sheet.revision;
+      return undefined;
+    };
+    const recovered = await recover(this.unsafeAxisOrderFailures.get(operationId) ?? new Error('Axis order differs from the expected prior order.'));
+    if (recovered) return recovered;
+    let mayRetryConflict = true;
+    while (true) {
+      try {
+        const sheet = await this.method('writeAxisOrder')(intent.sheetId, intent.axis, intent.after, provenRevision);
+        this.unsafeAxisOrderFailures.delete(operationId);
+        return this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]);
+      } catch (failure) {
+        if (!isRevisionConflict(failure) && !isAmbiguousAxisResponse(failure)) throw failure;
+        this.unsafeAxisOrderFailures.set(operationId, failure);
+        const recovered = await recover(failure);
+        if (recovered) return recovered;
+        if (!isRevisionConflict(failure) || !mayRetryConflict) throw failure;
+        mayRetryConflict = false;
+      }
     }
   }
   private async recoverUnsafeCellWrite(operationId: WorkbookOperationId, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
@@ -125,6 +165,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     }));
   }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
+    if (intent.kind === 'write-axis-order') throw new Error('Axis order requires guarded execution.');
     if (intent.kind === 'model-lifecycle') {
       const workbook = await this.method('saveModelLifecycle')(intent.before, intent.after);
       const revisions = Object.values(workbook.documents).map(({ id, revision }) => ({ sheetId: id, revision }));
@@ -162,6 +203,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
 function isRevisionConflict(error: unknown) { return error instanceof WorkbookApiError && error.status === 409 && error.code === 'sheet-revision-conflict'; }
 function isMissingSheet(error: unknown) { return error instanceof WorkbookApiError && error.status === 404 && error.code === 'sheet-not-found'; }
 function isAmbiguousResponse(error: unknown) { return !(error instanceof WorkbookApiError); }
+function isAmbiguousAxisResponse(error: unknown) { return !(error instanceof WorkbookApiError) || error.status === undefined || error.status >= 500; }
 type CellPatchIntent = Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>;
 function cellPatchSheetIds(intent: CellPatchIntent) {
   return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];

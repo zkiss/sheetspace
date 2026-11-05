@@ -5,6 +5,7 @@ import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection'
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
+import { projectSelection, pruneAxisSelection } from '@workbook/read/selection';
 import type { CellWriteResult } from '@application/core/userActions';
 import type {
   SelectionGesture,
@@ -24,6 +25,7 @@ import {
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
   sameTarget,
+  sameSelectionIdentity,
 } from '@grid/cellInteraction';
 
 function adjacentTarget(
@@ -46,14 +48,27 @@ function adjacentTarget(
 export function useCellEditing({
   commands,
   workbook,
+  currentWorkbook,
 }: {
   commands: CellContentCommands;
   workbook: Workbook;
+  currentWorkbook?: () => Workbook;
 }) {
   const [state, dispatchInteraction] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
   const interactionRevision = useRef(0);
+  const queuedState = useRef(state);
+  const renderedState = useRef(state);
+  const settlementLease = useRef<{ token: symbol; revision: number } | null>(null);
+  const currentWorkbookRef = useRef(currentWorkbook);
+  currentWorkbookRef.current = currentWorkbook;
+  if (renderedState.current !== state) { renderedState.current = state; queuedState.current = state; }
   function dispatch(action: Parameters<typeof cellInteractionReducer>[1]) {
-    if (['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
+    const previous = queuedState.current;
+    const next = cellInteractionReducer(previous, action);
+    queuedState.current = next;
+    if (action.type === 'reconcile-selection' && (!sameSelectionIdentity(previous.rangeSelection, next.rangeSelection)
+      || !((!previous.selection && !next.selection) || sameTarget(previous.selection, next.selection)))) interactionRevision.current += 1;
+    if (next !== previous && ['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
       'activate-sheet', 'navigate', 'traverse-range', 'commit-tab', 'commit-enter', 'start-edit'].includes(action.type)) {
       interactionRevision.current += 1;
     }
@@ -71,9 +86,11 @@ export function useCellEditing({
   }
 
   useEffect(() => {
+    const sheets = sheetsInOrder(currentWorkbookRef.current?.() ?? workbook);
+    dispatch({ type: 'reconcile-selection', sheets });
     dispatch({
       type: 'prune-sheets',
-      sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
+      sheetIds: new Set(sheets.map((sheet) => sheet.id)),
     });
   }, [workbook]);
 
@@ -162,28 +179,18 @@ export function useCellEditing({
     }
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return undefined;
+    if (!cellKeyForTarget(sheet, target)) return undefined;
     const selection = state.rangeSelection?.anchor.sheetId === target.sheetId
       ? state.rangeSelection
       : null;
-    const targetAddress = cellAddressOf(sheet.content, target.cell);
-    const anchor = selection ? cellAddressOf(sheet.content, selection.anchor.cell) : targetAddress;
-    const extent = selection ? cellAddressOf(sheet.content, selection.extent.cell) : targetAddress;
-    const start = anchor && extent ? {
-      columnIndex: selection?.mode === 'rows' ? 0 : Math.min(anchor.columnIndex, extent.columnIndex),
-      rowIndex: selection?.mode === 'columns' ? 0 : Math.min(anchor.rowIndex, extent.rowIndex),
-    } : undefined;
-    const end = anchor && extent ? {
-      columnIndex: selection?.mode === 'rows' ? sheet.content.columns.length - 1 : Math.max(anchor.columnIndex, extent.columnIndex),
-      rowIndex: selection?.mode === 'columns' ? sheet.content.rows.length - 1 : Math.max(anchor.rowIndex, extent.rowIndex),
-    } : undefined;
+    const projection = projectSelection(sheet, selection ?? { mode: 'cells', anchor: target, extent: target });
+    if (!projection) return undefined;
+    const rows = new Set(projection.rows);
+    const columns = new Set(projection.columns);
     const writes = Object.entries(sheet.content.cells).flatMap(([identityKey, raw]) => {
       if (!raw) return [];
       const identity = cellIdentityFromKey(identityKey);
-      const address = identity && cellAddressOf(sheet.content, identity);
-      if (!identity || !address || (start && end && (
-        address.columnIndex < start.columnIndex || address.columnIndex > end.columnIndex
-        || address.rowIndex < start.rowIndex || address.rowIndex > end.rowIndex
-      ))) return [];
+      if (!identity || !rows.has(identity.rowId) || !columns.has(identity.columnId)) return [];
       return [{ sheetId: sheet.id, ...identity, raw: '' }];
     });
     if (writes.length > 0) {
@@ -227,7 +234,7 @@ export function useCellEditing({
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
     const next = adjacentTarget(sheet, target, delta[direction]);
     if (next) dispatch(extend
-      ? { type: 'extend-selection', target: next, requestFocus: true }
+      ? { type: 'extend-selection', target: next, requestFocus: true, sheet }
       : { type: 'navigate', target: next });
   }
 
@@ -254,7 +261,7 @@ export function useCellEditing({
       // Shift extends selection for directional navigation only. Tab and Enter
       // are traversal commands even when a single cell is selected.
       : request.shift && request.key !== 'Tab' && request.key !== 'Enter' && selection?.mode === 'cells'
-        ? { type: 'extend-selection', target: next, requestFocus: true }
+        ? { type: 'extend-selection', target: next, requestFocus: true, sheet }
         : { type: 'navigate', target: next });
     return true;
   }
@@ -307,6 +314,24 @@ export function useCellEditing({
   }
 
   return {
+    queuedSelection: () => queuedState.current.rangeSelection,
+    beginSelectionSettlement: () => {
+      const token = Symbol('selection-settlement');
+      settlementLease.current = { token, revision: interactionRevision.current };
+      return token;
+    },
+    ownsSelectionSettlement: (token: symbol) => settlementLease.current?.token === token
+      && settlementLease.current.revision === interactionRevision.current,
+    cancelSelectionSettlement: (token: symbol) => {
+      if (settlementLease.current?.token === token) settlementLease.current = null;
+    },
+    reconcileSelectionPublication: (token: symbol, before: Workbook, after: Workbook) => {
+      dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(before) });
+      const lease = settlementLease.current;
+      const owned = lease?.token === token && lease.revision === interactionRevision.current;
+      dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(after) });
+      if (owned && lease) lease.revision = interactionRevision.current;
+    },
     sheetSelectionTarget,
     interactionRevision: () => interactionRevision.current,
     activeCell: state.selection,
@@ -330,8 +355,8 @@ export function useCellEditing({
     selectionRange: state.rangeSelection,
     selectionOwner: state.selectionOwner,
     selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
-    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
-    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture, sheet: findSheetById(workbook, target.sheetId) }),
+    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture, sheet: findSheetById(workbook, target.sheetId) }),
     settleSelectionGesture: (owner: symbol) => dispatch({ type: 'settle-selection-gesture', gesture: { owner } }),
     focusCurrentSelection: () => {
       if (!state.selection) return null;
@@ -339,8 +364,8 @@ export function useCellEditing({
       dispatch({ type: 'focus-current-selection' });
       return requestId;
     },
-    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
-      dispatch({ type: 'select-axis', mode, target, extend, gesture });
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => {
+      dispatch({ type: 'select-axis', mode, target, extend, gesture, intent, sheet: findSheetById(workbook, target.sheetId) });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     restoreSelection: (selection: CellSelection | null) => {
@@ -348,14 +373,15 @@ export function useCellEditing({
         dispatch({ type: 'restore-selection', selection: null });
         return true;
       }
-      const sheet = findSheetById(workbook, selection.anchor.sheetId);
-      const valid = sheet && selection.anchor.sheetId === selection.extent.sheetId
-        && cellKeyForTarget(sheet, selection.anchor) && cellKeyForTarget(sheet, selection.extent);
-      if (!valid) {
+      const sheet = findSheetById(currentWorkbookRef.current?.() ?? workbook, selection.anchor.sheetId);
+      const restored = sheet && selection.mode !== 'cells' && selection.members !== undefined
+        ? pruneAxisSelection(sheet, { ...selection, mode: selection.mode, members: selection.members })
+        : selection;
+      if (!sheet || !restored || !projectSelection(sheet, restored)) {
         dispatch({ type: 'restore-selection', selection: null });
         return false;
       }
-      dispatch({ type: 'restore-selection', selection });
+      dispatch({ type: 'restore-selection', selection: restored });
       return true;
     },
     startEditingCell,

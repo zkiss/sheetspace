@@ -33,11 +33,11 @@ export function summarizeFormattingSparse(
   const histograms = () => Object.fromEntries(formattingProperties.map((property) => [property, new FormattingHistogram(metrics)])) as Record<FormattingProperty, FormattingHistogram>;
   const rows = histograms(); const columns = histograms(); const effective = histograms(); const local = histograms();
   const rowIds = new Set<string>(); const columnIds = new Set<string>();
-  const a = selection.effectiveRowEnd - selection.effectiveRowStart + 1;
-  const b = selection.effectiveColumnEnd - selection.effectiveColumnStart + 1;
+  const a = selection.selectedRows.length;
+  const b = selection.selectedColumns.length;
 
-  for (let index = selection.effectiveRowStart; index <= selection.effectiveRowEnd; index += 1) {
-    const id = selection.rows[index]!; rowIds.add(id);
+  for (const id of selection.selectedRows) {
+    rowIds.add(id);
     const record = own(source.rows, id);
     if (metrics) metrics.axisVisits += 1;
     for (const property of formattingProperties) {
@@ -46,8 +46,8 @@ export function summarizeFormattingSparse(
       if (selection.mode === 'rows') local[property].add(value);
     }
   }
-  for (let index = selection.effectiveColumnStart; index <= selection.effectiveColumnEnd; index += 1) {
-    const id = selection.columns[index]!; columnIds.add(id);
+  for (const id of selection.selectedColumns) {
+    columnIds.add(id);
     const record = own(source.columns, id);
     if (metrics) metrics.axisVisits += 1;
     for (const property of formattingProperties) {

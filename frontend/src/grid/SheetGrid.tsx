@@ -19,6 +19,8 @@ import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget }
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import type { SheetGridCellInteraction } from './SheetGridCell';
 import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
+import { useAxisGather } from './useAxisGather';
+import { useGridAxisMotion } from './useGridAxisMotion';
 import { useAxisResize } from './useAxisResize';
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
 import type { CellSelection } from './cellInteractionContracts';
@@ -27,6 +29,7 @@ import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
 import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
+import { gridSelectionPresentation } from './gridSelectionPresentation';
 import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
 import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
@@ -113,6 +116,9 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  onGatherAxis,
+  allowColumnGather = true,
+  modelId,
   interactionsEnabled = true,
   onPointerInteractionChange,
   onNativeFocusTarget,
@@ -133,6 +139,9 @@ export function SheetGrid({
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  onGatherAxis?: (axis: 'row' | 'column', ids: readonly string[], gap: number) => void;
+  allowColumnGather?: boolean;
+  modelId?: string;
   interactionsEnabled?: boolean;
   /** Keeps this grid mounted while a live pointer session owns it. */
   onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
@@ -189,7 +198,7 @@ export function SheetGrid({
   selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
-  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
   /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
   clipboardInteraction?: {
     copy: () => { text: string; marker: string } | undefined;
@@ -204,19 +213,26 @@ export function SheetGrid({
   const revealedHistoryIdentity = useRef<string>();
   const revealedNavigationIdentity = useRef<number>();
   const gridRef = useRef<HTMLDivElement>(null);
+  const completedGatherOwner = useRef<symbol | null>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const rowHeaderRef = useRef<HTMLDivElement>(null);
   const { columns, rows } = axisProjection;
+  const selectionPresentation = useMemo(() => gridSelectionPresentation(sheet, logicalSelection, selectedRange), [sheet, logicalSelection, selectedRange]);
   const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
     [axisProjection, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
+  const motion = useGridAxisMotion({ gridRef, scrollContainerRef, projection: axisProjection, rowMetrics, columnMetrics,
+    sheetId: sheet.id, activeSheetId, owner: selectionOwner, completedGatherOwner, enabled: interactionsEnabled });
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
+  const gather = useAxisGather({ sheet, selection: logicalSelection, selectionOwner, activeSheetId,
+    enabled: interactionsEnabled, allowColumns: allowColumnGather, modelId, columns, rows, columnMetrics, rowMetrics,
+    gridRef, scrollContainerRef, completedGatherOwner, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
   useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
@@ -232,12 +248,12 @@ export function SheetGrid({
     onSelectAxis, rowMetrics, rows, scrollContainerRef, selectionOwner, sheet, interactionsEnabled });
   const { dragging, beginDrag, moveDrag, completeDrag, cancelDrag, finishDrag, openDoubleClick } = pointer;
   useEffect(() => {
-    const active = dragging || resize.preview !== null;
+    const active = dragging || gather.active || resize.preview !== null;
     onPointerInteractionChange?.(sheet.id, active);
     return () => {
       if (active) onPointerInteractionChange?.(sheet.id, false);
     };
-  }, [dragging, onPointerInteractionChange, resize.preview, sheet.id]);
+  }, [dragging, gather.active, onPointerInteractionChange, resize.preview, sheet.id]);
   // An application request permanently supersedes every older grid-entry request.
   useEffect(() => {
     if (keyboardFocusIntent) {
@@ -341,14 +357,14 @@ export function SheetGrid({
   const windowedColumns = columnVirtualizer.getVirtualItems();
   const virtualRows = mergeVirtualIndexes(
     virtualItemsOrTestFallback(windowedRows, rowMetrics, GRID_COLUMN_HEADER_HEIGHT),
-    pinnedRows,
+    [...pinnedRows, ...(motion?.rows.map((item) => item.index) ?? [])],
     rowVirtualizer,
     GRID_COLUMN_HEADER_HEIGHT,
     rowMetrics,
   );
   const virtualColumns = mergeVirtualIndexes(
     virtualItemsOrTestFallback(windowedColumns, columnMetrics, GRID_ROW_HEADER_WIDTH),
-    pinnedColumns,
+    [...pinnedColumns, ...(motion?.columns.map((item) => item.index) ?? [])],
     columnVirtualizer,
     GRID_ROW_HEADER_WIDTH,
     columnMetrics,
@@ -425,16 +441,27 @@ export function SheetGrid({
   useEffect(() => {
     if (!activeAddress) { revealedActiveCell.current = null; return; }
     if (!revealEnabled) return;
-    if (!scrollContainerRef.current) return;
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
     const identity = `${sheet.id}:${activeCellKey}`;
+    if (dragging || gather.active) { revealedActiveCell.current = identity; return; }
     if (revealedActiveCell.current === identity) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
     if (rowIndex === undefined || columnIndex === undefined) return;
     revealedActiveCell.current = identity;
-    rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
-    columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [revealEnabled, activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
+    if (scrollContainer.clientWidth && scrollContainer.clientHeight) {
+      const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+        width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+        left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+      });
+      if (reveal.row) scrollContainer.scrollTop = reveal.row.scroll;
+      if (reveal.column) scrollContainer.scrollLeft = reveal.column.scroll;
+    } else {
+      rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+      columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
+    }
+  }, [revealEnabled, dragging, gather.active, activeAddress, activeCellKey, columnMetrics, rowMetrics, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
     if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationRequestGeneration))) return;
@@ -665,11 +692,12 @@ export function SheetGrid({
       onPaste={pasteSelection}
       onDoubleClick={openDoubleClick}
       onPointerDownCapture={beginDrag}
-      onPointerMove={moveDrag}
-      onPointerUp={completeDrag}
-      onPointerCancel={cancelDrag}
+      onPointerMove={(event) => { moveDrag(event); gather.move(event); }}
+      onPointerUp={(event) => { completeDrag(event); gather.stop(event); }}
+      onPointerCancel={(event) => { cancelDrag(event); gather.interrupt(event); }}
       onLostPointerCapture={(event) => {
         finishDrag(event.pointerId);
+        gather.interrupt(event);
       }}
       ref={gridRef}
       role="table"
@@ -690,11 +718,13 @@ export function SheetGrid({
         columnLabels={columnLabels}
         virtualColumns={virtualColumns}
         resize={onWriteAxisSizes ? resize : undefined}
-        selectedColumnIndices={selectionMode === 'columns' && selectedRange
-          ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
-          : undefined}
+        gather={onGatherAxis && allowColumnGather ? gather : undefined}
+        selectedColumnIndices={(selectionPresentation.mode ?? selectionMode) === 'columns' ? selectionPresentation.columns : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, gridRef, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, gather: onGatherAxis ? gather : undefined, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
+      {gather.preview && <div aria-hidden="true" data-testid="axis-gather-preview" className="sheet-grid-gather-preview" style={gather.preview.axis === 'row'
+        ? { top: GRID_COLUMN_HEADER_HEIGHT + gather.preview.start, height: gather.preview.size, left: 0, right: 0 }
+        : { left: GRID_ROW_HEADER_WIDTH + gather.preview.start, width: gather.preview.size, top: 0, bottom: 0 }} />}
       {entryRow && <ModelEntryRow {...entryRow} editorInteraction={editorInteraction} sheetId={sheet.id} sheetName={sheet.name} onNavigateUp={(columnIndex) => {
         if (!sheet.rows.length || columnIndex >= sheet.columns.length) return;
         const key = cellKey({ columnIndex, rowIndex: sheet.rows.length - 1 });

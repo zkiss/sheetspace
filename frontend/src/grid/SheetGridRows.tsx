@@ -1,4 +1,4 @@
-import type { CSSProperties, RefObject } from 'react';
+import { Component, type CSSProperties, type RefObject } from 'react';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import { cellKey } from '@workbook/core/address';
 import { cellKeyForTarget } from '@grid/cellInteraction';
@@ -13,7 +13,9 @@ import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { AxisResizeHandle } from './AxisResizeHandle';
 import { getSheetCellDisplayText } from './sheetGridModel';
 import { axisKey, isAddressInRange } from './sheetGridProjection';
+import type { useAxisGather } from './useAxisGather';
 import type { useAxisResize } from './useAxisResize';
+import type { gridSelectionPresentation } from './gridSelectionPresentation';
 
 type HistoryFeedback = { before: string | null; beforeDisplay: string | null; after: string | null };
 type SheetGridRowsProps = {
@@ -25,6 +27,7 @@ type SheetGridRowsProps = {
   editingCell: CellEditSession | null;
   editorInteraction: SheetGridCellEditorInteraction;
   focusIntent: { targetKey: string } | null;
+  gridRef: RefObject<HTMLDivElement>;
   formulaResults: FormulaEvaluationSnapshot;
   historyFeedbackCells?: ReadonlyMap<string, HistoryFeedback>;
   navigationHighlightCellKey: string | null;
@@ -36,9 +39,10 @@ type SheetGridRowsProps = {
   presentation?: SheetPresentation;
   registerCell: (cellKey: string, element: HTMLElement | null) => void;
   resize: ReturnType<typeof useAxisResize>;
+  gather?: ReturnType<typeof useAxisGather>;
   rowHeaderRef: RefObject<HTMLDivElement>;
   rows: GridAxisProjection['rows'];
-  selectedRange?: { start: { columnIndex: number; rowIndex: number }; end: { columnIndex: number; rowIndex: number } };
+  selectionPresentation: ReturnType<typeof gridSelectionPresentation>;
   selectionMode?: CellSelectionMode;
   sheet: SheetTabularProjection;
   virtualColumns: readonly VirtualItem[];
@@ -47,12 +51,30 @@ type SheetGridRowsProps = {
 
 const EMPTY_FORMAT_OVERRIDES = { rows: {}, columns: {}, cells: {} };
 
-export function SheetGridRows(props: SheetGridRowsProps) {
-  return <>
-    {props.virtualRows.map((virtualRow) => (
-      <SheetGridRow key={axisKey(props.rows[virtualRow.index])} props={props} virtualRow={virtualRow} />
-    ))}
-  </>;
+export class SheetGridRows extends Component<SheetGridRowsProps> {
+  getSnapshotBeforeUpdate(previous: SheetGridRowsProps) {
+    if (previous.sheet.rows === this.props.sheet.rows && previous.sheet.columns === this.props.sheet.columns) return null;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || active.dataset.activeCell !== 'true') return null;
+    if (!this.props.gridRef.current?.contains(active)) return null;
+    return active;
+  }
+
+  componentDidUpdate(_previous: SheetGridRowsProps, _state: unknown, focusedCell: HTMLElement | null) {
+    // Moving a focused DOM subtree can blur it in browsers, even though React preserves the node.
+    if (focusedCell?.isConnected && focusedCell.dataset.activeCell === 'true' && document.activeElement === document.body) {
+      focusedCell.focus({ preventScroll: true });
+    }
+  }
+
+  render() {
+    const props = this.props;
+    return <>
+      {props.virtualRows.map((virtualRow) => (
+        <SheetGridRow key={axisKey(props.rows[virtualRow.index])} props={props} virtualRow={virtualRow} />
+      ))}
+    </>;
+  }
 }
 
 function SheetGridRow({ props, virtualRow }: { props: SheetGridRowsProps; virtualRow: VirtualItem }) {
@@ -64,6 +86,7 @@ function SheetGridRow({ props, virtualRow }: { props: SheetGridRowsProps; virtua
       aria-hidden={row.kind === 'creating' ? true : undefined}
       aria-rowindex={row.kind === 'saved' ? row.durableIndex + 2 : undefined}
       className="sheet-grid-row"
+      data-motion-row={row.kind === 'saved' ? row.id : undefined}
       role="row"
       style={{ height: virtualRow.size, top: virtualRow.start }}
     >
@@ -87,8 +110,8 @@ function RowHeader({ props, row, virtualRow }: {
   virtualRow: VirtualItem;
 }) {
   const selected = row.kind === 'saved'
-    && props.selectionMode === 'rows'
-    && isAddressInRange({ rowIndex: row.durableIndex, columnIndex: 0 }, props.selectedRange);
+    && (props.selectionPresentation.mode ?? props.selectionMode) === 'rows'
+    && props.selectionPresentation.rows.has(row.durableIndex);
   return (
     <div
       aria-label={row.kind === 'creating' ? 'Creating row' : undefined}
@@ -103,6 +126,7 @@ function RowHeader({ props, row, virtualRow }: {
       style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
     >
       {row.kind === 'creating' ? 'Creating…' : row.durableIndex + 1}
+      {row.kind === 'saved' && props.gather && <button type="button" className="sheet-grid-gather-handle" aria-label={`Drag row ${row.durableIndex + 1}`} onPointerDown={(event) => props.gather?.start(event, 'row', row.id)}>⋮⋮</button>}
       {row.kind === 'saved' && props.onWriteAxisSizes && (
         <AxisResizeHandle axis="row" id={row.id} label={String(row.durableIndex + 1)} size={virtualRow.size} resize={props.resize} />
       )}
@@ -155,7 +179,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
 }) {
   const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
   const key = cellKey(address);
-  const rangeSelected = isAddressInRange(address, props.selectedRange);
+  const rangeSelected = props.selectionPresentation.rows.has(address.rowIndex) && props.selectionPresentation.columns.has(address.columnIndex);
   const historyFeedback = props.historyFeedbackCells?.get(key);
   const identity = cellIdentityAt(props.sheet, key);
   const appearance = identity
@@ -167,6 +191,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
     isCalculated={props.calculatedColumnIds?.has(column.id) ?? false}
     cellKey={key}
     columnIndex={column.durableIndex + 2}
+    motionColumnId={column.id}
     displayText={getSheetCellDisplayText({ cellKey: key, formulaResults: props.formulaResults, presentation: props.presentation, sheet: props.sheet })}
     editingCell={props.editingCell}
     editorInteraction={props.editorInteraction}
@@ -185,7 +210,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
     navigationHighlightIdentity={props.navigationHighlightIdentity}
     onNativeFocusTarget={props.onNativeFocusTarget}
     registerCell={props.registerCell}
-    selectionEdges={rangeSelected ? selectionEdges(address, props.selectedRange) : undefined}
+    selectionEdges={rangeSelected ? selectionEdges(address, props.selectionPresentation) : undefined}
     sheet={props.sheet}
     style={cellStyle(virtualColumn, virtualRow, appearance)}
     tabIndex={props.activeCellKey === key ? 0 : -1}
@@ -207,13 +232,12 @@ function cellStyle(virtualColumn: VirtualItem, virtualRow: VirtualItem, appearan
   };
 }
 
-function selectionEdges(address: { columnIndex: number; rowIndex: number }, range: SheetGridRowsProps['selectedRange']) {
-  if (!range) return undefined;
+function selectionEdges(address: { columnIndex: number; rowIndex: number }, selection: SheetGridRowsProps['selectionPresentation']) {
   return [
-    address.rowIndex === range.start.rowIndex ? 'sheet-grid-selection-top' : '',
-    address.rowIndex === range.end.rowIndex ? 'sheet-grid-selection-bottom' : '',
-    address.columnIndex === range.start.columnIndex ? 'sheet-grid-selection-left' : '',
-    address.columnIndex === range.end.columnIndex ? 'sheet-grid-selection-right' : '',
+    !selection.rows.has(address.rowIndex - 1) ? 'sheet-grid-selection-top' : '',
+    !selection.rows.has(address.rowIndex + 1) ? 'sheet-grid-selection-bottom' : '',
+    !selection.columns.has(address.columnIndex - 1) ? 'sheet-grid-selection-left' : '',
+    !selection.columns.has(address.columnIndex + 1) ? 'sheet-grid-selection-right' : '',
   ].filter(Boolean).join(' ');
 }
 

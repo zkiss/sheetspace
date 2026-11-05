@@ -28,6 +28,7 @@ class GridAxisCreationQueue {
 
   snapshot() { return this.entries.map((entry) => ({ ...entry })); }
   hasUnsettled() { return this.entries.some((entry) => ['queued', 'running', 'failed'].includes(entry.status)); }
+  hasUnsettledSheet(sheetId: string) { return this.entries.some((entry) => entry.sheetId === sheetId && ['queued', 'running', 'failed'].includes(entry.status)); }
   subscribe(listener: (entries: readonly AxisCreation[]) => void) {
     this.listeners.add(listener);
     listener(this.snapshot());
@@ -35,9 +36,7 @@ class GridAxisCreationQueue {
   }
   enqueue(entry: Omit<AxisCreation, 'sequence' | 'status'>) {
     if (this.deletingSheets.has(entry.sheetId) || this.missingSheets.has(entry.sheetId)) return;
-    for (const existing of this.entries) {
-      if (existing.status === 'failed' && existing.sheetId === entry.sheetId) existing.status = 'superseded';
-    }
+    this.retireFailedPredecessors(entry.sheetId, this.nextSequence);
     this.entries.push({ ...entry, sequence: this.nextSequence++, status: 'queued' });
     this.publish();
   }
@@ -70,6 +69,7 @@ class GridAxisCreationQueue {
     const executions: Promise<void>[] = [];
     let entry = this.nextRunnable();
     while (entry) {
+      this.retireFailedPredecessors(entry.sheetId, entry.sequence);
       entry.status = 'running';
       this.running.add(entry.operationId);
       this.publish();
@@ -99,6 +99,11 @@ class GridAxisCreationQueue {
       && earlier.sheetId === candidate.sheetId
       && (earlier.status === 'queued' || earlier.status === 'running')));
   }
+  private retireFailedPredecessors(sheetId: string, sequence: number) {
+    for (const entry of this.entries) {
+      if (entry.sheetId === sheetId && entry.sequence < sequence && entry.status === 'failed') entry.status = 'superseded';
+    }
+  }
   private hasRunningSheetEntry(sheetId: string) {
     return this.entries.some((entry) => entry.sheetId === sheetId && this.running.has(entry.operationId));
   }
@@ -117,6 +122,7 @@ class GridAxisCreationQueue {
 export function useGridAxisCreationOperations({
   autosaveEnabled,
   beforeCreate,
+  waitForAxisOrders,
   hasPendingRecreation,
   currentWorkbook,
   persistenceCoordinator,
@@ -126,6 +132,7 @@ export function useGridAxisCreationOperations({
 }: {
   autosaveEnabled: boolean;
   beforeCreate?: () => Promise<void> | undefined;
+  waitForAxisOrders?: (sheetId: string) => Promise<void> | undefined;
   hasPendingRecreation?: (sheetId: string) => boolean;
   currentWorkbook: () => Workbook;
   persistenceCoordinator: WorkbookPersistenceCoordinator;
@@ -161,6 +168,8 @@ export function useGridAxisCreationOperations({
   const execute = useCallback(async (entry: AxisCreation) => {
     const wait = beforeCreate?.();
     if (wait) await wait;
+    const orders = waitForAxisOrders?.(entry.sheetId);
+    if (orders) await orders;
     return persistenceCoordinator.serialize([entry.sheetId], async () => {
       if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
       const request = async (revision: number | undefined) => entry.axis === 'row'
@@ -189,7 +198,7 @@ export function useGridAxisCreationOperations({
       if ('rowId' in response) reconcileRef.current({ kind: 'append-row', sheetId: entry.sheetId, rowId: response.rowId });
       else reconcileRef.current({ kind: 'append-column', sheetId: entry.sheetId, columnId: response.columnId });
     });
-  }, [beforeCreate, currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
+  }, [beforeCreate, currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient, waitForAxisOrders]);
 
   const pump = useCallback(function pumpAvailable() {
     for (const execution of queue.executeAvailable(execute)) void execution.finally(pumpAvailable);
@@ -223,6 +232,7 @@ export function useGridAxisCreationOperations({
     appendRow: (sheetId: string) => append(sheetId, 'row'),
     creatingAxes,
     hasUnsettled: () => queue.hasUnsettled(),
+    hasUnsettledSheet: (sheetId: string) => queue.hasUnsettledSheet(sheetId),
     prepareSheetDeletion: (sheetId: string) => queue.prepareSheetDeletion(sheetId),
     saveStatus: failed ? 'failed' as const : saving ? 'saving' as const : 'saved' as const,
   };

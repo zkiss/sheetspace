@@ -139,8 +139,8 @@ describe('useCellEditing', () => {
       result.current.clearCellContent(stale);
     });
 
-    expect(result.current.activeCell).toEqual(stale);
-    expect(result.current.keyboardFocusRequest).toMatchObject({ target: stale });
+    expect(result.current.activeCell).toBeNull();
+    expect(result.current.keyboardFocusRequest).toBeNull();
     expect(commands.writeCells).not.toHaveBeenCalled();
   });
 

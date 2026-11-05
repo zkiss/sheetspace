@@ -64,6 +64,19 @@ export class WorkbookOutbox {
       this.listeners.add(listener);
     });
   }
+  waitForAxisOrders(sheetId: SheetId): Promise<void> | undefined {
+    const hasUnsettled = () => this.entries.some((entry) => entry.intent.kind === 'write-axis-order'
+      && entry.intent.sheetId === sheetId && entry.status !== 'succeeded' && entry.status !== 'superseded');
+    if (!hasUnsettled()) return undefined;
+    return new Promise((resolve) => {
+      const listener = () => {
+        if (hasUnsettled()) return;
+        this.listeners.delete(listener);
+        resolve();
+      };
+      this.listeners.add(listener);
+    });
+  }
   waitFor(operationId: WorkbookOperationId): Promise<OutboxEntry> {
     return new Promise((resolve) => {
       const listener = () => {
@@ -205,6 +218,7 @@ function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent
 function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceIntent {
   switch (intent.kind) {
     case 'model-lifecycle': return structuredClone(intent);
+    case 'write-axis-order': return { ...intent, before: [...intent.before], after: [...intent.after] };
     case 'write-axis-sizes': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
     case 'write-number-formats': return { ...intent, writes: intent.writes.map((write) => ({ ...write, properties: { ...write.properties, ...(write.properties.numberFormat ? { numberFormat: { ...write.properties.numberFormat } } : {}) } })) };
     case 'delete-sheet': return { ...intent };

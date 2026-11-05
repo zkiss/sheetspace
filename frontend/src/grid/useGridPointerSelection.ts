@@ -14,7 +14,7 @@ type GridPointerSelectionOptions = {
   cellInteraction: SheetGridCellInteraction;
   columnMetrics: GridAxisMetrics;
   columns: GridAxisProjection['columns'];
-  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
   rowMetrics: GridAxisMetrics;
   rows: GridAxisProjection['rows'];
   scrollContainerRef: RefObject<HTMLElement>;
@@ -34,6 +34,7 @@ type DragSession = {
   startX: number;
   startY: number;
   moved: boolean;
+  toggle: boolean;
 };
 
 type PointerScale = { x: number; y: number };
@@ -110,7 +111,8 @@ export function useGridPointerSelection({
       drag.captureElement.releasePointerCapture(drag.pointerId);
     }
     setDragging(false);
-    if (focusExtent && drag.target) interactionRef.current.focusSelection?.(drag.target);
+    if (focusExtent && drag.toggle) interactionRef.current.focusCurrentSelection?.();
+    else if (focusExtent && drag.target) interactionRef.current.focusSelection?.(drag.target);
     interactionRef.current.settleSelectionGesture?.(drag.owner);
   }, []);
 
@@ -154,6 +156,7 @@ export function useGridPointerSelection({
       finishDrag();
       return;
     }
+    if (drag.toggle) return;
 
     const rect = container.getBoundingClientRect();
     const scale = pointerScale(container, rect);
@@ -190,6 +193,8 @@ export function useGridPointerSelection({
         finishDrag();
         return;
       }
+
+      if (drag.toggle) return;
 
       const rect = container.getBoundingClientRect();
       const edge = 28;
@@ -243,11 +248,13 @@ export function useGridPointerSelection({
 
     const owner = Symbol('selection-gesture');
     const gesture: SelectionGesture = { owner, start: true };
+    const toggle = mode !== 'cells' && !event.shiftKey && (event.ctrlKey || event.metaKey);
     if (mode === 'cells') {
       if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target, gesture);
       else cellInteraction.select(target, gesture);
     } else {
-      onSelectAxis?.(mode, target, event.shiftKey, gesture);
+      if (toggle) onSelectAxis?.(mode, target, false, gesture, 'toggle');
+      else onSelectAxis?.(mode, target, event.shiftKey, gesture);
     }
 
     dragRef.current = {
@@ -261,6 +268,7 @@ export function useGridPointerSelection({
       startX: event.clientX,
       startY: event.clientY,
       moved: false,
+      toggle,
     };
     setDragging(true);
     event.currentTarget.setPointerCapture?.(event.pointerId);

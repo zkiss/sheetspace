@@ -1,0 +1,165 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ContentHistory } from '@application/core/contentHistory';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { shiftAxis } from '@workbook/mutations/reorderAxis';
+import { createAxisReorder } from './axisReorder';
+
+describe('axis order replay', () => {
+  it('replays only the owned order against live unrelated workbook state', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const reorder = createAxisReorder({ current, history, enqueue: vi.fn(), setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(), setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: vi.fn() });
+    const originalRows = [...sheet.content.rows];
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [originalRows[0]!], 1));
+    const movedRows = [...current.current.documents.s!.content.rows];
+    const live = structuredClone(current.current);
+    const source = live.documents.s!;
+    source.content.columns.reverse();
+    source.content.cells.extra = 'unrelated';
+    source.presentation.rowHeights[originalRows[1]!] = 45;
+    source.presentation.columnWidths[source.content.columns[0]!] = 130;
+    source.presentation.formatOverrides = { rows: {}, columns: {}, cells: { extra: { fontWeight: 'bold' } } };
+    source.frame.position.x = 25;
+    live.dataModels = { model: { id: 'model', name: 'Model', columns: [] } };
+    current.current = live;
+    const expected = structuredClone(live);
+    expected.documents.s!.content.rows = originalRows;
+
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    expect(current.current).toEqual(expected);
+    reorder.replay(history.peekRedo()!.order!, 'redo');
+    expect(current.current.documents.s!.content.rows).toEqual(movedRows);
+    expect(current.current).toEqual(live);
+  });
+  it('retains undo and redo on owned-order conflicts and recovers', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
+    const [a, b, c] = sheet.content.rows;
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const enqueue = vi.fn();
+    const feedback = vi.fn();
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(), setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [a!], 1));
+    const order = history.peekUndo()!.order!;
+    const setRows = (rows: string[]) => {
+      const document = current.current.documents.s!;
+      current.current = { ...current.current, documents: { ...current.current.documents, s: { ...document, content: { ...document.content, rows } } } };
+    };
+    setRows([c!, b!, a!]);
+    const conflictedUndo = current.current;
+    const undoEntry = history.peekUndo();
+    reorder.replay(order, 'undo');
+    expect(current.current).toBe(conflictedUndo);
+    expect(history.peekUndo()).toEqual(undoEntry);
+    expect(feedback).toHaveBeenLastCalledWith('order-conflict');
+    expect(history.canUndo).toBe(true);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    setRows([b!, a!, c!]);
+    reorder.replay(order, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(current.current.documents.s!.content.rows).toEqual([a, b, c]);
+    setRows([c!, b!, a!]);
+    const conflictedRedo = current.current;
+    const redoEntry = history.peekRedo();
+    reorder.replay(order, 'redo');
+    expect(current.current).toBe(conflictedRedo);
+    expect(history.peekRedo()).toEqual(redoEntry);
+    expect(feedback).toHaveBeenLastCalledWith('order-conflict');
+    expect(history.canRedo).toBe(true);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    setRows([a!, b!, c!]);
+    reorder.replay(order, 'redo');
+    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(current.current.documents.s!.content.rows).toEqual([b, a, c]);
+    expect(enqueue).toHaveBeenCalledTimes(3);
+  });
+
+  it('retains the order transaction when its sheet is missing', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const enqueue = vi.fn();
+    const feedback = vi.fn();
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(), setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [sheet.content.rows[0]!], 1));
+    const entry = history.peekUndo()!;
+    current.current = workbookWithSheets([]);
+    const before = current.current;
+    reorder.replay(entry.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith('order-conflict');
+    expect(current.current).toBe(before);
+    expect(history.peekUndo()).toEqual(entry);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks pending replay and retains feedback until successful admission', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const feedback = vi.fn();
+    const mutationFailure = vi.fn();
+    const enqueue = vi.fn();
+    let pending = false;
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => pending,
+      admissionLocks: { current: new Set() }, setMutationFailure: mutationFailure, setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [sheet.content.rows[0]!], 1));
+    pending = true;
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    expect(history.canUndo).toBe(true);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    reorder.reorder('s', 'row', () => { throw new Error('must not transform'); });
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    expect(mutationFailure).toHaveBeenLastCalledWith('pending-model-transition');
+    pending = false;
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [sheet.content.rows[0]!], 1));
+    expect(mutationFailure).toHaveBeenLastCalledWith(undefined);
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(history.canRedo).toBe(true);
+  });
+
+  it('keeps both history stacks and the workbook intact while an admission lock blocks order operations', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const locks = new Set<string>();
+    const enqueue = vi.fn();
+    const feedback = vi.fn();
+    const mutationFailure = vi.fn();
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: locks }, setMutationFailure: mutationFailure, setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    const move = (id: string) => reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [id], 1));
+    move(sheet.content.rows[0]!);
+    move(sheet.content.rows[1]!);
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    const before = current.current;
+    const undo = history.peekUndo();
+    const redo = history.peekRedo();
+    const writes = enqueue.mock.calls.length;
+    locks.add('s');
+    expect(move(sheet.content.rows[1]!)).toMatchObject({ status: 'rejected', reason: 'pending-model-transition' });
+    expect(mutationFailure).toHaveBeenLastCalledWith('pending-model-transition');
+    reorder.replay(undo!.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    reorder.replay(redo!.order!, 'redo');
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    expect(current.current).toBe(before);
+    expect(history.peekUndo()).toEqual(undo);
+    expect(history.peekRedo()).toEqual(redo);
+    expect(enqueue).toHaveBeenCalledTimes(writes);
+    locks.clear();
+    reorder.replay(redo!.order!, 'redo');
+    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(enqueue).toHaveBeenCalledTimes(writes + 1);
+  });
+});

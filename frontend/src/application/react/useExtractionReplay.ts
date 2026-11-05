@@ -11,6 +11,7 @@ export function useExtractionReplay(options: {
   hasPending: () => boolean;
   clearFeedback: () => void;
   publishHistory: () => void;
+  clearOtherFailures?: () => void;
   submit: (transform: (current: Workbook) => ReplayResult, success: () => void) => { result: ReplayResult; completion: Promise<ReplayResult> };
 }) {
   const [failure, setFailure] = useState<ExtractionReplayFailure>();
@@ -26,6 +27,7 @@ export function useExtractionReplay(options: {
       return prepared.ok ? { ok: true, value: prepared.workbook } : prepared;
     }, () => {
       setFailure(undefined);
+      options.clearOtherFailures?.();
       if (direction === 'undo') options.history.commitUndo(); else options.history.commitRedo();
       options.publishHistory();
     });

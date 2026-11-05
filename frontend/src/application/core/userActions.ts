@@ -50,6 +50,7 @@ export type BackendWorkbookReconciliation =
 
 export type WorkbookPersistenceIntent =
   | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
+  | { kind: 'write-axis-order'; sheetId: SheetId; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
   | { kind: 'write-number-formats'; sheetId: SheetId; writes: readonly AppearanceWrite[] }
   | { kind: 'delete-sheet'; sheetId: SheetId }

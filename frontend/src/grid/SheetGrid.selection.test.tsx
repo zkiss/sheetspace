@@ -14,6 +14,8 @@ import { SheetGrid } from './SheetGrid';
 import { createModelEntryDraft } from '@application/core/modelEntryDraft';
 import { keymap } from '@shared/keyboard/keymap';
 import type { DataModel } from '@workbook/core/model';
+import type { CellSelection } from './cellInteractionContracts';
+import { pruneAxisSelection } from '@workbook/read/selection';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -48,11 +50,15 @@ function frames() {
 
 const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
 const consumed = vi.fn();
-function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }: {
+function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, logicalSelection, creating = false, activeKey, live = false }: {
   sheet: ReturnType<typeof sheetDocument>;
   entryModel?: DataModel;
   replacement?: 'cell' | 'range' | 'edit';
   replacementKey?: string;
+  logicalSelection?: CellSelection | null;
+  creating?: boolean;
+  activeKey?: string;
+  live?: boolean;
 }) {
   const workbook = useMemo(() => workbookWithSheets([sheet]), [sheet]);
   const interaction = useCellEditing({ commands, workbook });
@@ -82,6 +88,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
     },
   } : undefined;
   return <>
+    {live && <button onClick={() => interaction.activeCell && interaction.clearCellContent(interaction.activeCell)}>Clear selection</button>}
     <output data-testid="selection-state">{JSON.stringify({
       active: cellKeyForTarget(sheet, interaction.activeCell),
       anchor: range && cellKeyForTarget(sheet, range.anchor),
@@ -93,12 +100,12 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
     <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
       <SheetGrid
         entryRow={entryModel && { model: entryModel, session: { draft: createModelEntryDraft(entryModel), pending: false }, commands: { change: vi.fn(), leave: vi.fn(), dismiss: vi.fn(), submit: vi.fn().mockResolvedValue({}) } }}
-        activeCellKey={cellKeyForTarget(sheet, interaction.activeCell)}
-        activeSheetId={interaction.activeCell?.sheetId ?? null}
+        activeCellKey={activeKey ?? cellKeyForTarget(sheet, interaction.activeCell)}
+        activeSheetId={activeKey ? sheet.id : interaction.activeCell?.sheetId ?? null}
         selectionOwner={interaction.selectionOwner}
-        axisProjection={projectGridAxes(projection, { columns: [], rows: [] })}
+        axisProjection={projectGridAxes(projection, creating ? { columns: [{ kind: 'creating', operationId: 'c', boundary: 1 }], rows: [{ kind: 'creating', operationId: 'r', boundary: 1 }] } : { columns: [], rows: [] })}
         cellInteraction={{ clear: interaction.clearCellContent, select: interaction.selectCell, extend: interaction.extendSelection,
-          focusSelection: interaction.focusSelection, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
+          focusSelection: interaction.focusSelection, focusCurrentSelection: interaction.focusCurrentSelection, settleSelectionGesture: interaction.settleSelectionGesture, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
         editingCell={interaction.editingCell}
         editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: interaction.cancelActiveEdit, commit: interaction.commitActiveEdit,
           commitAndNavigate: interaction.commitEditAndNavigate, updateValue: interaction.updateEditingCellValue,
@@ -111,6 +118,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
         navigationHighlightCellKey={null}
         scrollContainerRef={scrollContainerRef}
         selectedRange={selectedRange}
+        logicalSelection={live ? range : logicalSelection}
         selectionMode={range?.mode}
         onSelectAxis={interaction.selectAxis}
         sheet={projection}
@@ -120,6 +128,150 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
 }
 function state() { return JSON.parse(screen.getByTestId('selection-state').textContent!); }
 function activeCell(name: string, key: string) { return screen.getByRole('cell', { name: `${name} ${key} empty cell` }); }
+
+describe('exact selection presentation', () => {
+  it.each(['rows', 'columns'] as const)('connects modifier pointer selection to exact %s highlights', (mode) => {
+    commands.writeCells.mockClear();
+    const sheet = sheetDocument({ id: 'live', name: 'Live', rowCount: 4, columnCount: 4, cells: { A1: 'a', A2: 'b', A3: 'c', B1: 'd', C1: 'e' } });
+    render(<SelectionGrid sheet={sheet} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    const role = mode === 'rows' ? 'rowheader' : 'columnheader';
+    const first = screen.getByRole(role, { name: mode === 'rows' ? '1' : 'A' });
+    const third = screen.getByRole(role, { name: mode === 'rows' ? '3' : 'C' });
+    pointer(first, 'pointerdown');
+    pointer(grid, 'pointerup');
+    const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+    Object.defineProperty(event, 'pointerId', { value: 22 });
+    fireEvent(third, event);
+    pointer(grid, 'pointermove', 210, 110);
+    pointer(grid, 'pointerup', 210, 110);
+    expect(screen.getByTestId('sheet-grid').querySelector('[data-cell-key="A1"]')).toHaveClass('sheet-grid-cell-range-selected');
+    expect(screen.getByTestId('sheet-grid').querySelector(`[data-cell-key="${mode === 'rows' ? 'A2' : 'B1'}"]`)).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(screen.getByTestId('sheet-grid').querySelector(`[data-cell-key="${mode === 'rows' ? 'A3' : 'C1'}"]`)).toHaveClass('sheet-grid-cell-range-selected');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    const writes = commands.writeCells.mock.calls[0]![0] as { rowId: string; columnId: string }[];
+    const axis = sheet.content[mode];
+    expect(writes.some((write) => (mode === 'rows' ? write.rowId : write.columnId) === axis[2])).toBe(true);
+    expect(writes.every((write) => (mode === 'rows' ? write.rowId : write.columnId) !== axis[1])).toBe(true);
+  });
+  it.each(['rows', 'columns'] as const)('renders reconciled %s after deletion with valid run borders', (mode) => {
+    const sheet = sheetDocument({ id: 'delete', name: 'Delete', rowCount: 4, columnCount: 4 });
+    const target = (i: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[mode === 'rows' ? i : 0]!, columnId: sheet.content.columns[mode === 'columns' ? i : 0]! } });
+    const selection = { mode, anchor: target(0), extent: target(2), members: [sheet.content[mode][0]!, sheet.content[mode][2]!] };
+    const next = { ...sheet, content: { ...sheet.content, [mode]: sheet.content[mode].slice(1) } };
+    const reconciled = pruneAxisSelection(next, selection)!;
+    render(<SelectionGrid sheet={next} logicalSelection={reconciled} activeKey={mode === 'rows' ? 'A2' : 'B1'} />);
+    const gap = activeCell('Delete', 'A1');
+    const selected = activeCell('Delete', mode === 'rows' ? 'A2' : 'B1');
+    expect(gap).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(selected).toHaveClass('sheet-grid-cell-range-selected', mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left', mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+  });
+
+  it.each(['rows', 'columns'] as const)('keeps creating slots unselected within virtualized exact %s', (mode) => {
+    const sheet = sheetDocument({ id: 'pending', name: 'Pending', rowCount: 30, columnCount: 20 });
+    const target = (row: number, column: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[row]!, columnId: sheet.content.columns[column]! } });
+    const selection: CellSelection = { mode, anchor: target(0, 0), extent: mode === 'rows' ? target(2, 0) : target(0, 2), members: [sheet.content[mode][0]!, sheet.content[mode][2]!] };
+    render(<SelectionGrid sheet={sheet} logicalSelection={selection} creating />);
+    expect(activeCell('Pending', 'A1')).toHaveClass('sheet-grid-cell-range-selected');
+    expect(activeCell('Pending', mode === 'rows' ? 'A2' : 'B1')).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(activeCell('Pending', mode === 'rows' ? 'A3' : 'C1')).toHaveClass('sheet-grid-cell-range-selected');
+    const placeholders = document.querySelectorAll('.sheet-grid-cell-creating, .sheet-grid-axis-creating');
+    expect(placeholders.length).toBeGreaterThan(0);
+    placeholders.forEach((element) => expect(element).not.toHaveClass('sheet-grid-cell-range-selected', 'sheet-grid-axis-selected'));
+    expect(screen.getAllByTestId('sheet-grid-cell').length).toBeLessThan(600);
+  });
+  it.each(['rows', 'columns'] as const)('updates %s membership with unchanged endpoints and reprojects a shift', (mode) => {
+    const sheet = sheetDocument({ id: 'update', name: 'Update', rowCount: 5, columnCount: 5 });
+    const target = (index: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[mode === 'rows' ? index : 0]!, columnId: sheet.content.columns[mode === 'columns' ? index : 0]! } });
+    const ids = sheet.content[mode];
+    const selection: CellSelection = { mode, anchor: target(0), extent: target(4), members: [ids[0]!, ids[2]!, ids[4]!] };
+    const view = render(<SelectionGrid sheet={sheet} logicalSelection={selection} />);
+    const cell = (i: number) => activeCell('Update', mode === 'rows' ? `A${i + 1}` : `${String.fromCharCode(65 + i)}1`);
+    expect(cell(2)).toHaveClass('sheet-grid-cell-range-selected');
+    view.rerender(<SelectionGrid sheet={sheet} logicalSelection={{ ...selection, members: [ids[0]!, ids[3]!, ids[4]!] }} />);
+    expect(cell(2)).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(3)).toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(3)).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+    expect(cell(4)).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
+    const order = [ids[1]!, ids[0]!, ids[3]!, ids[2]!, ids[4]!];
+    view.rerender(<SelectionGrid sheet={{ ...sheet, content: { ...sheet.content, [mode]: order } }} logicalSelection={selection} />);
+    expect(cell(0)).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(1)).toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(2)).not.toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(3)).toHaveClass('sheet-grid-cell-range-selected');
+    expect(cell(4)).toHaveClass('sheet-grid-cell-range-selected');
+  });
+
+  it('paints an ordinary cell rectangle with shared interior edges', () => {
+    const sheet = sheetDocument({ id: 'rectangle', name: 'Rectangle', rowCount: 4, columnCount: 4 });
+    const target = (row: number, column: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[row]!, columnId: sheet.content.columns[column]! } });
+    render(<SelectionGrid sheet={sheet} logicalSelection={{ mode: 'cells', anchor: target(0, 0), extent: target(1, 1) }} />);
+    expect(activeCell('Rectangle', 'A1')).not.toHaveClass('sheet-grid-selection-bottom', 'sheet-grid-selection-right');
+    expect(activeCell('Rectangle', 'B2')).not.toHaveClass('sheet-grid-selection-top', 'sheet-grid-selection-left');
+    expect(activeCell('Rectangle', 'B2')).toHaveClass('sheet-grid-selection-bottom', 'sheet-grid-selection-right');
+    expect(activeCell('Rectangle', 'C2')).not.toHaveClass('sheet-grid-cell-range-selected');
+  });
+  it.each(['rows', 'columns'] as const)('paints separated %s and their independent edges after reorder', (mode) => {
+    const sheet = sheetDocument({ id: 'exact', name: 'Exact', rowCount: 4, columnCount: 4 });
+    const target = (row: number, column: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[row]!, columnId: sheet.content.columns[column]! } });
+    const selection: CellSelection = { mode, anchor: target(0, 0), extent: mode === 'rows' ? target(2, 0) : target(0, 2), members: mode === 'rows' ? [sheet.content.rows[0]!, sheet.content.rows[2]!] : [sheet.content.columns[0]!, sheet.content.columns[2]!] };
+    const view = render(<SelectionGrid sheet={sheet} logicalSelection={selection} />);
+    const first = activeCell('Exact', 'A1');
+    const gap = activeCell('Exact', mode === 'rows' ? 'A2' : 'B1');
+    const second = activeCell('Exact', mode === 'rows' ? 'A3' : 'C1');
+    expect(first).toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+    expect(second).toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
+    expect(first).toHaveClass('sheet-grid-cell-range-selected');
+    expect(second).toHaveClass('sheet-grid-cell-range-selected');
+    expect(gap).not.toHaveClass('sheet-grid-cell-range-selected');
+    const headers = screen.getAllByRole(mode === 'rows' ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
+    expect(headers[0]).toHaveClass('sheet-grid-axis-selected');
+    expect(headers[1]).not.toHaveClass('sheet-grid-axis-selected');
+    expect(headers[2]).toHaveClass('sheet-grid-axis-selected');
+    const content = { ...sheet.content, [mode]: [...sheet.content[mode]] };
+    [content[mode][1], content[mode][2]] = [content[mode][2]!, content[mode][1]!];
+    view.rerender(<SelectionGrid sheet={{ ...sheet, content }} logicalSelection={selection} />);
+    expect(activeCell('Exact', 'A1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+    expect(activeCell('Exact', mode === 'rows' ? 'A2' : 'B1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
+  });
+
+  it.each(['rows', 'columns'] as const)('retains the active identity through %s reorder and reversal', async (axis) => {
+    const sheet = sheetDocument({ id: 'reorder-focus', name: 'Reorder focus', rowCount: 4, columnCount: 4 });
+    const view = render(<SelectionGrid sheet={sheet} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    virtualGridGeometry(grid.parentElement!);
+    pointer(activeCell(sheet.name, 'B2'), 'pointerdown', 130, 66);
+    pointer(grid, 'pointerup', 130, 66);
+    await waitFor(() => expect(activeCell(sheet.name, 'B2')).toHaveFocus());
+
+    const content = { ...sheet.content, [axis]: [...sheet.content[axis]] };
+    [content[axis][1], content[axis][2]] = [content[axis][2]!, content[axis][1]!];
+    view.rerender(<SelectionGrid sheet={{ ...sheet, content }} live />);
+    const moved = axis === 'rows' ? 'B3' : 'C2';
+    await waitFor(() => expect(state()).toMatchObject({ active: moved, anchor: moved, extent: moved }));
+    expect(activeCell(sheet.name, moved)).toHaveFocus();
+
+    view.rerender(<SelectionGrid sheet={sheet} live />);
+    await waitFor(() => expect(state()).toMatchObject({ active: 'B2', anchor: 'B2', extent: 'B2' }));
+    expect(activeCell(sheet.name, 'B2')).toHaveFocus();
+  });
+
+  it('keeps a newer selection when an earlier order is restored', async () => {
+    const sheet = sheetDocument({ id: 'reorder-history', name: 'Reorder history', rowCount: 4, columnCount: 4 });
+    const content = { ...sheet.content, rows: [...sheet.content.rows] };
+    [content.rows[1], content.rows[2]] = [content.rows[2]!, content.rows[1]!];
+    const view = render(<SelectionGrid sheet={{ ...sheet, content }} live />);
+    const grid = screen.getByTestId('sheet-grid');
+    virtualGridGeometry(grid.parentElement!);
+    pointer(activeCell(sheet.name, 'C3'), 'pointerdown', 210, 92);
+    pointer(grid, 'pointerup', 210, 92);
+    await waitFor(() => expect(activeCell(sheet.name, 'C3')).toHaveFocus());
+
+    view.rerender(<SelectionGrid sheet={sheet} live />);
+    await waitFor(() => expect(state()).toMatchObject({ active: 'C2', anchor: 'C2', extent: 'C2' }));
+    expect(activeCell(sheet.name, 'C2')).toHaveFocus();
+  });
+});
 
 // Native offsets stop at the content size, unlike JSDOM's default writable properties.
 function clampedScroll(container: HTMLElement, maximum: { left: number; top: number }) {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
 /** Ownership contexts the keyboard dispatcher must satisfy before it may run the command. */
-export type KeyboardContext = 'navigation' | 'no-editing' | 'grid-cells' | 'native-clipboard' | 'formatting' | 'grid-focus';
+export type KeyboardContext = 'navigation' | 'no-editing' | 'grid-cells' | 'native-clipboard' | 'formatting' | 'grid-focus' | 'native-grid';
 
 export type NavigationCommand = {
   id: string;

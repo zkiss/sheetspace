@@ -2,7 +2,7 @@ import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import type { CellSelection } from '@grid/cellInteractionContracts';
-import { selectionAddressRange } from './workspaceSelection';
+import { projectSelection } from '@workbook/read/selection';
 
 /**
  * Live model presentation of a bound sheet.
@@ -26,9 +26,8 @@ export function modelColumnPresentation(sheet: SheetDocument, models: Workbook['
 /** True when the selection covers a column that the selected sheet's model calculates. */
 export function selectionIncludesCalculatedColumn(workbook: Workbook, selection: CellSelection) {
   const sheet = findSheetById(workbook, selection.anchor.sheetId);
-  const range = sheet && selectionAddressRange(sheet, selection);
-  if (!sheet || !range) return false;
+  const projection = sheet && projectSelection(sheet, selection);
+  if (!sheet || !projection) return false;
   const calculatedColumns = calculatedOwnedColumns(sheet, workbook.dataModels);
-  return sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1)
-    .some((columnId) => calculatedColumns.has(columnId));
+  return projection.columns.some((columnId) => calculatedColumns.has(columnId));
 }

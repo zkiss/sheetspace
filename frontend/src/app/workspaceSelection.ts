@@ -1,9 +1,10 @@
+import { projectSelection } from '@workbook/read/selection';
 import type { CellRange } from '@workbook/core/address';
 import { addressRangeOf } from '@workbook/core/cellIdentity';
 import type { SheetDocument } from '@workbook/core/model';
 import type { CellSelection } from '@grid/cellInteractionContracts';
 
-export function selectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
+export function selectionEndpointAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
   const range = addressRangeOf(sheet.content, { start: selection.anchor.cell, end: selection.extent.cell });
   if (!range) return undefined;
   const rowStart = Math.min(range.start.rowIndex, range.end.rowIndex);
@@ -14,4 +15,11 @@ export function selectionAddressRange(sheet: SheetDocument, selection: CellSelec
     start: { rowIndex: selection.mode === 'columns' ? 0 : rowStart, columnIndex: selection.mode === 'rows' ? 0 : columnStart },
     end: { rowIndex: selection.mode === 'columns' ? sheet.content.rows.length - 1 : rowEnd, columnIndex: selection.mode === 'rows' ? sheet.content.columns.length - 1 : columnEnd },
   };
+}
+
+export function rectangularSelectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
+  const projection = projectSelection(sheet, selection);
+  if (!projection?.rectangular) return undefined;
+  const { rowStart, rowEnd, columnStart, columnEnd } = projection.bounds;
+  return { start: { rowIndex: rowStart, columnIndex: columnStart }, end: { rowIndex: rowEnd, columnIndex: columnEnd } };
 }

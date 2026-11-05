@@ -44,6 +44,46 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('rejects scattered extraction and endpoint-equal multi-column rename at execution', () => {
+    const { command, hook, props, sheet, cell } = setup(3);
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!, sheet.content.columns[2]!] };
+    props.extraction = { request: vi.fn(), onSuccess: vi.fn() };
+    hook.rerender();
+    expect(command('extract-selection').unavailable).toBeDefined();
+    expect(command('rename-column').unavailable).toBeDefined();
+    act(() => { command('extract-selection').run(); command('rename-column').run(); });
+    expect(props.extraction.request).not.toHaveBeenCalled();
+    expect(hook.result.current.panel).toBeUndefined();
+  });
+
+  it('does not transfer extraction ownership after members alone change', async () => {
+    const { command, hook, props, sheet, cell } = setup(3);
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!] };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    props.selection = { ...props.selection, members: [sheet.content.columns[0]!, sheet.content.columns[1]!] };
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+  });
+  it('does not restore focus after rename when column membership changes during persistence', async () => {
+    const { command, hook, props, sheet, cell, commands } = setup(2);
+    let finish!: (value: { ok: boolean }) => void;
+    commands.renameColumn.mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!] };
+    hook.rerender();
+    act(() => command('rename-column').run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Revenue' } });
+    fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
+    props.selection = { ...props.selection, members: [...sheet.content.columns] };
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
   it('releases rendered ownership when an accepted extraction completion rejects', async () => {
     const { props, sheet, cell, hook } = setup();
     hook.unmount();
@@ -146,7 +186,7 @@ describe('workspace palette actions', () => {
     hook.rerender();
     expect(command('extract-selection').unavailable).toBeUndefined();
     act(() => command('extract-selection').run());
-    expect(submit).toHaveBeenCalledWith(request);
+    expect(submit).toHaveBeenCalledWith(request, undefined);
     expect(onSuccess).not.toHaveBeenCalled();
     await act(async () => finish({ ok: true }));
     expect(onSuccess).toHaveBeenCalledWith(request);
@@ -277,7 +317,7 @@ describe('workspace palette actions', () => {
     render(<>{hook.result.current.panel?.content}</>);
     fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
     await waitFor(() => expect(props.onColumnDeleted).toHaveBeenCalledWith(bound, cell));
-    expect(commands.replaceModelDeclaration).toHaveBeenCalledWith({ ...model, columns: [] });
+    expect(commands.replaceModelDeclaration).toHaveBeenCalledWith({ ...model, columns: [] }, undefined);
   });
   it('hides structural commands for a bound sheet and restores them when unbound', () => {
     const { hook, props, sheet } = setup();
@@ -364,6 +404,27 @@ describe('workspace palette actions', () => {
     expect(props.closePalette).toHaveBeenCalledOnce();
   });
 
+  it.each(['row', 'column'] as const)('sizes and resets exact selected %ss without gaps', (axis) => {
+    const { command, hook, props } = setup(5);
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 5, columnCount: 5 });
+    props.sheet = sheet;
+    const ids = axis === 'row' ? sheet.content.rows : sheet.content.columns;
+    const target = (index: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[index]!, columnId: sheet.content.columns[index]! } });
+    props.selection = { mode: axis === 'row' ? 'rows' : 'columns', anchor: target(0), extent: target(4), members: [ids[0]!, ids[2]!, ids[4]!] };
+    props.commands.writeAxisSizes = vi.fn();
+    hook.rerender();
+    act(() => command(`size-${axis}`).run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText(axis === 'row' ? 'Row height (pixels)' : 'Column width (pixels)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(props.commands.writeAxisSizes).toHaveBeenCalledWith(sheet.id, [ids[0], ids[2], ids[4]].map((axisId) => ({ axis, axisId, size: 100 })));
+    act(() => command(`reset-size-${axis}`).run());
+    expect(props.commands.writeAxisSizes).toHaveBeenLastCalledWith(sheet.id, [ids[0], ids[2], ids[4]].map((axisId) => ({ axis, axisId, size: null })));
+    props.selection = { ...props.selection, members: [ids[0]!, 'deleted', ids[4]!] };
+    hook.rerender();
+    expect(command(`size-${axis}`).unavailable).toBe('Select cells, rows, or columns first');
+  });
+
   it('renames a selected column only after persistence succeeds', async () => {
     const { command, hook, commands, props, sheet, cell } = setup();
     expect(command('rename-column').unavailable).toBe('Select one existing column first');
@@ -447,31 +508,5 @@ describe('workspace palette actions', () => {
     expect(command('rename-column').unavailable).toBe('Select one existing column first');
   });
 
-  it('preserves clipboard markers and cancels a failed cut', async () => {
-    const { command, props, clipboard } = setup();
-    const content = { text: '=A1', marker: 'cut-token' };
-    vi.mocked(props.onCopy).mockReturnValue(content);
-    await act(async () => { command('copy').run(); });
-    expect(clipboard.write).toHaveBeenCalledWith(content);
-    clipboard.read.mockResolvedValue(content);
-    await act(async () => { command('paste').run(); });
-    expect(props.onPaste).toHaveBeenCalledWith(content);
-    vi.mocked(props.onCut).mockReturnValue(content);
-    clipboard.write.mockRejectedValueOnce(new Error('denied'));
-    await act(async () => { command('cut').run(); });
-    expect(props.onCancelCut).toHaveBeenCalledOnce();
-    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('Clipboard access failed'));
-  });
 
-  it('ignores a pending clipboard result after the palette resets', async () => {
-    const { command, hook, props, clipboard } = setup();
-    let resolve!: (content: { text: string }) => void;
-    clipboard.read.mockReturnValue(new Promise((done) => { resolve = done; }));
-    act(() => command('paste').run());
-    expect(hook.result.current.busy).toBe(true);
-    act(() => hook.result.current.resetPanel());
-    await act(async () => resolve({ text: 'late' }));
-    await waitFor(() => expect(hook.result.current.busy).toBe(false));
-    expect(props.onPaste).not.toHaveBeenCalled();
-  });
 });

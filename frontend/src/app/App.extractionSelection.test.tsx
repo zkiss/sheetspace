@@ -69,8 +69,8 @@ it.each(['selection', 'focus'] as const)('does not reclaim %s after user ownersh
   const useController = workbookController.useWorkbookController;
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
     const controller = useController(options);
-    return { ...controller, commands: { ...controller.commands, extractSelection: (request) => {
-      const submission = controller.commands.extractSelection(request);
+    return { ...controller, commands: { ...controller.commands, extractSelection: (request, publication) => {
+      const submission = controller.commands.extractSelection(request, publication);
       return { ...submission, completion: submission.completion.then(async (result) => { await gate.promise; return result; }) };
     } } };
   });

@@ -42,6 +42,7 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
     saveDataModel: vi.fn(),
     setSheetModel: vi.fn(),
+    writeAxisOrder: vi.fn(),
     saveModelLifecycle: vi.fn(),
     ...overrides,
   } satisfies Partial<WorkbookApi>;
@@ -62,6 +63,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   };
 
   return {
+    writeAxisOrder: vi.fn(),
     saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
       persistedWorkbook = structuredClone(after);
       return persistedWorkbook;

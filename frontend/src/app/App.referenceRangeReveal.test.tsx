@@ -5,6 +5,20 @@ import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/
 import { App } from './App';
 
 describe('reference range reveal in the composed workspace', () => {
+  it.each(['same', 'cross'] as const)('paints a %s-sheet formula reference range', (location) => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 5, columnCount: 4, cells: location === 'same' ? { A1: '=SUM(@inputs!B[3]:C[5])' } : {} });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[3]:C[5])' } });
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures(location === 'same' ? [inputs] : [inputs, outputs])} />);
+    const sourceName = location === 'same' ? 'Inputs' : 'Outputs';
+    const source = screen.getByRole('cell', { name: `${sourceName} A1 cell` });
+    fireEvent.click(source);
+    fireEvent.keyDown(source, { key: 'F2' });
+    const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: `${sourceName} A1 editor` });
+    editor.setSelectionRange(editor.value.indexOf('B['), editor.value.indexOf('B['));
+    fireEvent.keyDown(editor, { key: 'F4' });
+    expect(screen.getByRole('cell', { name: 'Inputs C5 empty cell' })).toHaveClass('sheet-grid-cell-range-selected');
+    expect(screen.getByRole('cell', { name: 'Inputs A3 empty cell' })).not.toHaveClass('sheet-grid-cell-range-selected');
+  });
   it('navigates an open range from its terminal column to the current last row', () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 5, columnCount: 3 });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[3]:C)' } });

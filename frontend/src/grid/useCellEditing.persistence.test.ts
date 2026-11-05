@@ -57,10 +57,10 @@ describe('useCellEditing edit persistence', () => {
         act(() => result.current.selectAxis(mode, b1, false));
         expect(commands.updateCellContent).not.toHaveBeenCalled();
         expect(result.current.editingCell).toBeNull();
-        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1, members: [mode === 'rows' ? b1.cell.rowId : b1.cell.columnId] });
         act(() => result.current.commitActiveEdit(session));
         expect(commands.updateCellContent).not.toHaveBeenCalled();
-        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1, members: [mode === 'rows' ? b1.cell.rowId : b1.cell.columnId] });
         unmount();
       }
     });

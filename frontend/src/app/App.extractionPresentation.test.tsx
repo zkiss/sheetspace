@@ -7,7 +7,7 @@ import { measuredElementGeometry, testRect } from '@test-support/domGeometry';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import * as workbookController from '@application/react/useWorkbookController';
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it.each([[false, 'move'], [true, 'move'], [true, 'resize'], [true, 'scale']] as const)('yields to same-batch edits (maximised: %s, edit: %s)', async (maximised, edit) => {
   const useController = workbookController.useWorkbookController;
@@ -205,6 +205,19 @@ it('hands painted target cells through the real maximised restore to ordinary ca
 });
 
 it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 'reject-restore', 'reject-settle'] as const)('handles %s during animated extraction transport', async (scenario) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let now = 1_000;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id); });
+  const tick = async (ms: number) => {
+    now += ms;
+    const callbacks = [...frames.values()];
+    frames.clear();
+    await act(async () => { vi.advanceTimersByTime(ms); for (const callback of callbacks) callback(now); });
+  };
   const useController = workbookController.useWorkbookController;
   let controller: ReturnType<typeof useController> | undefined;
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
@@ -222,18 +235,19 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
   fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Restore to workspace' })).toBeEnabled());
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(screen.getByRole('button', { name: 'Restore to workspace' })).toBeEnabled();
+  await tick(400);
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
-  const target = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
+  const target = screen.getByRole('article', { name: 'Sheet Sheet 1' });
+  await act(async () => {});
   if (scenario === 'frame-waiting') {
     expect(target).toHaveAttribute('data-presented');
     act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
     expect(source).toHaveAttribute('data-presented');
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await tick(350);
     expect(target).not.toHaveAttribute('data-presented');
     expect(source).toHaveAttribute('data-presented');
     return;
@@ -248,29 +262,31 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
     cell.getBoundingClientRect = () => testRect({ left: 50, top: 34, width: 120, height: 24 });
   }
   fireEvent.scroll(source.querySelector('.sheet-frame-body')!);
-  await waitFor(() => expect(target).toHaveClass('sheet-frame-extraction-ready'));
+  await act(async () => {});
+  expect(target).toHaveClass('sheet-frame-extraction-ready');
   if (scenario === 'frame-fade') {
     expect(target).toHaveClass('sheet-frame-extraction-handoff');
     act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
     expect(target).not.toHaveAttribute('data-presented');
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await tick(350);
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
     expect(source).toHaveAttribute('data-presented');
     return;
   }
-  await waitFor(() => expect(target).not.toHaveClass('sheet-frame-extraction-handoff'));
+  await tick(250);
+  expect(target).not.toHaveClass('sheet-frame-extraction-handoff');
   expect(source).toHaveAttribute('data-presented');
   expect(target).toHaveAttribute('data-presented');
   const heldPresentation = target.getAttribute('style');
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+  await tick(60);
   expect(source).toHaveAttribute('data-presented');
   expect(target).toHaveAttribute('style', heldPresentation);
   if (scenario === 'frame-restore') {
     act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await tick(350);
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
     return;
@@ -278,50 +294,62 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
   if (scenario === 'undo-restore' || scenario === 'takeover' || scenario === 'reject-restore') {
     if (scenario === 'undo-restore') {
       act(() => { controller!.commands.undo(); });
-      await waitFor(() => expect(target).not.toBeInTheDocument());
+      await act(async () => {});
+      expect(target).not.toBeInTheDocument();
     } else if (scenario === 'takeover') {
       fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
-      await waitFor(() => expect(target).not.toHaveAttribute('data-presented'));
+      await act(async () => {});
+      expect(target).not.toHaveAttribute('data-presented');
     } else {
       await act(async () => { completion.reject(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict')); });
-      await waitFor(() => expect(target).not.toBeInTheDocument());
+      await act(async () => {});
+      expect(target).not.toBeInTheDocument();
     }
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await tick(350);
     if (scenario !== 'takeover') expect(target).not.toBeInTheDocument();
     else expect(target).not.toHaveAttribute('data-presented');
     return;
   }
-  await waitFor(() => expect(source).not.toHaveAttribute('data-presented'));
+  await tick(400);
+  expect(source).not.toHaveAttribute('data-presented');
   expect(surface.dataset.viewportScale).toBe('1.25');
   expect(target).toHaveAttribute('data-presented');
   const startOfSettle = target.getAttribute('style');
   if (scenario === 'frame-change' || scenario === 'undo-settle' || scenario === 'reject-settle') {
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await tick(60);
+    await tick(60);
+    expect(target).toHaveAttribute('data-presented');
     if (scenario === 'reject-settle') {
       await act(async () => { completion.reject(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict')); });
-      await waitFor(() => expect(target).not.toBeInTheDocument());
-      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+      await act(async () => {});
+      expect(target).not.toBeInTheDocument();
+      await tick(300);
       expect(target).not.toBeInTheDocument();
       return;
     }
     if (scenario === 'undo-settle') {
       act(() => { controller!.commands.undo(); });
-      await waitFor(() => expect(target).not.toBeInTheDocument());
+      await act(async () => {});
+      expect(target).not.toBeInTheDocument();
       act(() => { controller!.commands.redo(); });
-      const redone = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
+      const redone = screen.getByRole('article', { name: 'Sheet Sheet 1' });
       expect(redone).not.toHaveAttribute('data-presented');
-      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+      await tick(300);
       expect(redone).not.toHaveAttribute('data-presented');
       return;
     }
     act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await tick(300);
     expect(target).not.toHaveAttribute('data-presented');
     expect(target).toHaveAttribute('data-position-x', '410');
     return;
   }
-  await waitFor(() => expect(target.getAttribute('style')).not.toBe(startOfSettle));
-  await waitFor(() => expect(target).not.toHaveAttribute('data-presented'));
+  await tick(120);
+  await tick(120);
+  await tick(120);
+  expect(target.getAttribute('style')).not.toBe(startOfSettle);
+  await tick(200);
+  expect(target).not.toHaveAttribute('data-presented');
 });

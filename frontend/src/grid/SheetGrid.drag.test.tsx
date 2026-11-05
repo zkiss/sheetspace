@@ -22,6 +22,39 @@ function firePointer(
 
 
 describe('SheetGrid pointer selection', () => {
+  it('toggles each modifier header once without extending on movement, while Shift takes precedence', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'modifier', name: 'Modifier' }));
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const onSelectAxis = vi.fn();
+    const focusCurrentSelection = vi.fn(() => 1);
+    const focusSelection = vi.fn();
+    render(<div ref={scrollContainerRef}><SheetGrid activeCellKey={null} axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
+      cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(), focusSelection, focusCurrentSelection }}
+      editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+      formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+      navigationHighlightCellKey={null} onSelectAxis={onSelectAxis} scrollContainerRef={scrollContainerRef} sheet={sheet} /></div>);
+    virtualGridGeometry(scrollContainerRef.current!);
+    const grid = screen.getByTestId('sheet-grid');
+    for (const [role, name, modifier, mode] of [
+      ['columnheader', 'A', { ctrlKey: true }, 'columns'],
+      ['rowheader', '1', { metaKey: true }, 'rows'],
+    ] as const) {
+      onSelectAxis.mockClear();
+      firePointer(screen.getByRole(role, { name }), 'pointerdown', { button: 0, clientX: 50, clientY: 40, ...modifier });
+      firePointer(grid, 'pointermove', { clientX: 210, clientY: 110 });
+      firePointer(grid, 'pointerup', { clientX: 210, clientY: 110 });
+      expect(onSelectAxis).toHaveBeenCalledOnce();
+      expect(onSelectAxis).toHaveBeenCalledWith(mode, expect.anything(), false, expect.objectContaining({ start: true }), 'toggle');
+    }
+    expect(focusCurrentSelection).toHaveBeenCalledTimes(2);
+    expect(focusSelection).not.toHaveBeenCalled();
+    onSelectAxis.mockClear();
+    firePointer(screen.getByRole('columnheader', { name: 'A' }), 'pointerdown', { button: 0, shiftKey: true, ctrlKey: true, clientX: 50, clientY: 10 });
+    firePointer(grid, 'pointermove', { clientX: 210, clientY: 10 });
+    firePointer(grid, 'pointerup', { clientX: 210, clientY: 10 });
+    expect(onSelectAxis).toHaveBeenCalledWith('columns', expect.anything(), true, expect.objectContaining({ start: true }));
+    expect(onSelectAxis).toHaveBeenCalledTimes(2);
+  });
   it('opens the coordinate target once for grid-retargeted double clicks and rejects a drag out and back', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'double-click', name: 'Double click' }));
     const scrollContainerRef = createRef<HTMLDivElement>();

@@ -5,7 +5,7 @@ import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
 import { addressRangeOf, cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
-import { selectionAddressRange } from './workspaceSelection';
+import { rectangularSelectionAddressRange, selectionEndpointAddressRange } from './workspaceSelection';
 import { mappedExtractionSelection } from './extractionSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
@@ -114,6 +114,7 @@ export function Workspace({
   selectionRange,
   selectionOwner,
   interactionRevision,
+  selectionSettlement,
   saveStatus,
   sheetDialogOpen = false,
   creatingAxes,
@@ -154,7 +155,7 @@ export function Workspace({
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onSettleSelectionGesture: (owner: symbol) => void;
   onRestoreGridFocus: () => number | null;
-  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onRestoreSelection: (selection: CellSelection | null) => boolean;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -162,6 +163,7 @@ export function Workspace({
   selectionRange: CellSelection | null;
   selectionOwner?: symbol | null;
   interactionRevision?: () => number;
+  selectionSettlement?: Pick<ReturnType<typeof import('@grid/useCellEditing').useCellEditing>, 'queuedSelection' | 'beginSelectionSettlement' | 'ownsSelectionSettlement' | 'cancelSelectionSettlement' | 'reconcileSelectionPublication'>;
   saveStatus: SaveStatus;
   sheetDialogOpen?: boolean;
   creatingFrames: CreatingSheetFrameState[];
@@ -208,7 +210,14 @@ export function Workspace({
   const extractionTokens = useRef(new WeakMap<object, number>());
   const extractionRange = useRef<{ token: number; range: CellRange } | null>(null);
   const extractionScroll = useRef<{ token: number; position: { left: number; top: number } } | null>(null);
-  const extractionSelectionOwner = useRef<{ token: number; selection: CellSelection; revision: number; saved: boolean; presented: boolean; paletteClosed: boolean; viewport?: string; identity?: number; frame?: string; size?: string } | null>(null);
+  const extractionSelectionOwner = useRef<{ token: number; lease?: ReturnType<NonNullable<typeof selectionSettlement>['beginSelectionSettlement']>; selection: CellSelection; revision: number; saved: boolean; presented: boolean; paletteClosed: boolean; viewport?: string; identity?: number; frame?: string; size?: string } | null>(null);
+  const ownsExtractionSelection = (owner: NonNullable<typeof extractionSelectionOwner.current>) => owner.lease && selectionSettlement
+    ? selectionSettlement.ownsSelectionSettlement(owner.lease) : (interactionRevision?.() ?? 0) === owner.revision;
+  const clearExtractionSelection = () => {
+    const owner = extractionSelectionOwner.current;
+    if (owner?.lease) selectionSettlement?.cancelSelectionSettlement(owner.lease);
+    extractionSelectionOwner.current = null;
+  };
   const extractionCuts = useRef(new WeakMap<object, NonNullable<typeof clipboard.current.pendingCutSource>>());
   const completeExtractionSelection = useRef<(token: number) => void>(() => {});
   const tryExtractionSelection = useRef<(token: number) => void>(() => {});
@@ -261,7 +270,7 @@ export function Workspace({
   extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
   const abortExtractionPresentation = () => {
     const owner = extractionOwner.current;
-    if (owner && extractionSelectionOwner.current?.token === owner.token && !extractionSelectionOwner.current.presented) extractionSelectionOwner.current = null;
+    if (owner && extractionSelectionOwner.current?.token === owner.token && !extractionSelectionOwner.current.presented) clearExtractionSelection();
     extractionOwner.current = null;
     extractionGuard.current = null;
     if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current);
@@ -333,11 +342,11 @@ export function Workspace({
       if (event.target === document.body || event.target === document.documentElement) return;
       const source = extractionOwner.current?.sourceId;
       const frame = event.target.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
-      if (!source || frame?.dataset.sheetId !== source) extractionSelectionOwner.current = null;
+      if (!source || frame?.dataset.sheetId !== source) clearExtractionSelection();
     };
     document.addEventListener('focusin', onFocus, true);
     return () => document.removeEventListener('focusin', onFocus, true);
-  }, []);
+  });
   useEffect(() => () => { if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current); extractionLease.current?.cancel(); extractionOwner.current = null; }, []);
   const modeActive = maximise.state.mode !== 'canvas';
   useEffect(() => setMaximiseActive(modeActive), [modeActive]);
@@ -469,7 +478,7 @@ export function Workspace({
     },
   });
   cancelNavigationBeforeUserMovement.current = () => {
-    extractionSelectionOwner.current = null;
+    clearExtractionSelection();
     const operation = extractionOwner.current;
     if (operation) { extractionHandoff.cancel(operation.token); abortExtractionPresentation(); }
     if (restoreIntent.current) restoreIntent.current = () => false;
@@ -699,8 +708,9 @@ export function Workspace({
   tryExtractionSelection.current = (token) => {
     const owner = extractionSelectionOwner.current;
     if (!owner || owner.token !== token || !owner.saved || !owner.presented) return;
-    extractionSelectionOwner.current = null;
-    if ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen || commandPaletteOpen
+    const owned = ownsExtractionSelection(owner);
+    clearExtractionSelection();
+    if (!owned || sheetDialogOpen || commandPaletteOpen
       || !commands.currentWorkbook().documents[owner.selection.anchor.sheetId]
       || JSON.stringify(frameProjection(commands.currentWorkbook().documents[owner.selection.anchor.sheetId]!)) !== owner.frame
       || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
@@ -721,12 +731,12 @@ export function Workspace({
   useLayoutEffect(() => {
     const owner = extractionSelectionOwner.current;
     if (owner && !commandPaletteOpen) owner.paletteClosed = true;
-    if (owner && ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen
+    if (owner && (!ownsExtractionSelection(owner) || sheetDialogOpen
       || (owner.paletteClosed && commandPaletteOpen)
       || (owner.presented && (!workbook.documents[owner.selection.anchor.sheetId]
         || JSON.stringify(frameProjection(workbook.documents[owner.selection.anchor.sheetId]!)) !== owner.frame
         || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
-        || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity)))) extractionSelectionOwner.current = null;
+        || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity)))) clearExtractionSelection();
   });
   const projectedFrames = sheets.map((sheet) => {
     const frame = frameProjection(sheet);
@@ -827,6 +837,8 @@ export function Workspace({
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
+    const selected = findSheetById(workbook, selection.anchor.sheetId);
+    if (!selected || !rectangularSelectionAddressRange(selected, selection)) return undefined;
     if (selectionIncludesCalculatedColumn(workbook, selection)) {
       cancelPendingCut();
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
@@ -836,15 +848,15 @@ export function Workspace({
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
   }
-  function cancelPendingCut() {
-    clipboard.current.cancelCut();
+  function cancelPendingCut(marker?: string) {
+    clipboard.current.cancelCut(marker);
     setClipboardRevision((revision) => revision + 1);
   }
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
     const destinationKey = destination && cellKeyForTarget(destination, activeCell);
-    if (!destination || !destinationKey) return;
+    if (!destination || !destinationKey || (selectionRange && !rectangularSelectionAddressRange(destination, selectionRange))) return;
     const hadPendingCut = clipboard.current.pendingCutSource !== undefined;
     const parsed = clipboard.current.parse(workbook, clipboardData);
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
@@ -869,8 +881,44 @@ export function Workspace({
       setCalculatedCellFeedback('The value does not match the data model column type.');
     }
   }
+  const bindingMounted = useRef(true);
+  const bindingTokens = useRef(new Set<ReturnType<NonNullable<typeof selectionSettlement>['beginSelectionSettlement']>>());
+  const bindingSettlement = useRef(selectionSettlement);
+  bindingSettlement.current = selectionSettlement;
+  useEffect(() => { const tokens = bindingTokens.current; bindingMounted.current = true; return () => {
+    bindingMounted.current = false;
+    tokens.forEach((token) => bindingSettlement.current?.cancelSelectionSettlement(token));
+    tokens.clear();
+  }; }, []);
+  function bindingSubmission(submit: (publication?: (before: Workbook, after: Workbook) => void) => ReturnType<typeof commands.bindSheetToModel>) {
+    const original = selectionSettlement?.queuedSelection();
+    const token = selectionSettlement?.beginSelectionSettlement();
+    if (token) bindingTokens.current.add(token);
+    const retire = () => { if (token) { bindingTokens.current.delete(token); selectionSettlement?.cancelSelectionSettlement(token); } };
+    const publication = token && selectionSettlement
+      ? (before: Workbook, after: Workbook) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined;
+    let submission: ReturnType<typeof commands.bindSheetToModel>;
+    try { submission = submit(publication); } catch (error) {
+      retire();
+      throw error;
+    }
+    if (!submission.result.ok) {
+      retire();
+      return submission;
+    }
+    const settle = (failed: boolean) => {
+      if (token && selectionSettlement) {
+        if (failed && bindingMounted.current && selectionSettlement.ownsSelectionSettlement(token)) onRestoreSelection(original ?? null);
+        retire();
+      }
+    };
+    return { ...submission, completion: submission.completion.then((result) => { settle(!result.ok); return result; }, (error) => { settle(true); throw error; }) };
+  }
+  const bindSheetToModel: typeof commands.bindSheetToModel = (sheetId, modelId) => bindingSubmission((publication) => commands.bindSheetToModel(sheetId, modelId, publication));
+  const unbindSheetFromModel: typeof commands.unbindSheetFromModel = (sheetId) => bindingSubmission((publication) => commands.unbindSheetFromModel(sheetId, publication));
   const actionPalette = useWorkspaceActionCommands({
-    commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    commands: { ...commands, bindSheetToModel, unbindSheetFromModel }, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    selectionSettlement, restoreSelection: onRestoreSelection,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
     extraction: {
       managesOwnership: true,
@@ -882,7 +930,7 @@ export function Workspace({
         );
         const scroll = { x: body?.scrollLeft ?? viewport?.scrollLeft ?? 0, y: body?.scrollTop ?? viewport?.scrollTop ?? 0 };
         const request = extractionRequest(workbook, sheet, selection, scroll, projectedFramesById.get(sheet.id)?.position);
-        const range = selectionAddressRange(sheet, selection);
+        const range = rectangularSelectionAddressRange(sheet, selection);
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
         const presented = maximise.state.sheetId === sheet.id && maximise.presentation ? maximise.presentation : canvasPresentation(sourceFrame, workspaceController.displayedViewport);
@@ -898,7 +946,8 @@ export function Workspace({
           extractionFormulaSnapshot.current = formulaResults;
           const token = extractionHandoff.begin(sheet, request.targetSheetId);
           const mapped = mappedExtractionSelection(sheet, selection, request);
-          extractionSelectionOwner.current = mapped ? { token, selection: mapped, revision: interactionRevision?.() ?? 0, saved: false, presented: false, paletteClosed: !commandPaletteOpen } : null;
+          clearExtractionSelection();
+          extractionSelectionOwner.current = mapped ? { token, lease: selectionSettlement?.beginSelectionSettlement(), selection: mapped, revision: interactionRevision?.() ?? 0, saved: false, presented: false, paletteClosed: !commandPaletteOpen } : null;
           if (clipboard.current.pendingCutSource) extractionCuts.current.set(request, clipboard.current.pendingCutSource);
           const operation = { token, sourceId: sheet.id, targetId: request.targetSheetId, sample: extractionOverlayPresentation(sheet, range.start, scroll, displayed, request.frame.size), maximised, accepted: false };
           extractionOwner.current = operation;
@@ -909,6 +958,10 @@ export function Workspace({
           extractionTokens.current.set(request, token);
         }
         return request;
+      },
+      publication: (request, before, after) => {
+        const owner = extractionSelectionOwner.current;
+        if (owner && owner.token === extractionTokens.current.get(request) && owner.lease) selectionSettlement?.reconcileSelectionPublication(owner.lease, before, after);
       },
       onAccepted: (request, target) => {
         const token = extractionTokens.current.get(request);
@@ -925,9 +978,9 @@ export function Workspace({
         if (token !== undefined) {
           const owner = extractionSelectionOwner.current;
           const inputs = extractionInputs.current;
-          if (owner?.token === token && (inputs.interactionRevision?.() ?? 0) === owner.revision && !inputs.sheetDialogOpen && !inputs.commandPaletteOpen
+          if (owner?.token === token && ownsExtractionSelection(owner) && !inputs.sheetDialogOpen && !inputs.commandPaletteOpen
             && commands.currentWorkbook().documents[request!.sourceSheetId]) inputs.onRestoreGridFocus();
-          if (extractionSelectionOwner.current?.token === token) extractionSelectionOwner.current = null;
+          if (extractionSelectionOwner.current?.token === token) clearExtractionSelection();
           extractionHandoff.cancel(token);
           if (extractionOwner.current?.token === token) abortExtractionPresentation();
         }
@@ -951,15 +1004,20 @@ export function Workspace({
     onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
     onRowDeleted: (sheet, target) => {
       const index = sheet.content.rows.indexOf(target.cell.rowId);
-      const remaining = sheet.content.rows.filter((rowId) => rowId !== target.cell.rowId);
+      const live = commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const remaining = live.content.rows;
       const rowId = remaining[Math.min(index, remaining.length - 1)];
-      if (rowId) {
-        const next = { sheetId: sheet.id, cell: { ...target.cell, rowId } };
+      const columnId = live.content.columns.includes(target.cell.columnId) ? target.cell.columnId : live.content.columns[0];
+      if (rowId && columnId) {
+        const next = { sheetId: sheet.id, cell: { columnId, rowId } };
         onSelectCell(next);
         onFocusSelection(next);
       } else {
         onClearSelection();
+        const revision = interactionRevision?.();
         requestAnimationFrame(() => {
+          if (!bindingMounted.current || (interactionRevision && interactionRevision() !== revision) || extractionInputs.current.sheetDialogOpen || extractionInputs.current.commandPaletteOpen) return;
           const frame = document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"]`);
           (frame?.querySelector<HTMLElement>('.model-entry-cell') ?? frame?.querySelector<HTMLElement>('.sheet-grid'))?.focus();
         });
@@ -967,15 +1025,22 @@ export function Workspace({
     },
     onColumnDeleted: (sheet, target) => {
       const index = sheet.content.columns.indexOf(target.cell.columnId);
-      const remaining = sheet.content.columns.filter((columnId) => columnId !== target.cell.columnId);
+      const live = commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const remaining = live.content.columns;
       const columnId = remaining[Math.min(index, remaining.length - 1)];
-      if (columnId) {
-        const next = { sheetId: sheet.id, cell: { ...target.cell, columnId } };
+      const rowId = live.content.rows.includes(target.cell.rowId) ? target.cell.rowId : live.content.rows[0];
+      if (columnId && rowId) {
+        const next = { sheetId: sheet.id, cell: { columnId, rowId } };
         onSelectCell(next);
         onFocusSelection(next);
       } else {
         onClearSelection();
-        requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-grid`)?.focus());
+        const revision = interactionRevision?.();
+        requestAnimationFrame(() => {
+          if (!bindingMounted.current || (interactionRevision && interactionRevision() !== revision) || extractionInputs.current.sheetDialogOpen || extractionInputs.current.commandPaletteOpen) return;
+          document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-grid`)?.focus();
+        });
       }
     },
     onSelectAll: (sheet) => {
@@ -1007,6 +1072,8 @@ export function Workspace({
           case 'native-clipboard': return editingCell === null && !matchesNativeClipboard(event, command.id);
           case 'formatting': return true;
           case 'grid-focus': return true;
+          case 'native-grid': return gridFocusLease?.phase === 'native-owned' && gridFocusLease.sheetId === activeCell?.sheetId
+            && target === document.activeElement && !!target?.closest('[data-cell-key][data-active-cell="true"]');
         }
       }));
       const dispatched = eligible.find((command) => !command.unavailable && matchesShortcut(event, command.id));
@@ -1015,7 +1082,7 @@ export function Workspace({
         propertyDefinitionInvoker.current = target;
       }
       const restoreGridFocus = dispatched?.keyboardContext?.includes('grid-focus') ?? false;
-      if (dispatchShortcut(event, eligible, restoreGridFocus ? { restoreFocus: false } : undefined)) {
+      if (dispatchShortcut(event, eligible, restoreGridFocus || dispatched?.keyboardContext?.includes('native-grid') ? { restoreFocus: false } : undefined)) {
         event.preventDefault();
         if (restoreGridFocus) onRestoreGridFocus();
         return;
@@ -1033,7 +1100,7 @@ export function Workspace({
       window.removeEventListener('keydown', handleGridTypingShortcut, true);
       window.removeEventListener('keydown', handleKeydown);
     };
-  }, [editingCell, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
+  }, [activeCell?.sheetId, editingCell, gridFocusLease, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
       <WorkspaceToolbar
@@ -1108,7 +1175,7 @@ export function Workspace({
               const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
               return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
             })()}
-            modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={commands.unbindSheetFromModel} sheet={menuSheet} />}
+            modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
               commands.appendColumn(sheetId);
@@ -1163,11 +1230,11 @@ export function Workspace({
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const formulaResolver = workbookFormulaReferenceResolver(workbook, sheet.id);
-          const selectedRange = selectionRange?.anchor.sheetId === sheet.id
-            ? selectionAddressRange(sheet, selectionRange)
-            : referenceSelection?.kind === 'range'
-            && referenceSelection.sheetId === sheet.id
+          const presentingReferenceRange = referenceSelection?.kind === 'range' && referenceSelection.sheetId === sheet.id;
+          const selectedRange = presentingReferenceRange
             ? addressRangeOf(sheet.content, referenceSelection.range)
+            : selectionRange?.anchor.sheetId === sheet.id
+            ? selectionEndpointAddressRange(sheet, selectionRange)
             : undefined;
           const highlightTarget = navigationHighlight?.kind === 'cell'
             ? navigationHighlight.target
@@ -1277,8 +1344,11 @@ export function Workspace({
                     pendingCutCells={pendingCutCells}
                     columnLabels={columnLabels}
                     calculatedColumnIds={calculatedColumnIds}
-                    logicalSelection={selectionRange}
+                    logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
+                    allowColumnGather={sheet.modelId === undefined}
+                    modelId={sheet.modelId}
+                    onGatherAxis={(axis, ids, gap) => commands.gatherAxis(sheet.id, axis, ids, gap)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onReferenceViewport={reportReferenceViewport}
@@ -1297,6 +1367,7 @@ export function Workspace({
                       select: (...args) => { cancelNavigationBeforeUserMovement.current(); onSelectCell(...args); },
                       extend: (...args) => { cancelNavigationBeforeUserMovement.current(); onExtendSelection(...args); },
                       focusSelection: onFocusSelection,
+                      focusCurrentSelection: onRestoreGridFocus,
                       settleSelectionGesture: onSettleSelectionGesture,
                       startEditing: (...args) => { cancelNavigationBeforeUserMovement.current(); onStartEdit(...args); },
                     }}
@@ -1345,7 +1416,12 @@ export function Workspace({
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
                     onSelectAxis={(...args) => { cancelNavigationBeforeUserMovement.current(); onSelectAxis(...args); }}
-                    clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
+                    clipboardInteraction={{
+                      copy: () => { actionPalette.invalidateClipboardOperation(); return copyGridSelection(); },
+                      cut: () => { actionPalette.invalidateClipboardOperation(); return cutGridSelection(); },
+                      paste: (content) => { actionPalette.invalidateClipboardOperation(); pasteGridSelection(content); },
+                      cancelCut: () => { actionPalette.invalidateClipboardOperation(); cancelPendingCut(); },
+                    }}
                     sheet={tabular}
                   />
                 );

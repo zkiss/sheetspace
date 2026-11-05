@@ -22,25 +22,29 @@ import { RenameColumnForm } from './RenameColumnForm';
 import { DeletePropertyForm } from './DeletePropertyForm';
 import { columnRenameTarget, type RenameColumnTarget } from '@application/core/renameColumn';
 import type { NavigationCommand, KeyboardContext } from './NavigationPalette';
-import { selectionAddressRange } from './workspaceSelection';
+import { projectSelection } from '@workbook/read/selection';
 import { shortcutLabel } from '@shared/keyboard/keymap';
 import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import { extractionFeedback } from './extractionFeedback';
+import { reorderSelection } from '@workbook/read/reorderSelection';
 
-type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; initialAction?: 'unbind' }
+type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; sheetId: string; initialAction?: 'unbind' }
   | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
   | { kind: 'delete-property'; title: string; target: Extract<RenameColumnTarget, { kind: 'property' }>; selection: CellTarget; sheet: SheetDocument }
   | { kind: 'numbers'; title: string; fields: readonly CommandNumberField[]; apply: (values: number[]) => unknown };
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   maximise, extraction,
+  selectionSettlement, restoreSelection,
   canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
+  selectionSettlement?: Pick<ReturnType<typeof import('@grid/useCellEditing').useCellEditing>, 'queuedSelection' | 'beginSelectionSettlement' | 'ownsSelectionSettlement' | 'cancelSelectionSettlement' | 'reconcileSelectionPublication'>;
+  restoreSelection?: (selection: CellSelection | null) => boolean;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; publication?: (request: ExtractionRequest, before: Workbook, after: Workbook) => void; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -54,7 +58,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   onColumnDeleted: (sheet: SheetDocument, target: CellTarget) => void;
   onToggleReferences: () => void; onFeedback: (message: string) => void;
   onCopy: () => SystemClipboardContent | undefined; onCut: () => SystemClipboardContent | undefined;
-  onPaste: (content: SystemClipboardContent) => void; onCancelCut: () => void; hasPendingCut: boolean;
+  onPaste: (content: SystemClipboardContent) => void; onCancelCut: (marker?: string) => void; hasPendingCut: boolean;
   clipboardAccess?: typeof systemClipboard;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -63,18 +67,42 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const [extractionBusy, setExtractionBusy] = useState(false);
   const extractionPending = useRef(false);
   const clipboardOperation = useRef(0);
+  const unconfirmedCut = useRef<{ marker: string; cancel: (marker: string) => void }>();
+  function cancelUnconfirmedCut() {
+    const cut = unconfirmedCut.current;
+    unconfirmedCut.current = undefined;
+    if (cut) cut.cancel(cut.marker);
+  }
   const mounted = useRef(true);
+  function invalidateClipboardOperation() {
+    clipboardOperation.current += 1;
+    cancelUnconfirmedCut();
+    if (mounted.current) setClipboardBusy(false);
+  }
   const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
   const selectionRevision = useRef({ context: selectionContext, revision: 0 });
   if (selectionRevision.current.context !== selectionContext) {
     selectionRevision.current = { context: selectionContext, revision: selectionRevision.current.revision + 1 };
   }
-  useEffect(() => () => { clipboardOperation.current += 1; }, []);
+  useEffect(() => () => { clipboardOperation.current += 1; cancelUnconfirmedCut(); }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   function show(next: Panel) { setPanel(next); openPanel(); }
   function failure(result: unknown) {
     return result && typeof result === 'object' && 'ok' in result && !result.ok
       ? `The command was not applied${'reason' in result ? `: ${String(result.reason)}` : ''}.` : undefined;
+  }
+  function deletionSettlement() {
+    const revision = selectionRevision.current.revision;
+    const original = selectionSettlement ? selectionSettlement.queuedSelection() : selection;
+    const token = selectionSettlement?.beginSelectionSettlement();
+    return {
+      owned: () => mounted.current && (token && selectionSettlement
+        ? selectionSettlement.ownsSelectionSettlement(token) : selectionRevision.current.revision === revision),
+      retire: () => { if (token) selectionSettlement?.cancelSelectionSettlement(token); },
+      restore: () => restoreSelection?.(original),
+      publication: token && selectionSettlement
+        ? (before: Workbook, after: Workbook) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined,
+    };
   }
   function run(action: () => unknown, restoreFocus = true) {
     return (context?: { restoreFocus?: boolean }) => { setPanel(null); closePalette(context?.restoreFocus ?? restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
@@ -84,6 +112,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   }
   const noSheet = sheet ? undefined : 'Select a sheet first';
   const noCell = activeCell ? undefined : 'Select a cell first';
+  const noClipboardSelection = noCell ?? (!sheet || (selection && !projectSelection(sheet, selection)?.rectangular) ? 'Select a rectangular range first' : undefined);
   const noFormat = formatting.descriptor.valid ? undefined : 'Select cells, rows, or columns first';
   const actions: NavigationCommand[] = [];
   const add = (id: string, label: string, group: string, action: NavigationCommand['run'], unavailable?: string, keyboardContext?: readonly KeyboardContext[]) => {
@@ -111,15 +140,28 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('delete-row', 'Delete row', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
     const revision = selectionRevision.current.revision;
-    const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId);
+    const original = selectionSettlement?.queuedSelection() ?? selection;
+    const token = selectionSettlement?.beginSelectionSettlement();
+    const owned = () => mounted.current && (token && selectionSettlement
+      ? selectionSettlement.ownsSelectionSettlement(token) : selectionRevision.current.revision === revision);
+    const retire = () => { if (token) selectionSettlement?.cancelSelectionSettlement(token); };
+    const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId, token && selectionSettlement
+      ? (before, after) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined);
     const message = failure(submission.result);
-    if (message) { closePalette(); onFeedback(message); return; }
+    if (message) { retire(); closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
-      else if (selectionRevision.current.revision === revision) onRowDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
+      if (error) {
+        onFeedback(error);
+        if (owned()) { restoreSelection?.(original); closePalette(); }
+      } else if (owned()) onRowDeleted(sheet, activeCell);
+      retire();
+    }, () => {
+      onFeedback('The command could not be saved.');
+      if (owned()) { restoreSelection?.(original); closePalette(); }
+      retire();
+    });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   add('delete-column', 'Delete column', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
@@ -128,19 +170,20 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       show({ kind: 'delete-property', title: 'Delete property', target, selection: activeCell, sheet });
       return;
     }
-    const revision = selectionRevision.current.revision;
-    const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId);
+    const settlement = deletionSettlement();
+    const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId, settlement.publication);
     const message = failure(submission.result);
-    if (message) { closePalette(); onFeedback(message); return; }
+    if (message) { if (settlement.owned()) closePalette(); settlement.retire(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
-      else if (selectionRevision.current.revision === revision) onColumnDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
+      if (error) { onFeedback(error); if (settlement.owned()) { settlement.restore(); closePalette(); } }
+      else if (settlement.owned()) onColumnDeleted(sheet, activeCell);
+      settlement.retire();
+    }, () => { onFeedback('The command could not be saved.'); if (settlement.owned()) { settlement.restore(); closePalette(); } settlement.retire(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
-  const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
-    && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
+  const selectedColumns = sheet && selection && selection.mode !== 'rows' ? projectSelection(sheet, selection)?.columns : undefined;
+  const columnId = selectedColumns?.length === 1 ? selectedColumns[0] : undefined;
   const renameTarget = sheet && columnId ? columnRenameTarget(workbook, sheet.id, columnId) : undefined;
   add('rename-column', 'Rename column…', 'Sheet', () => {
     if (!renameTarget || !sheet) return;
@@ -161,8 +204,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('sheet-position', 'Move sheet…', 'Sheet', numbers('Move sheet', [
     { label: 'X position', value: sheet?.frame.position.x ?? 0 }, { label: 'Y position', value: sheet?.frame.position.y ?? 0 },
   ], ([x, y]) => sheet && commands.moveSheetFrame(sheet.id, { x: x!, y: y! })), noSheet);
-  add('bind-model', sheet?.modelId ? 'Rebind model…' : 'Bind model…', 'Data models', () => show({ kind: 'model', title: 'Sheet model binding' }), noSheet);
-  add('unbind-model', 'Unbind model…', 'Data models', () => show({ kind: 'model', title: 'Unbind model', initialAction: 'unbind' }), sheet?.modelId ? undefined : 'The selected sheet has no bound model');
+  add('bind-model', sheet?.modelId ? 'Rebind model…' : 'Bind model…', 'Data models', () => { if (sheet) show({ kind: 'model', title: 'Sheet model binding', sheetId: sheet.id }); }, noSheet);
+  add('unbind-model', 'Unbind model…', 'Data models', () => { if (sheet) show({ kind: 'model', title: 'Unbind model', sheetId: sheet.id, initialAction: 'unbind' }); }, sheet?.modelId ? undefined : 'The selected sheet has no bound model');
   add('edit-model', 'Edit bound model…', 'Data models', run(() => onOpenDataModels?.(sheet?.modelId), false), sheet?.modelId && onOpenDataModels ? undefined : 'The selected sheet has no bound model');
 
   add('edit-cell', 'Edit or inspect cell formula', 'Selection', run(() => activeCell && onEdit(activeCell), false), noCell, ['grid-cells']);
@@ -182,7 +225,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     try {
       request = extraction.request(sheet, selection);
       if (!request) { release(); closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
-      submission = commands.extractSelection(request);
+      const requested = request;
+      submission = commands.extractSelection(request, extraction.publication ? (before, after) => extraction.publication?.(requested, before, after) : undefined);
     } catch {
       release(); extraction.onFailure?.(request); closePalette(); onFeedback('The extraction could not be started.'); return;
     }
@@ -202,36 +246,56 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     }, () => { release(); if (mounted.current) { extraction.onFailure?.(request); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
+    if (noClipboardSelection) return;
+    cancelUnconfirmedCut();
     const operation = ++clipboardOperation.current;
+    const revision = selectionRevision.current.revision;
     setClipboardBusy(true);
     try {
       if (kind === 'paste') {
         const content = await clipboardAccess.read();
-        if (clipboardOperation.current !== operation) return;
+        if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
         onPaste(content);
       } else {
         const content = kind === 'copy' ? onCopy() : onCut();
         if (!content) return;
+        if (kind === 'cut' && content.marker) unconfirmedCut.current = { marker: content.marker, cancel: onCancelCut };
         await clipboardAccess.write(content);
         if (clipboardOperation.current !== operation) return;
+        if (selectionRevision.current.revision !== revision) { cancelUnconfirmedCut(); return; }
+        if (kind === 'cut') unconfirmedCut.current = undefined;
       }
       setPanel(null); closePalette();
     } catch {
       if (clipboardOperation.current !== operation) return;
-      if (kind === 'cut') onCancelCut();
+      if (kind === 'cut') cancelUnconfirmedCut();
+      if (selectionRevision.current.revision !== revision) return;
       closePalette();
       onFeedback('Clipboard access failed. Use the keyboard clipboard shortcut or allow clipboard access in your browser.');
     } finally {
       if (clipboardOperation.current === operation) setClipboardBusy(false);
     }
   }
-  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
-  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
-  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
+  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noClipboardSelection ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
+  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noClipboardSelection ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
+  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noClipboardSelection ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
   add('cancel-cut', 'Cancel cut', 'Editing', run(onCancelCut), hasPendingCut ? undefined : 'No pending cut');
   add('select-row', 'Select row', 'Selection', run(() => activeCell && onSelectAxis('rows', activeCell)), noCell);
   add('select-column', 'Select column', 'Selection', run(() => activeCell && onSelectAxis('columns', activeCell)), noCell);
   add('select-all', 'Select all cells', 'Selection', run(() => sheet && onSelectAll(sheet)), sheet?.content.rows.length && sheet.content.columns.length ? undefined : 'Select a nonempty sheet first');
+
+  for (const [id, label, axis, direction] of [
+    ['move-row-up', 'Move rows up', 'row', -1], ['move-row-down', 'Move rows down', 'row', 1],
+    ['move-column-left', 'Move columns left', 'column', -1], ['move-column-right', 'Move columns right', 'column', 1],
+  ] as const) {
+    const ids = sheet ? reorderSelection(sheet, selection, activeCell, axis) : [];
+    add(id, label, 'Selection', run(() => {
+      const live = sheet && commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const selected = reorderSelection(live, selection, activeCell, axis);
+      if (selected.length) commands.shiftAxis(live.id, axis, selected, direction);
+    }), ids.length ? undefined : 'Select a saved cell first', ['no-editing', 'native-grid']);
+  }
 
   const format = (action: FormattingAction) => run(() => formatting.descriptor.valid
     && commands.writeNumberFormats(formatting.descriptor.sheetId, formattingActionWrites(formatting, action)));
@@ -257,9 +321,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     return value && formatting.descriptor.valid && commands.writeNumberFormats(formatting.descriptor.sheetId, materializeFormattingWrites(formatting.descriptor, 'numberFormat', value));
   }), noFormat ?? (currentFormat && currentFormat.kind !== 'general' ? undefined : 'Choose number or percent formatting first'), ['no-editing', 'formatting']);
 
-  const range = sheet && selection ? selectionAddressRange(sheet, selection) : undefined;
+  const projection = sheet && selection ? projectSelection(sheet, selection) : undefined;
   for (const axis of ['row', 'column'] as const) {
-    const ids = sheet && range ? (axis === 'row' ? sheet.content.rows.slice(range.start.rowIndex, range.end.rowIndex + 1) : sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1)) : [];
+    const ids = (axis === 'row' ? projection?.rows : projection?.columns) ?? [];
     const value = axis === 'row' ? sheet?.presentation.rowHeights[ids[0]!] ?? DEFAULT_ROW_HEIGHT : sheet?.presentation.columnWidths[ids[0]!] ?? DEFAULT_COLUMN_WIDTH;
     const label = axis === 'row' ? 'Row height' : 'Column width';
     add(`size-${axis}`, `${label}…`, 'Selection', numbers(label, [{ label: `${label} (pixels)`, value, ...AXIS_SIZE_LIMITS[axis] }], ([size]) => sheet && commands.writeAxisSizes(sheet.id, ids.map((axisId) => ({ axis, axisId, size: size! })))), ids.length ? undefined : 'Select cells, rows, or columns first');
@@ -285,26 +349,32 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const message = failure(commands.writeNumberFormats(formatting.descriptor.sheetId, writes));
     if (message) onFeedback(message);
   }} />;
-  if (panel?.kind === 'model' && sheet) content = <SheetModelControls key={`${sheet.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={sheet} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
+  if (panel?.kind === 'model') {
+    const target = workbook.documents[panel.sheetId];
+    if (target) content = <SheetModelControls key={`${target.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={target} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
+  }
   if (panel?.kind === 'delete-property') content = <DeletePropertyForm target={panel.target} onCancel={() => { setPanel(null); closePalette(); }} onApply={async () => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
     const model = workbook.dataModels?.[panel.target.modelId];
     if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) || !model) return 'The selected property has changed. Close and try again.';
-    const revision = selectionRevision.current.revision;
-    const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) });
+    const settlement = deletionSettlement();
+    const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) }, settlement.publication);
     setRenameBusy(true);
     let result;
     try { result = submission.result.ok ? await submission.completion : submission.result; }
+    catch { if (settlement.owned()) settlement.restore(); settlement.retire(); return 'Could not delete the property: save failed.'; }
     finally { setRenameBusy(false); }
-    if (!result.ok) return `Could not delete the property: ${result.reason}.`;
+    if (!result.ok) { if (settlement.owned()) settlement.restore(); settlement.retire(); return `Could not delete the property: ${result.reason}.`; }
     setPanel(null);
-    if (selectionRevision.current.revision === revision) { closePalette(false); onColumnDeleted(panel.sheet, panel.selection); }
+    if (settlement.owned()) { closePalette(false); onColumnDeleted(panel.sheet, panel.selection); }
+    settlement.retire();
     return undefined;
   }} />;
   if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
-    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) ||
+    if (sheet?.id !== panel.target.sheetId || columnId !== panel.target.columnId || JSON.stringify(current) !== JSON.stringify(panel.target) ||
       (current?.kind === 'ordinary' && (workbook.documents[current.sheetId]?.columnNames?.[current.columnId] ?? '') !== panel.initialName)) return 'The selected column has changed. Close and try again.';
+    const revision = selectionRevision.current.revision;
     const submission = commands.renameColumn(panel.target.sheetId, panel.target.columnId, name);
     setRenameBusy(true);
     let result;
@@ -315,7 +385,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (result.reason === 'duplicate') return 'That column name is already in use.';
       return `Could not rename the column: ${result.reason}.`;
     }
-    setPanel(null); closePalette();
+    setPanel(null); if (selectionRevision.current.revision === revision) closePalette();
     return undefined;
   }} />;
   if (panel?.kind === 'numbers') content = <CommandNumberForm key={panel.title} fields={panel.fields} onApply={(values) => {
@@ -323,5 +393,5 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (!message) { setPanel(null); closePalette(); }
     return message;
   }} />;
-  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; if (clipboardBusy) onCancelCut(); setClipboardBusy(false); setPanel(null); } };
+  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, invalidateClipboardOperation, resetPanel: () => { invalidateClipboardOperation(); setPanel(null); } };
 }

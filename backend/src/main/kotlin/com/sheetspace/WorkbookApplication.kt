@@ -64,6 +64,7 @@ enum class WorkbookApplicationError {
     MODEL_LIFECYCLE_CONFLICT,
     BOUND_SHEET_STRUCTURE,
     INVALID_MODEL_RECORD,
+    INVALID_AXIS_ORDER,
 }
 
 class WorkbookApplicationException(
@@ -71,6 +72,7 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument
     fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
     fun loadManifest(): WorkbookManifest
 
@@ -106,6 +108,28 @@ class DefaultWorkbookApplication(
     private val store: WorkbookStore,
     private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
 ) : WorkbookApplication {
+    override fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument =
+        updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
+            val content = sheet.tabularContent
+            val existing = when (axis) {
+                "row" -> content.rows.map(RowId::value)
+                "column" -> {
+                    if (sheet.modelId != null) throw WorkbookApplicationException(WorkbookApplicationError.BOUND_SHEET_STRUCTURE)
+                    content.columns.map(ColumnId::value)
+                }
+                else -> throw WorkbookApplicationException(WorkbookApplicationError.INVALID_AXIS_ORDER)
+            }
+            if (order.size != existing.size || order.toSet() != existing.toSet()) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_AXIS_ORDER)
+            }
+            if (order == existing) return@updateExistingSheet workbook
+            val updated = if (axis == "row") {
+                TabularContent(order.map(::RowId), content.columns, content.cellContents)
+            } else {
+                TabularContent(content.rows, order.map(::ColumnId), content.cellContents)
+            }
+            workbook.replaceSheet(sheet.copy(content = updated))
+        }
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
         store.updateWorkbook { current ->
             val reconciled = reconcileModelLifecycle(current, before, after)

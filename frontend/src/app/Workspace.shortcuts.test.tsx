@@ -29,7 +29,7 @@ function stubMacNavigator() {
 }
 
 function renderWorkspace(overrides: Partial<ComponentProps<typeof Workspace>> = {}) {
-  const sheet = smallSheetDocument({ id: 'keys', name: 'Keys', rowCount: 1, columnCount: 1 });
+  const sheet = smallSheetDocument({ id: 'keys', name: 'Keys', rowCount: 3, columnCount: 3 });
   const props = { ...formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells')), canUndo: true, canRedo: true, ...overrides };
   const view = render(<Workspace {...props} />);
   return { sheet, props, view };
@@ -189,6 +189,7 @@ describe('keyboard labels and hints', () => {
   });
 
   it('derives clipboard palette hints and disabled guidance from the keymap', () => {
+    vi.spyOn(systemClipboard, 'canWrite').mockReturnValue(false);
     renderWorkspace();
     fireEvent.keyDown(document.body, { key: 'p', ctrlKey: true, shiftKey: true });
     expect(screen.getByText('Ctrl+C / Ctrl+Shift+C')).toBeInTheDocument();

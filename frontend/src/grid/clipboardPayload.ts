@@ -1,5 +1,6 @@
 import type { CellSelection } from './cellInteractionContracts';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { projectSelection } from '@workbook/read/selection';
 import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
@@ -81,8 +82,9 @@ export class ClipboardPayloadStore {
   private pendingCut: { marker: ClipboardMarker; text: string; source: ClipboardSourceSnapshot } | undefined;
 
   copy(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
-    this.pendingCut = undefined;
-    return this.capture(workbook, selection);
+    const captured = this.capture(workbook, selection);
+    if (captured.ok) this.pendingCut = undefined;
+    return captured;
   }
 
   cut(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
@@ -91,7 +93,9 @@ export class ClipboardPayloadStore {
     return captured;
   }
 
-  cancelCut() { this.pendingCut = undefined; }
+  cancelCut(marker?: string) {
+    if (marker === undefined || this.pendingCut?.marker === marker) this.pendingCut = undefined;
+  }
   get pendingCutSource() { return this.pendingCut?.source; }
 
   private capture(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
@@ -135,22 +139,12 @@ export class ClipboardPayloadStore {
 }
 
 function selectionRange(sheet: SheetDocument, selection: CellSelection): { rowIndices: number[]; columnIndices: number[] } | undefined {
-  if (selection.anchor.sheetId !== sheet.id || selection.extent.sheetId !== sheet.id) return undefined;
-  const startRow = sheet.content.rows.indexOf(selection.anchor.cell.rowId);
-  const endRow = sheet.content.rows.indexOf(selection.extent.cell.rowId);
-  const startColumn = sheet.content.columns.indexOf(selection.anchor.cell.columnId);
-  const endColumn = sheet.content.columns.indexOf(selection.extent.cell.columnId);
-  if (startRow < 0 || endRow < 0 || startColumn < 0 || endColumn < 0) return undefined;
-  const rows = indicesBetween(startRow, endRow);
-  const columns = indicesBetween(startColumn, endColumn);
+  const projection = projectSelection(sheet, selection);
+  if (!projection?.rectangular) return undefined;
   return {
-    rowIndices: selection.mode === 'columns' ? indicesBetween(0, sheet.content.rows.length - 1) : rows,
-    columnIndices: selection.mode === 'rows' ? indicesBetween(0, sheet.content.columns.length - 1) : columns,
+    rowIndices: projection.rows.map((id) => sheet.content.rows.indexOf(id)),
+    columnIndices: projection.columns.map((id) => sheet.content.columns.indexOf(id)),
   };
-}
-
-function indicesBetween(first: number, second: number): number[] {
-  return Array.from({ length: Math.abs(second - first) + 1 }, (_, index) => Math.min(first, second) + index);
 }
 
 function sourceStillValid(workbook: Workbook, source: ClipboardSourceSnapshot): boolean {

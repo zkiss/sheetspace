@@ -14,25 +14,30 @@ import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
+import type { ReorderAxis, ReorderResult } from '@workbook/mutations/reorderAxis';
+
+export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'optimistic' | 'rollback') => void;
 
 export type WorkbookCommands = {
   currentWorkbook: () => Workbook;
-  extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest) => ExtractionSubmission;
+  gatherAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], gap: number) => ReorderCommandResult;
+  shiftAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], direction: -1 | 1) => ReorderCommandResult;
+  extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest, publication?: LifecyclePublication) => ExtractionSubmission;
   submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
   dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
-  bindSheetToModel: (sheetId: string, modelId: string) => DataModelCommandSubmission;
-  unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
+  bindSheetToModel: (sheetId: string, modelId: string, publication?: LifecyclePublication) => DataModelCommandSubmission;
+  unbindSheetFromModel: (sheetId: string, publication?: LifecyclePublication) => DataModelCommandSubmission;
   addDataModel: (model: DataModel) => DataModelCommandSubmission;
-  replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
+  replaceModelDeclaration: (model: DataModel, publication?: LifecyclePublication) => DataModelCommandSubmission;
   renameColumn: (sheetId: string, columnId: string, name: string) => RenameColumnSubmission;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
-  deleteRow: (sheetId: string, rowId: string) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure> }>;
-  deleteColumn: (sheetId: string, columnId: string) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure> }>;
+  deleteRow: (sheetId: string, rowId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure> }>;
+  deleteColumn: (sheetId: string, columnId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure> }>;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
   createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
@@ -52,6 +57,7 @@ export type WorkbookCommands = {
 };
 
 export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
+export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' | 'pending-axis-creation' | 'order-history-too-large' };
 export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
 
@@ -83,6 +89,7 @@ export type WorkbookController = {
   canRedo: boolean;
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
   extractionReplayFailure: ExtractionReplayFailure | undefined;
+  orderReplayFailure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined;
   mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;

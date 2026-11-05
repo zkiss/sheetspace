@@ -42,6 +42,43 @@ afterEach(cleanup);
 
 
 describe('SheetGrid virtualization', () => {
+  it('reveals a moved active cell again when its coordinate changes and when history reverses it', async () => {
+    const sheet = tabularProjection(sparseLargeSheetDocument());
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const grid = (activeCellKey: string) => (
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid
+          activeCellKey={activeCellKey}
+          axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
+          cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+          editingCell={null}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}}
+          keyboardFocusRequest={null}
+          onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null}
+          scrollContainerRef={scrollContainerRef}
+          sheet={sheet}
+        />
+      </div>
+    );
+    const view = render(grid('A1'));
+    const body = scrollContainerRef.current!;
+    virtualGridGeometry(body, { height: 100, width: 200 });
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toBeInTheDocument());
+
+    view.rerender(grid('CV10000'));
+    await waitFor(() => expect(body.scrollTop).toBeGreaterThan(200_000));
+    expect(body.scrollLeft).toBeGreaterThan(7_000);
+    fireEvent.scroll(body);
+    view.rerender(grid('A1'));
+    await waitFor(() => expect(body.scrollTop).toBe(0));
+    expect(body.scrollLeft).toBe(0);
+    fireEvent.scroll(body);
+    view.rerender(grid('CV10000'));
+    await waitFor(() => expect(body.scrollTop).toBeGreaterThan(200_000));
+  });
+
   it('measures two-axis windows at edges, retains overlapping identities, and reacts to resize', async () => {
     const { body, geometry } = renderMeasuredSparseGrid();
     // Wait for the measured viewport rather than the virtualizer's larger initialRect.

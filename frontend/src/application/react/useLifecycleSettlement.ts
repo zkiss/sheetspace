@@ -4,7 +4,7 @@ import type { SetWorkbook } from '@calculation/workbookCalculation';
 import type { OutboxSnapshot } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import type { useSavedSheetAutosave } from './useSavedSheetAutosave';
-import type { TransitionFailure } from './workbookControllerTypes';
+import type { LifecyclePublication, TransitionFailure } from './workbookControllerTypes';
 
 export function useLifecycleSettlement(options: {
   autosaveEnabled: boolean;
@@ -19,7 +19,7 @@ export function useLifecycleSettlement(options: {
   // An ambiguous failure may have committed server-side, so the exact payload
   // is retained for a later compare-and-swap retry instead of a new identity.
   const recoveries = useRef(new Map<string, { after: Workbook; onSuccess: () => void }>());
-  const { subscribeOutbox, revision, current } = options;
+  const { subscribeOutbox, revision } = options;
   const { setWorkbook } = options;
 
   useEffect(() => subscribeOutbox((snapshot) => {
@@ -28,11 +28,10 @@ export function useLifecycleSettlement(options: {
       if (entry?.status !== 'succeeded') continue;
       recoveries.current.delete(operationId);
       const restored = withCommittedRevisions(recovery.after, revision);
-      current.current = restored;
       setWorkbook(restored, { kind: 'structure' });
       recovery.onSuccess();
     }
-  }), [subscribeOutbox, revision, current, setWorkbook]);
+  }), [subscribeOutbox, revision, setWorkbook]);
 
   const hasPending = () => Boolean(pending.current) || options.autosave.hasModelTransition();
   const wait = () => {
@@ -41,11 +40,11 @@ export function useLifecycleSettlement(options: {
     if (!local) return transport;
     return transport ? Promise.all([local, transport]).then(() => undefined) : local;
   };
-  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory): Promise<T | TransitionFailure> {
+  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory, publication?: LifecyclePublication): Promise<T | TransitionFailure> {
     let release!: () => void;
     pending.current = new Promise<void>((resolve) => { release = resolve; });
-    options.current.current = result.value;
     options.setWorkbook(result.value, { kind: 'structure' });
+    publication?.(before, result.value, 'optimistic');
     if (!options.autosaveEnabled) {
       onSuccess();
       pending.current = undefined;
@@ -69,12 +68,10 @@ export function useLifecycleSettlement(options: {
         const restored = { ...before, documents };
         return restored;
       };
-      options.current.current = restore(options.current.current);
-      options.setWorkbook((current) => {
-        const restored = restore(current);
-        options.current.current = restored;
-        return restored;
-      }, { kind: 'structure' });
+      const beforeRollback = options.current.current;
+      const restored = restore(beforeRollback);
+      options.setWorkbook(restored, { kind: 'structure' });
+      publication?.(beforeRollback, restored, 'rollback');
       if (entry.status === 'blocked') {
         // Never dispatched, so definitely not committed; the captured snapshot
         // would be stale once the predecessor recovers. Discard as before.
