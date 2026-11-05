@@ -62,6 +62,9 @@ private fun validateLifecycleStructure(workbook: WorkbookState) {
         requireLifecycle(sheet.frame.position.isValid() && sheet.frame.size.isValid() && isValidSheetVisualScale(sheet.frame.visualScale) && sheet.frame.zIndex >= 1)
         requireLifecycle(validModelColumnBindings(sheet, workbook.dataModels))
         requireLifecycle(validColumnNames(sheet, workbook.dataModels))
+        requireLifecycle(sheet.sorting.map { it.columnId }.distinct().size == sheet.sorting.size && sheet.sorting.all { criterion ->
+            criterion.direction in setOf("ascending", "descending") && sheet.tabularContent.columns.any { it.value == criterion.columnId }
+        })
         val presentation = sheet.presentation
         val sizes = presentation.rowHeights.map { (id, size) -> AxisSizeWrite("row", id, size) } + presentation.columnWidths.map { (id, size) -> AxisSizeWrite("column", id, size) }
         if (sizes.isNotEmpty()) validatedPresentationWrites(sheet, sizes)

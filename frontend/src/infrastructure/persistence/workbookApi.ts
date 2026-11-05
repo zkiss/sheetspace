@@ -3,6 +3,8 @@ import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { DEFAULT_SHEET_FRAME_SIZE, isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type AxisSizeWrite, type DataModel, type ModelColumnType, type FormatWrite, type SheetDocument, type SheetFrameSize, type SheetPresentation, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
+import { validSorting } from '@workbook/core/sorting';
+import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 
 type ApiErrorBody = {
@@ -42,6 +44,7 @@ export type SheetDocumentResponse = {
   modelColumnBindings?: Record<string, string>;
   columnNames?: Record<string, string>;
   modelFormulaBindings?: ModelFormulaBindings;
+  sorting?: readonly SortCriterion[];
 };
 
 export type WorkbookBundleResponse = {
@@ -365,6 +368,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
   const rowIndices = uniqueIndices(document.content.rows, 'row');
   const columnIndices = uniqueIndices(document.content.columns, 'column');
   const cells: Record<string, string> = {};
+  if (document.sorting !== undefined && (!Array.isArray(document.sorting) || document.sorting.some((criterion) => !criterion || typeof criterion !== 'object') || !validSorting(document.content.columns, document.sorting))) invalidReadContract('invalid sorting criteria');
 
   if (document.columnNames !== undefined && (!document.columnNames || Array.isArray(document.columnNames)
       || typeof document.columnNames !== 'object'
@@ -456,6 +460,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
+    ...(document.sorting === undefined || document.sorting.length === 0 ? {} : { sorting: document.sorting.map((criterion) => ({ ...criterion })) }),
     ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
     ...(document.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...document.modelColumnBindings } }),
     ...(document.columnNames === undefined || Object.keys(document.columnNames).length === 0 ? {} : { columnNames: { ...document.columnNames } }),

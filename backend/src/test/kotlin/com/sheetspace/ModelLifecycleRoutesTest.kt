@@ -16,6 +16,31 @@ import kotlin.test.assertNotEquals
 
 class ModelLifecycleRoutesTest {
     @Test
+    fun `sorting and row order survive lifecycle save and invalid criteria are atomic`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleWorkbook()
+            store.saveWorkbook(before)
+            val sheet = before.sheetsInOrder.first()
+            val content = sheet.tabularContent
+            val sorted = sheet.copy(
+                sorting = listOf(SortCriterion(content.columns.first().value, "descending")),
+                content = TabularContent(content.rows.reversed(), content.columns, content.cellContents),
+            )
+            val after = before.replaceSheet(sorted)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }.status)
+                val saved = store.loadWorkbookBundle()
+                assertEquals(sorted.sorting, saved.documents.getValue(sheet.id).sorting)
+                assertEquals(sorted.tabularContent, saved.documents.getValue(sheet.id).tabularContent)
+                val invalid = saved.replaceSheet(saved.documents.getValue(sheet.id).copy(sorting = listOf(SortCriterion("unknown", "ascending"))))
+                assertEquals(HttpStatusCode.BadRequest, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(saved, invalid)) }.status)
+                assertEquals(saved, store.loadWorkbookBundle())
+            }
+        }
+    }
+
+    @Test
     fun `column names survive lifecycle writes and stale snapshots conflict`() {
         SqliteWorkbookStore.inMemory().use { store ->
             val before = lifecycleWorkbook()

@@ -28,6 +28,7 @@ data class SheetDocumentResponse(
     val modelColumnBindings: Map<String, String> = emptyMap(),
     val columnNames: Map<String, String> = emptyMap(),
     val modelFormulaBindings: Map<String, BoundModelFormula>? = null,
+    val sorting: List<SortCriterion> = emptyList(),
 )
 
 @Serializable
@@ -114,6 +115,7 @@ internal object WorkbookReadTransportAdapter {
             modelColumnBindings = document.modelColumnBindings.mapValues { (_, columnId) -> columnId.value },
             columnNames = document.columnNames,
             modelFormulaBindings = document.modelFormulaBindings,
+            sorting = document.sorting,
         )
     }
 

@@ -109,7 +109,7 @@ internal class SqliteWorkbookWriter(
 
     private fun insertSheet(sheet: SheetDocument) {
         connection.prepareStatement(
-            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id, model_formula_bindings, column_names) VALUES (?, ?, 'TABULAR', ?, ?, ?, ?)",
+            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id, model_formula_bindings, column_names, sorting) VALUES (?, ?, 'TABULAR', ?, ?, ?, ?, ?)",
         ).use { statement ->
             statement.setBytes(1, sheet.id.value.toUuidBytes())
             statement.setString(2, sheet.name)
@@ -117,6 +117,7 @@ internal class SqliteWorkbookWriter(
             statement.setBytes(4, sheet.modelId?.toUuidBytes())
             statement.setString(5, sheet.modelFormulaBindings?.let { Json.encodeToString(it) })
             statement.setString(6, Json.encodeToString(sheet.columnNames))
+            statement.setString(7, Json.encodeToString(sheet.sorting))
             statement.executeUpdate()
         }
         insertFrame(sheet)
@@ -156,7 +157,7 @@ internal class SqliteWorkbookWriter(
         val updatedRows = connection.prepareStatement(
             """
             UPDATE sheet_documents
-            SET name = ?, content_kind = 'TABULAR', model_id = ?, model_formula_bindings = ?, column_names = ?, revision = revision + 1
+            SET name = ?, content_kind = 'TABULAR', model_id = ?, model_formula_bindings = ?, column_names = ?, sorting = ?, revision = revision + 1
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
@@ -164,8 +165,9 @@ internal class SqliteWorkbookWriter(
             statement.setBytes(2, updated.modelId?.toUuidBytes())
             statement.setString(3, updated.modelFormulaBindings?.let { Json.encodeToString(it) })
             statement.setString(4, Json.encodeToString(updated.columnNames))
-            statement.setBytes(5, updated.id.value.toUuidBytes())
-            statement.setLong(6, current.revision)
+            statement.setString(5, Json.encodeToString(updated.sorting))
+            statement.setBytes(6, updated.id.value.toUuidBytes())
+            statement.setLong(7, current.revision)
             statement.executeUpdate()
         }
         if (updatedRows == 0) {
