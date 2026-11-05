@@ -23,9 +23,9 @@ export function readPublicA1Token(input: string, start: number): string | undefi
   return /[A-Za-z0-9]/.test(input[start + token.length] ?? '') ? undefined : token;
 }
 
-export function parseCanonicalPositionalEndpoint(input: string, start: number): { endpoint: Endpoint; end: number } | undefined {
+export function parseCanonicalPositionalEndpoint(input: string, start: number, stored: boolean): { endpoint: Endpoint; end: number } | undefined {
   const match = /^(\$?)(?:~([0-9a-f]+)~([0-9a-f]+)|([A-Za-z0-9_:-]+))\[#(\$?)([1-9][0-9]*)\]/i.exec(input.slice(start));
-  if (!match || !match[2] && /^[A-Za-z]+$/.test(match[4])) return undefined;
+  if (!match || !stored && !match[2] && /^[A-Za-z]+$/.test(match[4])) return undefined;
   const columnId = match[3] ? decodeStableId(match[3]) : match[4];
   const propertyId = match[2] ? decodeStableId(match[2]) : undefined;
   if (!columnId || match[2] && !propertyId || !Number.isSafeInteger(Number(match[6]))) return undefined;

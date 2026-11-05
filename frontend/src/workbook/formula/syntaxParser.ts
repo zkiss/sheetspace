@@ -355,7 +355,7 @@ export class FormulaParser {
   private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
     const escaped = !this.stored && parseEscapedColumnEndpoint(this.input, start); if (escaped) { this.index = escaped.end; return escaped.endpoint; }
-    const positionalCanonical = !this.userReferences && parseCanonicalPositionalEndpoint(this.input, start);
+    const positionalCanonical = !this.userReferences && parseCanonicalPositionalEndpoint(this.input, start, this.stored);
     if (positionalCanonical) { this.index = positionalCanonical.end; return positionalCanonical.endpoint; }
     const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
     if (named && !this.userReferences) {

@@ -68,6 +68,21 @@ describe('positional public reference syntax', () => {
 describe('positional canonical endpoint contract', () => {
   const anchors = { column: true, row: true };
 
+  it('round trips alphabetic column identities in single references and ranges', () => {
+    const first = formatCanonicalFormulaEndpoint({ columnId: 'column', rowIndex: 1 }, anchors);
+    const second = formatCanonicalFormulaEndpoint({ columnId: 'other', rowIndex: 4 }, { column: false, row: false });
+
+    for (const endpoints of [[first], [first, second], [second, first]]) {
+      const syntax = parseFormulaSyntax(`=@${endpoints.join(':')}`, { stored: true });
+      expect(syntax.result).toMatchObject({ kind: 'formula', expression: { kind: 'row-reference' } });
+      expect(syntax.referenceLexemes[0].endpoints.map((endpoint) => endpoint.value)).toEqual(
+        endpoints.map((endpoint) => endpoint === first ? { columnId: 'column', rowIndex: 1 } : { columnId: 'other', rowIndex: 4 }),
+      );
+      expect(syntax.referenceLexemes[0].endpoints.map((endpoint) => endpoint.kind)).toEqual(endpoints.map(() => 'positional-canonical'));
+    }
+    expect(parseUserFormulaSyntax('=@B[#2]').referenceLexemes[0].endpoints[0]).toMatchObject({ kind: 'a1', rowMode: 'positional' });
+  });
+
   it.each([undefined, "property ' one"])('round trips stable column identity and numeric row position with property %s', (propertyId) => {
     const endpoint = formatCanonicalFormulaEndpoint({ columnId: 'column-2', rowIndex: 4 }, anchors, propertyId);
     const syntax = parseFormulaSyntax(`=@sheet-1!${endpoint}`, { stored: true });
