@@ -25,12 +25,13 @@ export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, row
 }) {
   const previous = useRef<Snapshot>();
   const cancelEffects = useRef<() => void>();
+  const activePlan = useRef<GridAxisMotionPlan | null>(null);
   const [plan, setPlan] = useState<GridAxisMotionPlan | null>(null);
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
   const clear = useCallback(() => {
     cancelEffects.current?.();
     cancelEffects.current = undefined;
-    setPlan(null);
+    if (activePlan.current) { activePlan.current = null; setPlan(null); }
   }, []);
   useEffect(() => {
     const element = scrollContainerRef.current;
@@ -64,11 +65,16 @@ export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, row
     if (JSON.stringify([before.rows, before.columns]) === JSON.stringify([rows, columns])) return;
     const next = { rows: planAxisMotion(before.rows, rows, top, height), columns: planAxisMotion(before.columns, columns, left, width) };
     clear();
-    if (next.rows.some((item) => item.delta) || next.columns.some((item) => item.delta)) setPlan(next);
+    if (next.rows.some((item) => item.delta) || next.columns.some((item) => item.delta)) {
+      activePlan.current = next;
+      setPlan(next);
+    }
   }, [scrollContainerRef, projection.rows, projection.columns, rowMetrics, columnMetrics, enabled, activeSheetId, sheetId, owner, clear, reduced]);
   useLayoutEffect(() => {
     if (!plan || !gridRef.current) return;
-    const cancel = animateGridAxes(gridRef.current, plan, () => setPlan((current) => current === plan ? null : current));
+    const cancel = animateGridAxes(gridRef.current, plan, () => {
+      if (activePlan.current === plan) { activePlan.current = null; setPlan(null); }
+    });
     cancelEffects.current = cancel;
     return cancel;
   }, [gridRef, plan]);
