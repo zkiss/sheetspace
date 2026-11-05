@@ -118,6 +118,7 @@ export function outdentFormulaSelection(raw: string, selection: FormulaEditorSel
 
 /** A stable target identity is independent of raw spelling and source position. */
 export function stableReferenceIdentity(reference: FormulaReference, resolver: FormulaReferenceResolver): FormulaReferenceIdentity | undefined {
+  if (reference.kind === 'row-reference') return undefined;
   const sheetId = reference.kind === 'canonical'
     ? reference.sheetId ?? resolver.currentSheetId
     : reference.sheetId === undefined ? resolver.currentSheetId : resolver.sheetByQualifier(reference.sheetId);

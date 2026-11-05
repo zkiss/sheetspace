@@ -68,6 +68,7 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
 }
 
 function bindEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number], sheet: SheetDocument | undefined, workbook: Workbook, modelTemplate: boolean): string | undefined {
+  if (endpoint.rowMode === 'positional') return undefined;
   if (!sheet || endpoint.kind !== 'a1' && endpoint.kind !== 'named') return undefined;
   if ((endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1) >= 2147483647) return undefined;
   const property = endpoint.kind === 'named' ? namedColumns(workbook, sheet).find((property) => property.name === (endpoint.value as { propertyName: string }).propertyName) : undefined;

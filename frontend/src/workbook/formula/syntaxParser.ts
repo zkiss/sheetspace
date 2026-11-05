@@ -15,7 +15,7 @@ import type {
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
-import { completeUserReferenceStart, makeFormulaReference, parseOpenEndpoint, parsePositionalEndpoint, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
+import { completeUserReferenceStart, endpointFamily, makeFormulaReference, parseOpenEndpoint, parseEscapedColumnEndpoint, parseCanonicalPositionalEndpoint, qualifierPayloadSpan, readPublicRow, readPublicA1Token, referencePayloadSpans } from './syntaxReference';
 import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
 
 type ReadResult<T> =
@@ -339,7 +339,7 @@ export class FormulaParser {
       second = open?.endpoint;
       if (open) this.index = open.end;
     }
-    if (!second || first.kind !== second.kind) {
+    if (!second || endpointFamily(first) !== endpointFamily(second)) {
       return this.error();
     }
     const secondEnd = this.index;
@@ -354,7 +354,9 @@ export class FormulaParser {
 
   private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
-    const positional = !this.stored && parsePositionalEndpoint(this.input, start); if (positional) { this.index = positional.end; return positional.endpoint; }
+    const escaped = !this.stored && parseEscapedColumnEndpoint(this.input, start); if (escaped) { this.index = escaped.end; return escaped.endpoint; }
+    const positionalCanonical = !this.userReferences && parseCanonicalPositionalEndpoint(this.input, start);
+    if (positionalCanonical) { this.index = positionalCanonical.end; return positionalCanonical.endpoint; }
     const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
     if (named && !this.userReferences) {
       const propertyId = decodeStableId(named[2]);
@@ -369,24 +371,22 @@ export class FormulaParser {
     const property = this.readQuotedProperty();
     if (property !== undefined) {
       const columnEnd = this.index - 1;
-      const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
+      const row = readPublicRow(this.input.slice(this.index));
       if (!row) {
         if (this.userReferences && this.peek() === '[') return undefined;
         return { kind: 'named', value: { propertyName: property, row: 1 }, anchors: { column: propertyAnchor, row: false }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(propertyAnchor) + 1, columnEnd, this.index, this.index) };
       }
-      this.index += row[0].length;
-      if (this.userReferences && !Number.isSafeInteger(Number(row[2]))) return undefined;
-      return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(propertyAnchor) + 1, columnEnd, this.index - row[2].length - 1, this.index - 1) };
+      this.index += row.text.length;
+      return { kind: 'named', ...(row.positional ? { rowMode: 'positional' } : {}), value: { propertyName: property, row: Number(row.digits) }, anchors: { column: propertyAnchor, row: row.absolute }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(propertyAnchor) + 1, columnEnd, this.index - row.digits.length - 1, this.index - 1) };
     }
     this.index = propertyStart;
     const columnAnchor = this.consume('$');
     const propertyName = this.readIdentifier();
     if (propertyName && this.peek() === '[' && this.isNamedColumn?.(qualifier, propertyName, { start: start + Number(columnAnchor) + 1, end: this.index + 1 })) {
-      const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
+      const row = readPublicRow(this.input.slice(this.index));
       if (!row) return undefined;
-      this.index += row[0].length;
-      if (this.userReferences && !Number.isSafeInteger(Number(row[2]))) return undefined;
-      return { kind: 'named', value: { propertyName, row: Number(row[2]) }, anchors: { column: columnAnchor, row: row[1] === '$' }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(columnAnchor), start + Number(columnAnchor) + propertyName.length, this.index - row[2].length - 1, this.index - 1) };
+      this.index += row.text.length;
+      return { kind: 'named', ...(row.positional ? { rowMode: 'positional' } : {}), value: { propertyName, row: Number(row.digits) }, anchors: { column: columnAnchor, row: row.absolute }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(columnAnchor), start + Number(columnAnchor) + propertyName.length, this.index - row.digits.length - 1, this.index - 1) };
     }
     const hyphenatedCanonical = this.peek() === '-' && /^-[A-Za-z0-9_:-]+\[\$?[A-Za-z0-9_:-]+\]/.test(this.input.slice(this.index));
     if (propertyName && (!/[A-Za-z0-9_:\-[]/.test(this.peek()) || (this.peek() === '-' && !hyphenatedCanonical))) {
@@ -404,19 +404,20 @@ export class FormulaParser {
         payloadSpans: referencePayloadSpans(start + canonical[1].length, start + canonical[1].length + canonical[2].length, this.index - canonical[4].length - 1, this.index - 1),
       };
     }
-    const token = this.readA1Token();
-    if (!token) return undefined;
-    const address = parseA1Address(token.replace(/[$[\]]/g, ''), {
+    const token = readPublicA1Token(this.input, this.index); if (!token) return undefined;
+    this.index += token.length;
+    const address = parseA1Address(token.replace(/[#$[\]]/g, ''), {
       columnCount: Number.MAX_SAFE_INTEGER,
       rowCount: Number.MAX_SAFE_INTEGER,
     });
     if (!address.ok) return undefined;
     return {
       kind: 'a1',
+      ...(token.includes('#') ? { rowMode: 'positional' as const } : {}),
       value: address.value,
       anchors: { column: token.startsWith('$'), row: /\$[0-9]/.test(token) },
       sourceSpan: this.span(start),
-      payloadSpans: referencePayloadSpans(start + Number(token.startsWith('$')), start + token.indexOf('['), start + token.indexOf('[') + 1 + Number(/\[\$/.test(token)), this.index - 1),
+      payloadSpans: referencePayloadSpans(start + Number(token.startsWith('$')), start + token.indexOf('['), start + token.indexOf('[') + 1 + Number(token.includes('#')) + Number(/\[#?\$/.test(token)), this.index - 1),
     };
   }
 
@@ -498,7 +499,6 @@ export class FormulaParser {
 
   private findUnquotedSheetSeparator(): number { const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index)); return match ? this.index + match[0].length - 1 : -1; }
 
-  private readA1Token(): string | undefined { const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0]; }
 
   private readIdentifier(): string | undefined { const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return match[0]; }
 

@@ -132,13 +132,13 @@ function inspectionReference(
   currentSheet: SheetDocument,
   hasReferenceDiagnostic: boolean,
 ): FormulaInspectionReference {
-  if (reference.kind === 'named') {
+  if (reference.kind === 'named' || reference.kind === 'row-reference') {
     return {
       kind: 'reference',
       text: displayRaw.slice(displaySpan.start, displaySpan.end),
       sourceSpan: reference.sourceSpan,
       displaySpan,
-      target: { kind: reference.end ? 'range' : 'cell', sheetId: reference.sheetId ?? currentSheet.id },
+      target: { kind: (reference.kind === 'named' ? reference.end : reference.endpoints[1]) ? 'range' : 'cell', sheetId: reference.sheetId ?? currentSheet.id },
       broken: true,
       navigable: false,
     };

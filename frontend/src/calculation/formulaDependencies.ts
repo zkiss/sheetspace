@@ -143,7 +143,7 @@ function referenceDependencies(
   projection: CalculationProjection,
   currentSheet: CalculationSheet,
 ): Set<string> {
-  if (reference.kind === 'named') return new Set();
+  if (reference.kind === 'named' || reference.kind === 'row-reference') return new Set();
   const targetSheet = reference.sheetId
     ? projection.sheets.find((sheet) => sheet.id === reference.sheetId)
     : currentSheet;

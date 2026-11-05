@@ -24,6 +24,7 @@ export type {
   FormulaSyntaxToken,
   FormulaDiagnostic,
   FormulaNamedColumnPredicate,
+  FormulaPositionalCoordinate,
   FunctionFormula,
   GroupFormula,
   UnaryFormula,
@@ -67,6 +68,7 @@ export function collectFormulaReferences(expression: FormulaExpression): Formula
     case 'range':
     case 'canonical':
     case 'named':
+    case 'row-reference':
       return [expression];
     case 'number':
     case 'text':

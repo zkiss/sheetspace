@@ -259,6 +259,7 @@ export class FormulaEvaluator {
 
   private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
     if (reference.kind === 'named') return diagnosticError('#REF!', 'Unresolved name.');
+    if (reference.kind === 'row-reference') return diagnosticError('#REF!', 'Unresolved positional reference.');
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
       return diagnosticError('#REF!', 'Referenced sheet does not exist.');
