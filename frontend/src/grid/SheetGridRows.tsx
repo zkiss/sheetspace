@@ -86,6 +86,7 @@ function SheetGridRow({ props, virtualRow }: { props: SheetGridRowsProps; virtua
       aria-hidden={row.kind === 'creating' ? true : undefined}
       aria-rowindex={row.kind === 'saved' ? row.durableIndex + 2 : undefined}
       className="sheet-grid-row"
+      data-motion-row={row.kind === 'saved' ? row.id : undefined}
       role="row"
       style={{ height: virtualRow.size, top: virtualRow.start }}
     >
@@ -190,6 +191,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
     isCalculated={props.calculatedColumnIds?.has(column.id) ?? false}
     cellKey={key}
     columnIndex={column.durableIndex + 2}
+    motionColumnId={column.id}
     displayText={getSheetCellDisplayText({ cellKey: key, formulaResults: props.formulaResults, presentation: props.presentation, sheet: props.sheet })}
     editingCell={props.editingCell}
     editorInteraction={props.editorInteraction}

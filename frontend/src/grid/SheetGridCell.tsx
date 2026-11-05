@@ -22,6 +22,7 @@ export type SheetGridCellInteraction = {
 export function SheetGridCell({
   cellKey,
   columnIndex,
+  motionColumnId,
   displayText,
   editingCell,
   isActive,
@@ -46,6 +47,7 @@ export function SheetGridCell({
 }: {
   cellKey: string;
   columnIndex: number;
+  motionColumnId?: string;
   displayText: string;
   editingCell: CellEditSession | null;
   isActive: boolean;
@@ -133,6 +135,7 @@ export function SheetGridCell({
       }${isCalculated ? ' sheet-grid-cell-calculated' : ''}${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
       data-active-cell={isActive ? 'true' : undefined}
       data-cell-key={cellKey}
+      data-motion-column={motionColumnId}
       data-editing-cell={isEditing ? 'true' : undefined}
       data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
       data-history-feedback={historyFeedback ? 'true' : undefined}

@@ -51,6 +51,7 @@ export function SheetGridHeaders({
               column.kind === 'saved' && selectedColumnIndices?.has(column.durableIndex) ? ' sheet-grid-axis-selected' : ''
             }`}
             data-axis-selection-mode={column.kind === 'saved' ? 'columns' : undefined}
+            data-motion-column={column.kind === 'saved' ? column.id : undefined}
             data-axis-durable-index={column.kind === 'saved' ? column.durableIndex : undefined}
             key={column.kind === 'creating' ? column.operationId : column.id}
             ref={column.kind === 'saved' && column.durableIndex === 0 ? columnHeaderRef : undefined}

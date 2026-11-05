@@ -20,6 +20,7 @@ import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import type { SheetGridCellInteraction } from './SheetGridCell';
 import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { useAxisGather } from './useAxisGather';
+import { useGridAxisMotion } from './useGridAxisMotion';
 import { useAxisResize } from './useAxisResize';
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
 import type { CellSelection } from './cellInteractionContracts';
@@ -222,6 +223,8 @@ export function SheetGrid({
     [axisProjection, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
+  const motion = useGridAxisMotion({ gridRef, scrollContainerRef, projection: axisProjection, rowMetrics, columnMetrics,
+    sheetId: sheet.id, activeSheetId, owner: selectionOwner, enabled: interactionsEnabled });
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
@@ -353,14 +356,14 @@ export function SheetGrid({
   const windowedColumns = columnVirtualizer.getVirtualItems();
   const virtualRows = mergeVirtualIndexes(
     virtualItemsOrTestFallback(windowedRows, rowMetrics, GRID_COLUMN_HEADER_HEIGHT),
-    pinnedRows,
+    [...pinnedRows, ...(motion?.rows.map((item) => item.index) ?? [])],
     rowVirtualizer,
     GRID_COLUMN_HEADER_HEIGHT,
     rowMetrics,
   );
   const virtualColumns = mergeVirtualIndexes(
     virtualItemsOrTestFallback(windowedColumns, columnMetrics, GRID_ROW_HEADER_WIDTH),
-    pinnedColumns,
+    [...pinnedColumns, ...(motion?.columns.map((item) => item.index) ?? [])],
     columnVirtualizer,
     GRID_ROW_HEADER_WIDTH,
     columnMetrics,

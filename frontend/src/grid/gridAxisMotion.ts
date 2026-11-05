@@ -15,7 +15,7 @@ export function axisMotionSnapshot<Id extends string>(entries: readonly GridAxis
 
 /** Return only identities intersecting either endpoint of the logical viewport. */
 export function planAxisMotion(before: AxisMotionSnapshot, after: AxisMotionSnapshot, viewportStart: number, viewportSize: number): AxisMotionItem[] {
-  if (before.length !== after.length) return [];
+  if (before.length !== after.length || viewportSize <= 0) return [];
   const oldSaved = new Map(before.filter((item) => item.saved).map((item) => [item.key, item]));
   if (oldSaved.size !== before.filter((item) => item.saved).length) return [];
   const newSaved = after.filter((item) => item.saved);
