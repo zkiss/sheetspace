@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axisDropGap, axisPointerOffset } from './axisDropGeometry';
+import { axisDropGap, axisGatherBlock, axisPointerOffset } from './axisDropGeometry';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import type { GridAxisEntry } from './gridAxisProjection';
 
@@ -27,5 +27,23 @@ describe('axis drop geometry', () => {
     expect(axisPointerOffset(160, 100, 2, 20)).toBe(50);
     expect(axisPointerOffset(160, 100, 0, 20)).toBeUndefined();
     expect(axisPointerOffset(Infinity, 100, 2, 20)).toBeUndefined();
+  });
+
+  it('computes the gathered block from selected sizes and the original gap', () => {
+    const axes: readonly GridAxisEntry<string>[] = ['a', 'b', 'c', 'd'].map((id, durableIndex) => ({ kind: 'saved', id, durableIndex }));
+    const sizes = createGridAxisMetrics(axes, [10, 20, 30, 40]);
+    expect(axisGatherBlock(axes, sizes, ['b', 'd'], 3)).toEqual({ start: 40, size: 60 });
+    expect(axisGatherBlock(axes, sizes, ['b', 'd'], 0)).toEqual({ start: 0, size: 60 });
+    expect(axisGatherBlock(axes, sizes, ['b', 'd'], 4)).toEqual({ start: 40, size: 60 });
+    expect(axisGatherBlock(entries, metrics, ['b'], 2)).toEqual({ start: 30, size: 40 });
+  });
+
+  it('rejects invalid block sources and gaps', () => {
+    expect(axisGatherBlock(entries, metrics, [], 1)).toBeUndefined();
+    expect(axisGatherBlock(entries, metrics, ['a', 'a'], 1)).toBeUndefined();
+    expect(axisGatherBlock(entries, metrics, ['missing'], 1)).toBeUndefined();
+    expect(axisGatherBlock(entries, metrics, ['a'], 3)).toBeUndefined();
+    expect(axisGatherBlock(entries, metrics, ['a'], 0.5)).toBeUndefined();
+    expect(axisGatherBlock(entries, createGridAxisMetrics(entries.slice(0, 1), 10), ['a'], 1)).toBeUndefined();
   });
 });
