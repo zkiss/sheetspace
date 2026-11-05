@@ -1,7 +1,7 @@
 import type { Workbook } from '../core/model';
 import { analyzeFormulaSyntax, resolveStoredEndpoint, workbookFormulaReferenceResolver } from './reference';
 import { requireStoredFormula } from './storedFormula';
-import type { FormulaDiagnostic, FormulaParseResult, FormulaReference, FormulaReferenceLexeme, FormulaSyntaxResult } from './syntax';
+import { mergeFormulaDiagnostics, type FormulaDiagnostic, type FormulaParseResult, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type StoredReferenceAnalysis = {
   lexeme: FormulaReferenceLexeme;
@@ -21,13 +21,15 @@ export function analyzeStoredFormula(content: string, workbook: Workbook, curren
   requireStoredFormula(content);
   const syntax = analyzeFormulaSyntax(content, workbookFormulaReferenceResolver(workbook, currentSheetId), true);
   const rowLexemes = syntax.referenceLexemes.filter((lexeme) => lexeme.endpoints.some((endpoint) => endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical'));
-  syntax.diagnostics = syntax.diagnostics.filter((diagnostic) => diagnostic.kind !== 'reference' || !rowLexemes.some((lexeme) => lexeme.sourceSpan.start === diagnostic.sourceSpan.start));
+  const retainedDiagnostics = syntax.diagnostics.filter((diagnostic) => diagnostic.kind !== 'reference' || !rowLexemes.some((lexeme) => lexeme.sourceSpan.start === diagnostic.sourceSpan.start));
+  const replacementDiagnostics: FormulaDiagnostic[] = [];
   for (const lexeme of rowLexemes) {
     const sheetId = lexeme.qualifier?.value ?? currentSheetId;
     const start = resolveStoredEndpoint(workbook, sheetId, lexeme.endpoints[0]);
     const resolved = lexeme.endpoints.map((endpoint) => resolveStoredEndpoint(workbook, sheetId, endpoint, start?.address.rowIndex));
-    if (lexeme.qualifier?.broken || resolved.some((endpoint) => !endpoint || !endpoint.exists)) syntax.diagnostics.push({ kind: 'reference', code: '#REF!', sourceSpan: lexeme.sourceSpan });
+    if (lexeme.qualifier?.broken || resolved.some((endpoint) => !endpoint || !endpoint.exists)) replacementDiagnostics.push({ kind: 'reference', code: '#REF!', sourceSpan: lexeme.sourceSpan });
   }
+  syntax.diagnostics = mergeFormulaDiagnostics(retainedDiagnostics, replacementDiagnostics);
   const references = syntax.referenceLexemes.map((lexeme): StoredReferenceAnalysis => {
     const reference = syntax.references.find((reference) => reference.kind === 'canonical' && reference.sourceSpan.start === lexeme.sourceSpan.start) as StoredReferenceAnalysis['reference'];
     const rowReference = syntax.references.find((reference) => reference.kind === 'row-reference' && reference.sourceSpan.start === lexeme.sourceSpan.start) as StoredReferenceAnalysis['rowReference'];
