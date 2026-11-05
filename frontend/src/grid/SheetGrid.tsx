@@ -704,7 +704,7 @@ export function SheetGrid({
         resize={onWriteAxisSizes ? resize : undefined}
         selectedColumnIndices={(selectionPresentation.mode ?? selectionMode) === 'columns' ? selectionPresentation.columns : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, gridRef, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
       {entryRow && <ModelEntryRow {...entryRow} editorInteraction={editorInteraction} sheetId={sheet.id} sheetName={sheet.name} onNavigateUp={(columnIndex) => {
         if (!sheet.rows.length || columnIndex >= sheet.columns.length) return;
         const key = cellKey({ columnIndex, rowIndex: sheet.rows.length - 1 });

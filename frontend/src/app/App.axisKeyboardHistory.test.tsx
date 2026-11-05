@@ -1,9 +1,39 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { virtualGridGeometry } from '@test-support/domGeometry';
 import { App } from './App';
+
+it('retains native focus through DOM moves for repeated row and column shifts and history', async () => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Inputs', rowCount: 3, columnCount: 3, cells: { A1: 'moving' } });
+  render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+  const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+  const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+  await user.click(cell('A1'));
+  const insertBefore = Node.prototype.insertBefore;
+  let focusLosses = 0;
+  const spy = vi.spyOn(Node.prototype, 'insertBefore').mockImplementation(function (this: Node, node, child) {
+    if (node.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+      focusLosses++;
+      document.activeElement.blur();
+    }
+    return insertBefore.call(this, node, child);
+  });
+  try {
+    await user.keyboard('{Alt>}{Shift>}{ArrowDown}{ArrowDown}{ArrowRight}{ArrowRight}{/Shift}{/Alt}');
+    expect(cell('C3')).toHaveTextContent('moving');
+    expect(cell('C3')).toHaveFocus();
+    await user.keyboard('{Control>}z{/Control}');
+    expect(cell('B3')).toHaveFocus();
+    await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    expect(cell('C3')).toHaveFocus();
+    expect(focusLosses).toBeGreaterThan(0);
+  } finally {
+    spy.mockRestore();
+  }
+});
 
 it('reveals the focused identity after an off-viewport reorder and history replay', async () => {
   const user = userEvent.setup();

@@ -1,4 +1,4 @@
-import type { CSSProperties, RefObject } from 'react';
+import { Component, type CSSProperties, type RefObject } from 'react';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import { cellKey } from '@workbook/core/address';
 import { cellKeyForTarget } from '@grid/cellInteraction';
@@ -26,6 +26,7 @@ type SheetGridRowsProps = {
   editingCell: CellEditSession | null;
   editorInteraction: SheetGridCellEditorInteraction;
   focusIntent: { targetKey: string } | null;
+  gridRef: RefObject<HTMLDivElement>;
   formulaResults: FormulaEvaluationSnapshot;
   historyFeedbackCells?: ReadonlyMap<string, HistoryFeedback>;
   navigationHighlightCellKey: string | null;
@@ -48,12 +49,30 @@ type SheetGridRowsProps = {
 
 const EMPTY_FORMAT_OVERRIDES = { rows: {}, columns: {}, cells: {} };
 
-export function SheetGridRows(props: SheetGridRowsProps) {
-  return <>
-    {props.virtualRows.map((virtualRow) => (
-      <SheetGridRow key={axisKey(props.rows[virtualRow.index])} props={props} virtualRow={virtualRow} />
-    ))}
-  </>;
+export class SheetGridRows extends Component<SheetGridRowsProps> {
+  getSnapshotBeforeUpdate(previous: SheetGridRowsProps) {
+    if (previous.sheet.rows === this.props.sheet.rows && previous.sheet.columns === this.props.sheet.columns) return null;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || active.dataset.activeCell !== 'true') return null;
+    if (!this.props.gridRef.current?.contains(active)) return null;
+    return active;
+  }
+
+  componentDidUpdate(_previous: SheetGridRowsProps, _state: unknown, focusedCell: HTMLElement | null) {
+    // Moving a focused DOM subtree can blur it in browsers, even though React preserves the node.
+    if (focusedCell?.isConnected && focusedCell.dataset.activeCell === 'true' && document.activeElement === document.body) {
+      focusedCell.focus({ preventScroll: true });
+    }
+  }
+
+  render() {
+    const props = this.props;
+    return <>
+      {props.virtualRows.map((virtualRow) => (
+        <SheetGridRow key={axisKey(props.rows[virtualRow.index])} props={props} virtualRow={virtualRow} />
+      ))}
+    </>;
+  }
 }
 
 function SheetGridRow({ props, virtualRow }: { props: SheetGridRowsProps; virtualRow: VirtualItem }) {
