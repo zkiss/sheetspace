@@ -66,7 +66,7 @@ class PresentationMutationRoutesTest {
             jsonBody("""{"writes":[{"axis":"row","axisId":"$row","size":null}]}""")
         }
         assertEquals(HttpStatusCode.Conflict, stale.status)
-        assertEquals(ErrorResponse("sheet-revision-conflict"), stale.decodeBody())
+        assertEquals(ErrorResponse("sheet-revision-conflict", initial.id, 0, 1), stale.decodeBody())
         val reset = client.patch("/api/sheets/${initial.id}/presentation") {
             header("If-Match", "1")
             jsonBody("""{"writes":[{"axis":"row","axisId":"$row","size":null}]}""")

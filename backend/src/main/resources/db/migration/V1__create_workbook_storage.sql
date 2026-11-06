@@ -64,8 +64,7 @@ CREATE TABLE record_admissions (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,
     fingerprint TEXT NOT NULL,
-    PRIMARY KEY (sheet_id, row_id),
-    FOREIGN KEY (sheet_id, row_id) REFERENCES sheet_rows(sheet_id, row_id) ON DELETE CASCADE
+    PRIMARY KEY (sheet_id, row_id)
 );
 
 CREATE TABLE sheet_columns (

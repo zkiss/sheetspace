@@ -322,7 +322,7 @@ class DefaultWorkbookApplication(
 
     override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder>): RecordAdmissionResult {
         if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND, sheetId)
         val id = SheetId(recordIdentity(sheetId))
         val row = RowId(recordIdentity(rowId))
         val prepared = prepareRecordAdmission(expectedRevision, values, before, rowOrders)
@@ -339,7 +339,6 @@ class DefaultWorkbookApplication(
             }
             val contents = sheet.tabularContent.cellContents
             if (row in sheet.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(sheetId, expectedRevision, sheet.revision)
             val writes = manual.mapNotNull { property ->
                 values.getValue(property.id).takeIf(String::isNotEmpty)?.let { CellCoordinate(row, sheet.modelColumnBindings.getValue(property.id)) to it }
             }.toMap()

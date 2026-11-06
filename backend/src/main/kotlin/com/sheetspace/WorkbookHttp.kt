@@ -309,7 +309,6 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
 
         post("/api/sheets/{sheetId}/records") {
             val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
-            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             val request = call.receiveRequest<RecordAdmissionRequest>() ?: return@post
             call.respondApplicationResult {

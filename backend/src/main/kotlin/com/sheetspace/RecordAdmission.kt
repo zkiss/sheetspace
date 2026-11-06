@@ -51,17 +51,22 @@ internal fun prepareRecordAdmission(revision: Long, values: Map<String, String>,
 }
 
 private val identityFields = setOf("id", "rowId", "columnId", "sheetId", "modelId", "rows", "columns", "sheetIds", "modelColumnBindings")
-private val identityMaps = setOf("modelColumnBindings", "columnNames", "rowHeights", "columnWidths", "modelFormulaBindings")
+private val identityMaps = setOf("modelColumnBindings", "columnNames", "rowHeights", "columnWidths", "modelFormulaBindings", "rows", "columns")
 
 private fun normalizeGuard(element: JsonElement, field: String = ""): JsonElement = when (element) {
     is JsonObject -> {
         val entries = element.entries.map { (key, value) ->
-            (if (field in identityMaps) recordIdentity(key) else key) to normalizeGuard(value, if (field == "modelColumnBindings") field else key)
+            val normalizedKey = when {
+                field in identityMaps -> recordIdentity(key)
+                field == "cells" -> key.split('\u0000').also { if (it.size != 2) invalidRecord() }.joinToString("\u0000", transform = ::recordIdentity)
+                else -> key
+            }
+            normalizedKey to normalizeGuard(value, if (field == "modelColumnBindings") field else key)
         }
         if (entries.map { it.first }.distinct().size != entries.size) invalidRecord()
         JsonObject(entries.toMap())
     }
-    is JsonArray -> JsonArray(element.map { normalizeGuard(it, field) })
+    is JsonArray -> JsonArray(element.map { normalizeGuard(it, if (it is JsonPrimitive) field else "") })
     is JsonPrimitive -> if (element.isString && field in identityFields) JsonPrimitive(recordIdentity(element.content)) else element
 }
 

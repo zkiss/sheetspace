@@ -21,7 +21,7 @@ class AxisOrderRoutesTest {
         val before = app.loadWorkbookBundle()
         val stale = client.put("/api/sheets/${sheet.id}/axis-order") { header("If-Match", "0"); jsonBody(body) }
         assertEquals(HttpStatusCode.Conflict, stale.status)
-        assertEquals(ErrorResponse("sheet-revision-conflict"), stale.decodeBody())
+        assertEquals(ErrorResponse("sheet-revision-conflict", sheet.id, 0, 1), stale.decodeBody())
         val invalid = client.put("/api/sheets/${sheet.id}/axis-order") { header("If-Match", "1"); jsonBody("""{"axis":"other","order":[]}""") }
         assertEquals(HttpStatusCode.BadRequest, invalid.status)
         assertEquals(ErrorResponse("invalid-axis-order"), invalid.decodeBody())
