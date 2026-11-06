@@ -9,6 +9,10 @@ import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 
 type ApiErrorBody = {
   error?: string;
+  sheetId?: string;
+  expectedRevision?: number;
+  actualRevision?: number;
+  scope?: string;
 };
 
 export type WorkbookManifestResponse = {
@@ -51,6 +55,20 @@ export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
   dataModels: DataModelResponse[];
+};
+
+export type AtomicRecordAdmission = {
+  rowId: string;
+  values: Readonly<Record<string, string>>;
+  revision: number;
+  before: Workbook;
+  rowOrders: readonly { sheetId: string; order: readonly string[] }[];
+};
+
+export type AtomicRecordAdmissionResult = {
+  rowId: string;
+  alreadyCommitted: boolean;
+  workbook: Workbook;
 };
 
 export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
@@ -101,6 +119,7 @@ export class WorkbookApiError extends Error {
     message: string,
     readonly status?: number,
     readonly code?: string,
+    readonly context?: Omit<ApiErrorBody, 'error'>,
   ) {
     super(message);
     this.name = 'WorkbookApiError';
@@ -126,7 +145,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const errorBody = payload as ApiErrorBody | undefined;
     const code = typeof errorBody?.error === 'string' ? errorBody.error : undefined;
-    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code);
+    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code, errorBody);
   }
 
   return payload as T;
@@ -150,7 +169,7 @@ async function requestVoid(url: string, init?: RequestInit): Promise<void> {
     }
     const errorBody = payload as ApiErrorBody | undefined;
     const code = typeof errorBody?.error === 'string' ? errorBody.error : undefined;
-    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code);
+    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code, errorBody);
   }
 }
 
@@ -159,6 +178,13 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  admitRecordAtomic(sheetId: string, request: AtomicRecordAdmission): Promise<AtomicRecordAdmissionResult> {
+    return requestJson<{ rowId: string; alreadyCommitted: boolean; workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId: request.rowId, values: request.values, before: encodeWorkbookBundle(request.before), rowOrders: request.rowOrders }),
+      headers: revisionHeaders({ revision: request.revision }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
   writeSorting(sheetId: string, sorting: readonly SortCriterion[], order: readonly string[], revision: number): Promise<SheetDocument> {
     return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/sorting`, {
       method: 'PUT', body: JSON.stringify({ sorting, order }), headers: revisionHeaders({ revision }),
