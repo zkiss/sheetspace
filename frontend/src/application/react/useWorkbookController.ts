@@ -407,7 +407,7 @@ export function useWorkbookController({
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
           const reconcile = (sheet: SheetDocument) => {
-            const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
+            const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheet.id]: sheet } };
             setWorkbook(next, { kind: 'structure' });
           };
           return admitEntryRecord({
