@@ -17,7 +17,9 @@ describe('admission error recovery within the workbook fence', () => {
   it.each(['other', undefined])('marks the actual missing sheet %s', async (sheetId) => {
     const coordinator = new WorkbookPersistenceCoordinator();
     const error = new WorkbookApiError('missing', 404, 'sheet-not-found', { sheetId });
-    await expect(recoverRecordAdmission(error, 'target', coordinator, vi.fn())).rejects.toBe(error);
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    await expect(recoverRecordAdmission(error, 'target', coordinator, refresh)).rejects.toBeInstanceOf(EntryAdmissionRejected);
+    expect(refresh).toHaveBeenCalledOnce();
     expect(coordinator.isSheetMissing(sheetId ?? 'target')).toBe(true);
     if (sheetId) expect(coordinator.isSheetMissing('target')).toBe(false);
   });
@@ -28,6 +30,7 @@ describe('admission error recovery within the workbook fence', () => {
     const network = new Error('offline');
     await expect(recoverRecordAdmission(network, 's', coordinator, vi.fn())).rejects.toBe(network);
     await expect(recoverRecordAdmission(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'), 's', coordinator, vi.fn().mockRejectedValue(network))).rejects.toThrow('could not be reloaded');
+    await expect(recoverRecordAdmission(new WorkbookApiError('missing', 404, 'sheet-not-found', { sheetId: 'other' }), 's', coordinator, vi.fn().mockRejectedValue(network))).rejects.toThrow('could not be reloaded');
   });
 
   it.each([408, 500])('preserves an ambiguous HTTP %s without refreshing or permitting correction', async (status) => {

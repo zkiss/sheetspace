@@ -31,7 +31,7 @@ import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
-import { ModelEntrySessions } from '@application/core/modelEntrySession';
+import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
@@ -429,6 +429,9 @@ export function useWorkbookController({
               recover: (error, refresh) => recoverRecordAdmission(error, sheetId, persistenceCoordinator, refresh),
               reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
             });
+          } catch (error) {
+            if (!submission.request) throw new EntryAdmissionRejected(error instanceof Error ? error.message : 'Could not prepare record.');
+            throw error;
           } finally { admissionFence.current = false; }
         });
         publishEntries();

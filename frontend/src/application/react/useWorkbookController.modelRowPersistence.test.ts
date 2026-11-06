@@ -117,6 +117,28 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
     expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
   });
+  it('refreshes a deleted guarded dependency on retry and permits a corrected new submission', async () => {
+    const bound = boundWorkbook();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, 'other'] }, documents: { ...bound.documents, other } };
+    const refreshed = { ...bound, manifest: { ...bound.manifest, revision: workbook.manifest.revision + 1 } };
+    const api = persistedWorkbookClient(workbook);
+    api.loadWorkbook.mockResolvedValueOnce(workbook).mockResolvedValue(refreshed);
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost'))
+      .mockRejectedValueOnce(new WorkbookApiError('missing', 404, 'sheet-not-found', { sheetId: 'other' }))
+      .mockImplementationOnce(async (_id, request) => ({ rowId: request.rowId, alreadyCommitted: false, workbook: { ...refreshed, documents: { sheet: { ...refreshed.documents.sheet!, content: { ...refreshed.documents.sheet!.content, rows: [...refreshed.documents.sheet!.content.rows, request.rowId] } } } } }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.other).toBeUndefined();
+    expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[2]![1]).toMatchObject({ values: { input: '8' }, before: refreshed });
+    expect(api.admitRecord.mock.calls[2]![1].rowId).not.toBe(api.admitRecord.mock.calls[0]![1].rowId);
+  });
   it('retries the captured formula after a cross-sheet dependency becomes invalid', async () => {
     const bound = boundWorkbook();
     const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '5' } });
@@ -191,6 +213,7 @@ describe('calculated row persistence', () => {
   it('removes an externally deleted sheet and its locked draft after a deferred admission returns missing', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
+    api.loadWorkbook.mockResolvedValueOnce(workbook).mockResolvedValue({ ...workbook, manifest: { ...workbook.manifest, revision: workbook.manifest.revision + 1, sheetIds: [] }, documents: {} });
     let reject!: (error: Error) => void;
     api.admitRecord.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));

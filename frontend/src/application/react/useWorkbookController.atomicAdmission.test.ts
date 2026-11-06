@@ -112,6 +112,12 @@ describe('live atomic admission wiring', () => {
     expect(api.loadWorkbook).not.toHaveBeenCalled();
     expect(api.admitRecord).not.toHaveBeenCalled();
     expect(result.current.entrySessions.first!.failure).toContain('Resolve failed saves');
+    expect(result.current.entrySessions.first!.retryRequired).toBeUndefined();
+    act(() => {
+      result.current.commands.changeEntryField('first', 'input', '13');
+      expect(result.current.commands.updateCellContent('first', 'A1', '8')).toMatchObject({ ok: true });
+    });
+    expect(result.current.entrySessions.first!.draft.fields.input!.raw).toBe('13');
   });
 
   it.each(['sheet', 'axis'])('rejects capture while %s creation is pending', async (kind) => {
@@ -130,6 +136,12 @@ describe('live atomic admission wiring', () => {
     expect(api.loadWorkbook).not.toHaveBeenCalled();
     expect(api.admitRecord).not.toHaveBeenCalled();
     expect(result.current.entrySessions.first!.failure).toContain('pending sheet and axis creation');
+    expect(result.current.entrySessions.first!.retryRequired).toBeUndefined();
+    act(() => {
+      result.current.commands.changeEntryField('first', 'input', '13');
+      expect(result.current.commands.updateCellContent('first', 'A1', '8')).toMatchObject({ ok: true });
+    });
+    expect(result.current.entrySessions.first!.draft.fields.input!.raw).toBe('13');
     await act(async () => { creation.reject(new Error('cancelled')); });
   });
 });
