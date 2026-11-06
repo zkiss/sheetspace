@@ -32,3 +32,16 @@ export function materializeAppendedModelRow(workbook: Workbook, sheetId: SheetId
   if (!changed) return workbook;
   return { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, content: { ...sheet.content, cells } } } };
 }
+
+export function appendModelEntry(workbook: Workbook, sheetId: SheetId, modelId: string, rowId: RowId, values: Readonly<Record<string, string>>): Workbook {
+  const sheet = workbook.documents[sheetId];
+  if (!sheet || sheet.modelId !== modelId) throw new Error('The sheet is no longer available.');
+  const cells = { ...sheet.content.cells };
+  for (const [propertyId, value] of Object.entries(values)) {
+    const columnId = sheet.modelColumnBindings?.[propertyId];
+    if (!columnId || !sheet.content.columns.includes(columnId)) throw new Error('The model bindings changed.');
+    if (value !== '') cells[cellIdentityKey({ rowId, columnId })] = value;
+  }
+  const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, rowId], cells } };
+  return materializeAppendedModelRow({ ...workbook, documents: { ...workbook.documents, [sheetId]: nextSheet } }, sheetId, rowId);
+}

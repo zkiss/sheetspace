@@ -9,7 +9,7 @@ import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { useLifecycleSettlement } from './useLifecycleSettlement';
 import { useMixedHistory } from './useMixedHistory';
 import { extractionCommand } from './extractionCommand';
-import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { gatherAxis, shiftAxis } from '@workbook/mutations/reorderAxis';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -29,7 +29,8 @@ import { renameColumn } from '@application/core/renameColumn';
 import { deleteRow } from '@application/core/deleteRow';
 import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
-import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
+import { appendModelEntry, materializeAppendedModelRow } from '@application/core/modelRowAppend';
+import { settleSorting } from '@application/core/settleSorting';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
@@ -398,17 +399,8 @@ export function useWorkbookController({
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
           admissionLocks.current.add(sheetId);
           if (!autosaveEnabled) {
-            const current = optimisticWorkbook.current;
-            const sheet = current.documents[sheetId];
-            if (!sheet || sheet.modelId !== model.id) throw new Error('The sheet is no longer available.');
-            const cells = { ...sheet.content.cells };
-            for (const [propertyId, value] of Object.entries(submission.values)) {
-              const columnId = sheet.modelColumnBindings?.[propertyId];
-              if (!columnId || !sheet.content.columns.includes(columnId)) throw new Error('The model bindings changed.');
-              if (value !== '') cells[cellIdentityKey({ rowId: submission.rowId, columnId })] = value;
-            }
-            const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, submission.rowId], cells } };
-            const next = materializeAppendedModelRow({ ...current, documents: { ...current.documents, [sheetId]: nextSheet } }, sheetId, submission.rowId);
+            const candidate = appendModelEntry(optimisticWorkbook.current, sheetId, model.id, submission.rowId, submission.values);
+            const next = settleSorting(candidate, committedCalculation.current!, { kind: 'structure' }).workbook;
             setWorkbook(next, { kind: 'structure' });
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
@@ -425,6 +417,10 @@ export function useWorkbookController({
               },
               currentWorkbook: () => optimisticWorkbook.current,
               loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook,
+              prepare: (before) => settleSorting(
+                appendModelEntry(before, sheetId, model.id, submission.rowId, submission.values),
+                committedCalculation.current!, { kind: 'structure' },
+              ).orders.map(({ sheetId: id, after }) => ({ sheetId: id, order: after })),
               admit: resolvedApiClient.admitRecord ?? workbookApi.admitRecord,
               recover: (error, refresh) => recoverRecordAdmission(error, sheetId, persistenceCoordinator, refresh),
               reconcile: (next) => setWorkbook(next, { kind: 'structure' }),

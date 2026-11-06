@@ -24,6 +24,21 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  it('sorts a committed model entry by its calculated value without including the draft', async () => {
+    const original = boundWorkbook();
+    const sheet = original.documents.sheet!;
+    const workbook: Workbook = { ...original, documents: { ...original.documents, sheet: {
+      ...sheet, sorting: [{ columnId: sheet.modelColumnBindings!.output!, direction: 'ascending' }],
+    } } };
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '1'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    const rows = result.current.workbook.documents.sheet!.content.rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toBe(sheet.content.rows[0]);
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
+
   it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
