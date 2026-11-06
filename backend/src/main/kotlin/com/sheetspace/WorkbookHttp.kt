@@ -94,10 +94,10 @@ data class RowAppendResponse(
 )
 
 @Serializable
-data class RecordAdmissionRequest(val rowId: String, val values: Map<String, String>)
+data class RecordAdmissionRequest(val rowId: String, val values: Map<String, String>, val before: WorkbookBundleResponse, val rowOrders: List<RecordRowOrder> = emptyList())
 
 @Serializable
-data class RecordAdmissionResponse(val rowId: String, val sheet: SheetDocumentResponse)
+data class RecordAdmissionResponse(val rowId: String, val alreadyCommitted: Boolean, val workbook: WorkbookBundleResponse)
 
 @Serializable
 data class ColumnAppendResponse(
@@ -108,7 +108,7 @@ data class ColumnAppendResponse(
 )
 
 @Serializable
-data class ErrorResponse(val error: String)
+data class ErrorResponse(val error: String, val sheetId: String? = null, val expectedRevision: Long? = null, val actualRevision: Long? = null, val scope: String? = null)
 
 @Serializable
 data class DataModelWriteRequest(val name: String, val columns: List<ModelColumnWriteRequest>)
@@ -313,8 +313,8 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             val request = call.receiveRequest<RecordAdmissionRequest>() ?: return@post
             call.respondApplicationResult {
-                val result = workbookApplication.admitRecord(sheetId, expectedRevision, request.rowId, request.values)
-                call.respond(RecordAdmissionResponse(result.rowId.value, WorkbookReadTransportAdapter.sheetDocument(result.sheet)))
+                val result = workbookApplication.admitRecord(sheetId, expectedRevision, request.rowId, request.values, request.before, request.rowOrders)
+                call.respond(RecordAdmissionResponse(result.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook)))
             }
         }
 
@@ -381,9 +381,15 @@ private suspend fun ApplicationCall.respondApplicationResult(response: suspend (
     try {
         response()
     } catch (conflict: SheetRevisionConflict) {
-        respondError(HttpStatusCode.Conflict, "sheet-revision-conflict")
+        respond(HttpStatusCode.Conflict, ErrorResponse("sheet-revision-conflict", conflict.sheetId, conflict.expectedRevision, conflict.actualRevision))
     } catch (rejection: WorkbookApplicationException) {
-        respondApplicationError(rejection.error)
+        if (rejection.sheetId != null) {
+            respond(HttpStatusCode.NotFound, ErrorResponse("sheet-not-found", sheetId = rejection.sheetId))
+        } else if (rejection.error == WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT) {
+            respond(HttpStatusCode.Conflict, ErrorResponse("model-lifecycle-conflict", scope = "workbook"))
+        } else {
+            respondApplicationError(rejection.error)
+        }
     }
 }
 

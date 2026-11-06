@@ -101,18 +101,18 @@ class RecordFormulaValidationTest {
             val row = RowId.generate()
             val column = before.documents.getValue(sheetId).tabularContent.columns.single()
             for (content in listOf("=", "=1+", "=1/0", "=\"wrong\"", "=@${column.value}[${row.value}]")) {
-                val failure = assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row.value, mapOf(property to content)) }
+                val failure = assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row.value, mapOf(property to content), WorkbookReadTransportAdapter.bundle(before)) }
                 assertEquals(WorkbookApplicationError.INVALID_MODEL_RECORD, failure.error)
                 assertEquals(before, store.loadWorkbookBundle())
                 assertEquals(0, receipts(store))
             }
             val expression = "=@${source.id.value}!${coordinate.columnId.value}[${coordinate.rowId.value}]"
-            val first = app.admitRecord(sheetId.value, 0, row.value, mapOf(property to expression))
+            val first = app.admitRecord(sheetId.value, 0, row.value, mapOf(property to expression), WorkbookReadTransportAdapter.bundle(before))
             assertEquals(expression, first.sheet.tabularContent.cellContents.getValue(CellCoordinate(row, column)))
             assertEquals(1, receipts(store))
             app.writeCells(CellPatchCommand(listOf(ExpectedSheetRevision(source.id.value, source.revision)), listOf(SheetCellWrite(source.id.value, coordinate.rowId.value, coordinate.columnId.value, "wrong type"))))
-            assertEquals(first.sheet, app.admitRecord(sheetId.value, 0, row.value, mapOf(property to expression)).sheet)
-            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, first.sheet.revision, RowId.generate().value, mapOf(property to expression)) }
+            assertEquals(first.sheet, app.admitRecord(sheetId.value, 0, row.value, mapOf(property to expression), WorkbookReadTransportAdapter.bundle(before)).sheet)
+            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, first.sheet.revision, RowId.generate().value, mapOf(property to expression), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle())) }
             assertEquals(1, receipts(store))
             assertEquals(1, store.loadSheet(sheetId)!!.tabularContent.rowCount)
         }
@@ -126,7 +126,7 @@ class RecordFormulaValidationTest {
             val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
             val expression = "=@${output.value}[${sheet.tabularContent.rows.first().value}]"
             val row = RowId.generate()
-            val result = DefaultWorkbookApplication(store).admitRecord(sheet.id.value, sheet.revision, row.value, mapOf(LIFECYCLE_INPUT to expression))
+            val result = DefaultWorkbookApplication(store).admitRecord(sheet.id.value, sheet.revision, row.value, mapOf(LIFECYCLE_INPUT to expression), WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle()))
             assertEquals(3, result.sheet.tabularContent.rowCount)
             assertEquals(expression, result.sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT))))
             assertTrue(result.sheet.tabularContent.cellContents.getValue(CellCoordinate(row, output)).startsWith("="))
@@ -144,7 +144,7 @@ class RecordFormulaValidationTest {
                 for (formula in listOf("=", "=1/0", "=TRUE")) {
                     val response = client.post("/api/sheets/${sheetId.value}/records") {
                         header("If-Match", 0)
-                        jsonBody(Json.encodeToString(RecordAdmissionRequest(row, mapOf(property to formula))))
+                        jsonBody(Json.encodeToString(RecordAdmissionRequest(row, mapOf(property to formula), WorkbookReadTransportAdapter.bundle(before))))
                     }
                     assertEquals(HttpStatusCode.BadRequest, response.status)
                     assertEquals(before, store.loadWorkbookBundle())
@@ -152,7 +152,7 @@ class RecordFormulaValidationTest {
                 }
                 val accepted = client.post("/api/sheets/${sheetId.value}/records") {
                     header("If-Match", 0)
-                    jsonBody(Json.encodeToString(RecordAdmissionRequest(row, mapOf(property to "=IF(TRUE,2,1/0)"))))
+                    jsonBody(Json.encodeToString(RecordAdmissionRequest(row, mapOf(property to "=IF(TRUE,2,1/0)"), WorkbookReadTransportAdapter.bundle(before))))
                 }
                 assertEquals(HttpStatusCode.OK, accepted.status)
                 assertEquals(1, receipts(store))

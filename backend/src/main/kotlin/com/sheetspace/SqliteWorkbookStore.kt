@@ -27,7 +27,7 @@ class SqliteWorkbookStore internal constructor(
 
     override fun close() = database.close()
 
-    override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> WorkbookState): WorkbookState =
+    override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission =
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = reader(conn)
@@ -38,20 +38,22 @@ class SqliteWorkbookStore internal constructor(
                 }
                 if (existing != null) {
                     if (existing != fingerprint) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-                    reader.loadWorkbookBundle()
+                    StoredRecordAdmission(reader.loadWorkbookBundle(), true)
                 } else {
                     val current = reader.loadWorkbookBundle()
-                    val updated = transform(current)
-                    validateModelMetadata(updated)
-                    calculatedAdmission(current, updated)
-                    SqliteWorkbookWriter(conn, reader).persistChanges(current, updated)
+                    val stages = transform(current)
+                    validateModelMetadata(stages.appended)
+                    validateModelMetadata(stages.ordered)
+                    calculatedAdmission(current, stages.appended)
+                    calculatedAdmission(stages.appended, stages.ordered)
+                    SqliteWorkbookWriter(conn, reader).persistChanges(current, stages.ordered)
                     conn.prepareStatement("INSERT INTO record_admissions (sheet_id, row_id, fingerprint) VALUES (?, ?, ?)").use { statement ->
                         statement.setBytes(1, sheetId.value.toUuidBytes())
                         statement.setBytes(2, rowId.value.toUuidBytes())
                         statement.setString(3, fingerprint)
                         statement.executeUpdate()
                     }
-                    reader.loadWorkbookBundle()
+                    StoredRecordAdmission(reader.loadWorkbookBundle(), false)
                 }
             }
         }

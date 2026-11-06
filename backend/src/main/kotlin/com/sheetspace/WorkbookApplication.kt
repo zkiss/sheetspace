@@ -1,7 +1,5 @@
 package com.sheetspace
 
-import java.security.MessageDigest
-
 data class CreateSheetCommand(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
@@ -70,6 +68,7 @@ enum class WorkbookApplicationError {
 
 class WorkbookApplicationException(
     val error: WorkbookApplicationError,
+    val sheetId: String? = null,
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
@@ -99,7 +98,7 @@ interface WorkbookApplication {
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
-    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult
+    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder> = emptyList()): RecordAdmissionResult
 
     fun saveDataModel(model: DataModel): DataModel
 
@@ -321,14 +320,17 @@ class DefaultWorkbookApplication(
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
     }
 
-    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult {
+    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder>): RecordAdmissionResult {
         if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
         if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
-        val id = SheetId(sheetId)
-        val row = RowId(rowId.toUuidBytesOrNull()!!.toUuidString())
-        val fingerprint = recordFingerprint(expectedRevision, values)
-        val updated = store.admitRecord(id, row, fingerprint) { workbook ->
-            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+        val id = SheetId(recordIdentity(sheetId))
+        val row = RowId(recordIdentity(rowId))
+        val prepared = prepareRecordAdmission(expectedRevision, values, before, rowOrders)
+        val updated = store.admitRecord(id, row, prepared.fingerprint) { workbook ->
+            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND, id.value)
+            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(id.value, expectedRevision, sheet.revision)
+            guardRecordWorkbook(workbook, prepared.before)
+            val values = prepared.values
             val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             val manual = model.columns.filterIsInstance<ManualModelColumn>()
             if (values.keys != manual.map { it.id }.toSet() || model.columns.any { sheet.modelColumnBindings[it.id] !in sheet.tabularContent.columns } ||
@@ -344,9 +346,10 @@ class DefaultWorkbookApplication(
             val content = TabularContent(sheet.tabularContent.rows + row, sheet.tabularContent.columns, contents + writes)
             val appended = sheet.copy(content = content)
             val provisional = workbook.replaceSheet(appended)
-            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+            val materialized = provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+            RecordAdmissionStages(materialized, applyRecordOrders(materialized, prepared.orders))
         }
-        return RowAppendResult(updated.documents.getValue(id), row)
+        return RecordAdmissionResult(row, updated.alreadyCommitted, updated.workbook)
     }
 
     override fun saveDataModel(model: DataModel): DataModel {
@@ -423,14 +426,6 @@ class DefaultWorkbookApplication(
         }
         return updated.documents.getValue(id)
     }
-}
-
-private fun recordFingerprint(revision: Long, values: Map<String, String>): String {
-    val payload = buildString {
-        append(revision).append(':')
-        values.toSortedMap().forEach { (key, value) -> append(key.length).append(':').append(key).append(value.length).append(':').append(value) }
-    }
-    return MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
 private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =
