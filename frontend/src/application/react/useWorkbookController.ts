@@ -393,7 +393,7 @@ export function useWorkbookController({
       }),
       submitEntryDraft: async (sheetId) => {
         if (rejectPendingModelTransition()) return {};
-        const model = entryModel(sheetId);
+        const model = entrySessions.retryModel(sheetId) ?? entryModel(sheetId);
         if (!model || entrySessions.get(sheetId, model).pending) return {};
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
           admissionLocks.current.add(sheetId);
@@ -437,7 +437,10 @@ export function useWorkbookController({
         publishEntries();
         try {
           const settled = await result;
-          if (settled.result || !entrySessions.get(sheetId, model).retryRequired) admissionLocks.current.delete(sheetId);
+          if (settled.result || !entrySessions.get(sheetId, model).retryRequired) {
+            admissionLocks.current.delete(sheetId);
+            if (!optimisticWorkbook.current.documents[sheetId]) entrySessions.remove(sheetId);
+          }
           return settled;
         } finally { publishEntries(); }
       },

@@ -7,7 +7,7 @@ export type EntrySubmission = { rowId: string; request?: RecordAdmissionRequest;
 export type EntryConfirmation = { rowId: string; sheet?: SheetDocument };
 export class EntryAdmissionRejected extends Error {}
 export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string; retryRequired?: boolean; stale?: boolean };
-type Session = EntrySessionState & { signature: string; submission?: EntrySubmission };
+type Session = EntrySessionState & { signature: string; model: DataModel; submission?: EntrySubmission };
 
 /** Session-only entry state; callers own persistence serialization and reconciliation. */
 export class ModelEntrySessions {
@@ -29,7 +29,7 @@ export class ModelEntrySessions {
       session = undefined;
     }
     if (!session) {
-      session = { draft: createModelEntryDraft(model), signature, pending: false };
+      session = { draft: createModelEntryDraft(model), signature, model, pending: false };
       this.sessions.set(sheetId, session);
     }
     delete session.stale;
@@ -37,6 +37,11 @@ export class ModelEntrySessions {
   }
 
   remove(sheetId: string) { this.sessions.delete(sheetId); }
+
+  retryModel(sheetId: string) {
+    const session = this.sessions.get(sheetId);
+    return session?.submission?.request ? session.model : undefined;
+  }
 
   hasUnfinished(sheetId: string) {
     const session = this.sessions.get(sheetId);
@@ -76,7 +81,7 @@ export class ModelEntrySessions {
     admit: (submission: EntrySubmission) => Promise<EntryConfirmation>,
   ): Promise<{ firstInvalid?: string; result?: EntryConfirmation }> {
     const session = this.get(sheetId, model) as Session;
-    if (session.pending || session.stale) return {};
+    if (session.pending || (session.stale && !session.submission?.request)) return {};
     if (!session.submission) {
       const validation = validateEntryDraft(session.draft, model, workbook, sheetId);
       session.draft = validation.draft;
@@ -91,7 +96,7 @@ export class ModelEntrySessions {
     delete session.failure;
     try {
       const result = await admit(session.submission);
-      if (this.sessions.get(sheetId) === session) this.sessions.set(sheetId, { draft: createModelEntryDraft(model), signature: session.signature, pending: false });
+      if (this.sessions.get(sheetId) === session) this.sessions.set(sheetId, { draft: createModelEntryDraft(model), signature: session.signature, model, pending: false });
       return { result };
     } catch (error) {
       if (error instanceof EntryAdmissionRejected) {

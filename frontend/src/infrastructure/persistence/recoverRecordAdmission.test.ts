@@ -31,6 +31,7 @@ describe('admission error recovery within the workbook fence', () => {
     await expect(recoverRecordAdmission(network, 's', coordinator, vi.fn())).rejects.toBe(network);
     await expect(recoverRecordAdmission(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'), 's', coordinator, vi.fn().mockRejectedValue(network))).rejects.toThrow('could not be reloaded');
     await expect(recoverRecordAdmission(new WorkbookApiError('missing', 404, 'sheet-not-found', { sheetId: 'other' }), 's', coordinator, vi.fn().mockRejectedValue(network))).rejects.toThrow('could not be reloaded');
+    expect(coordinator.isSheetMissing('other')).toBe(false);
   });
 
   it.each([408, 500])('preserves an ambiguous HTTP %s without refreshing or permitting correction', async (status) => {
