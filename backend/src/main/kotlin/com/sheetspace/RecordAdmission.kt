@@ -17,8 +17,12 @@ data class RecordAdmissionResult(val rowId: RowId, val alreadyCommitted: Boolean
 data class StoredRecordAdmission(val workbook: WorkbookState, val alreadyCommitted: Boolean)
 data class RecordAdmissionStages(val appended: WorkbookState, val ordered: WorkbookState)
 
-internal fun recordIdentity(value: String): String = value.toUuidBytesOrNull()?.toUuidString() ?: invalidRecord()
-internal fun invalidRecord(): Nothing = throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+internal fun recordIdentity(value: String): String {
+    val bytes = value.toUuidBytesOrNull() ?: throw invalidRecord()
+    return bytes.toUuidString()
+}
+
+private fun invalidRecord() = WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
 
 internal data class PreparedRecordAdmission(
     val before: WorkbookState,
@@ -29,15 +33,15 @@ internal data class PreparedRecordAdmission(
 
 internal fun prepareRecordAdmission(revision: Long, values: Map<String, String>, before: WorkbookBundleResponse, orders: List<RecordRowOrder>): PreparedRecordAdmission {
     val normalizedValues = values.entries.associate { recordIdentity(it.key) to it.value }
-    if (normalizedValues.size != values.size || revision < 0) invalidRecord()
+    if (normalizedValues.size != values.size || revision < 0) throw invalidRecord()
     val normalizedOrders = orders.map { order -> RecordRowOrder(recordIdentity(order.sheetId), order.order.map(::recordIdentity)) }
-    if (normalizedOrders.map { it.sheetId }.distinct().size != orders.size) invalidRecord()
+    if (normalizedOrders.map { it.sheetId }.distinct().size != orders.size) throw invalidRecord()
     val normalizedBefore = try {
         Json.decodeFromJsonElement<WorkbookBundleResponse>(normalizeGuard(Json.encodeToJsonElement(before))).toLifecycleWorkbook()
     } catch (_: IllegalArgumentException) {
-        invalidRecord()
+        throw invalidRecord()
     } catch (_: WorkbookApplicationException) {
-        invalidRecord()
+        throw invalidRecord()
     }
     val payload = JsonObject(mapOf(
         "revision" to JsonPrimitive(revision),
@@ -58,12 +62,12 @@ private fun normalizeGuard(element: JsonElement, field: String = ""): JsonElemen
         val entries = element.entries.map { (key, value) ->
             val normalizedKey = when {
                 field in identityMaps -> recordIdentity(key)
-                field == "cells" -> key.split('\u0000').also { if (it.size != 2) invalidRecord() }.joinToString("\u0000", transform = ::recordIdentity)
+                field == "cells" -> key.split('\u0000').also { if (it.size != 2) throw invalidRecord() }.joinToString("\u0000", transform = ::recordIdentity)
                 else -> key
             }
             normalizedKey to normalizeGuard(value, if (field == "modelColumnBindings") field else key)
         }
-        if (entries.map { it.first }.distinct().size != entries.size) invalidRecord()
+        if (entries.map { it.first }.distinct().size != entries.size) throw invalidRecord()
         JsonObject(entries.toMap())
     }
     is JsonArray -> JsonArray(element.map { normalizeGuard(it, if (it is JsonPrimitive) field else "") })
@@ -91,6 +95,6 @@ internal fun applyRecordOrders(workbook: WorkbookState, orders: List<RecordRowOr
     val id = SheetId(order.sheetId)
     val sheet = updated.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND, id.value)
     val rows = order.order.map(::RowId)
-    if (rows.size != sheet.tabularContent.rows.size || rows.toSet() != sheet.tabularContent.rows.toSet()) invalidRecord()
+    if (rows.size != sheet.tabularContent.rows.size || rows.toSet() != sheet.tabularContent.rows.toSet()) throw invalidRecord()
     updated.replaceSheet(sheet.copy(content = TabularContent(rows, sheet.tabularContent.columns, sheet.tabularContent.cellContents)))
 }
