@@ -1,9 +1,9 @@
-import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel, SheetDocument } from '@workbook/core/model';
+import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
-import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitRecordConfirmingMissing';
+import { recoverRecordAdmission } from '@infrastructure/persistence/recoverRecordAdmission';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { useLifecycleSettlement } from './useLifecycleSettlement';
@@ -81,6 +81,7 @@ export function useWorkbookController({
     return modelId ? current.dataModels?.[modelId] : undefined;
   }
   const admissionLocks = useRef(new Set<string>());
+  const admissionFence = useRef(false);
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
   const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
   contentHistoryRef.current ??= new ContentHistory();
@@ -198,7 +199,7 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!lifecycle.hasPending()) return undefined;
+    if (!lifecycle.hasPending() && !admissionFence.current) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
@@ -217,6 +218,11 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+    if (admissionFence.current) {
+      setMutationFailure('pending-model-transition');
+      const result = { ok: false, reason: 'pending-model-transition' } as const;
+      return { result, completion: Promise.resolve(result) };
+    }
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -339,7 +345,7 @@ export function useWorkbookController({
 
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
-    enqueue: savedAutosave.enqueue, hasPending: lifecycle.hasPending, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
+    enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || admissionFence.current, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
@@ -406,25 +412,24 @@ export function useWorkbookController({
             setWorkbook(next, { kind: 'structure' });
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
-          const reconcile = (sheet: SheetDocument) => {
-            const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheet.id]: sheet } };
-            setWorkbook(next, { kind: 'structure' });
-          };
-          return admitEntryRecord({
-            sheetId, submission, coordinator: persistenceCoordinator,
-            waitForPredecessors: async () => {
-              for (const entry of savedAutosave.currentOutboxSnapshot()) {
-                if (entry.intent.kind !== 'model-lifecycle' && !entry.affectedSheetIds.includes(sheetId)) continue;
-                const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
-                if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
-              }
-            },
-            currentSheet: () => {
-              const sheet = optimisticWorkbook.current.documents[sheetId];
-              return sheet?.modelId === model.id ? sheet : undefined;
-            },
-            admit: admitRecordConfirmingMissing(resolvedApiClient.admitRecord ?? workbookApi.admitRecord, persistenceCoordinator, resolvedApiClient.loadSheet ?? workbookApi.loadSheet, reconcile),
-            reconcile });
+          admissionFence.current = true;
+          try {
+            return await admitEntryRecord({
+              sheetId, submission, coordinator: persistenceCoordinator,
+              waitForPredecessors: async () => {
+                if (hasPendingCreations() || axisCreation.hasUnsettled()) throw new Error('Resolve pending sheet and axis creation before adding a record.');
+                for (const entry of savedAutosave.currentOutboxSnapshot()) {
+                  const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
+                  if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
+                }
+              },
+              currentWorkbook: () => optimisticWorkbook.current,
+              loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook,
+              admit: resolvedApiClient.admitRecord ?? workbookApi.admitRecord,
+              recover: (error, refresh) => recoverRecordAdmission(error, sheetId, persistenceCoordinator, refresh),
+              reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
+            });
+          } finally { admissionFence.current = false; }
         });
         publishEntries();
         try {
@@ -452,12 +457,12 @@ export function useWorkbookController({
       renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
-      appendColumn: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
-      appendRow: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendColumn: (sheetId) => { if (!admissionFence.current && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendRow: (sheetId) => { if (!admissionFence.current && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       deleteRow: (sheetId, rowId, publication) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId), undefined, false, publication),
       deleteColumn: (sheetId, columnId, publication) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId), undefined, false, publication),
       changeSheetZOrder,
-      createSheet,
+      createSheet: (...args) => admissionFence.current ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       moveCells,

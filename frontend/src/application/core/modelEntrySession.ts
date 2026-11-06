@@ -1,8 +1,10 @@
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
+import type { RecordAdmissionRequest } from './recordAdmission';
 import { prepareCellInput } from './cellInputPreparation';
 import { changeEntryField, createModelEntryDraft, dismissEntryFeedback, leaveEntryField, validateEntryDraft, type ModelEntryDraft } from './modelEntryDraft';
 
-export type EntrySubmission = { rowId: string; revision?: number; values: Readonly<Record<string, string>> };
+export type EntrySubmission = { rowId: string; request?: RecordAdmissionRequest; values: Readonly<Record<string, string>> };
+export type EntryConfirmation = { rowId: string; sheet?: SheetDocument };
 export class EntryAdmissionRejected extends Error {}
 export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string; retryRequired?: boolean; stale?: boolean };
 type Session = EntrySessionState & { signature: string; submission?: EntrySubmission };
@@ -71,8 +73,8 @@ export class ModelEntrySessions {
   }
 
   async submit(sheetId: string, model: DataModel, workbook: Workbook, createId: () => string,
-    admit: (submission: EntrySubmission) => Promise<{ rowId: string; sheet: SheetDocument }>,
-  ): Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }> {
+    admit: (submission: EntrySubmission) => Promise<EntryConfirmation>,
+  ): Promise<{ firstInvalid?: string; result?: EntryConfirmation }> {
     const session = this.get(sheetId, model) as Session;
     if (session.pending || session.stale) return {};
     if (!session.submission) {

@@ -6,6 +6,7 @@ import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { validSorting } from '@workbook/core/sorting';
 import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
+import type { RecordAdmissionRequest, RecordAdmissionResult } from '@application/core/recordAdmission';
 
 type ApiErrorBody = {
   error?: string;
@@ -55,20 +56,6 @@ export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
   dataModels: DataModelResponse[];
-};
-
-export type AtomicRecordAdmission = {
-  rowId: string;
-  values: Readonly<Record<string, string>>;
-  revision: number;
-  before: Workbook;
-  rowOrders: readonly { sheetId: string; order: readonly string[] }[];
-};
-
-export type AtomicRecordAdmissionResult = {
-  rowId: string;
-  alreadyCommitted: boolean;
-  workbook: Workbook;
 };
 
 export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
@@ -178,7 +165,7 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
-  admitRecordAtomic(sheetId: string, request: AtomicRecordAdmission): Promise<AtomicRecordAdmissionResult> {
+  admitRecord(sheetId: string, request: RecordAdmissionRequest): Promise<RecordAdmissionResult> {
     return requestJson<{ rowId: string; alreadyCommitted: boolean; workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
       method: 'POST',
       body: JSON.stringify({ rowId: request.rowId, values: request.values, before: encodeWorkbookBundle(request.before), rowOrders: request.rowOrders }),
@@ -308,12 +295,6 @@ export const workbookApi = {
       method: 'POST',
       headers: revisionHeaders(options),
     });
-  },
-
-  admitRecord(sheetId: string, rowId: string, values: Readonly<Record<string, string>>, revision: number): Promise<{ rowId: string; sheet: SheetDocument }> {
-    return requestJson<{ rowId: string; sheet: SheetDocumentResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
-      method: 'POST', body: JSON.stringify({ rowId, values }), headers: revisionHeaders({ revision }),
-    }).then((result) => ({ rowId: result.rowId, sheet: decodeSheetDocument(result.sheet) }));
   },
 
   appendColumn(sheetId: string, options: RevisionedMutationOptions = {}): Promise<ColumnAppendResponse> {

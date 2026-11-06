@@ -23,7 +23,7 @@ export type WorkbookCommands = {
   gatherAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], gap: number) => ReorderCommandResult;
   shiftAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], direction: -1 | 1) => ReorderCommandResult;
   extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest, publication?: LifecyclePublication) => ExtractionSubmission;
-  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
+  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: import('@application/core/modelEntrySession').EntryConfirmation }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
   dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
@@ -39,7 +39,7 @@ export type WorkbookCommands = {
   deleteRow: (sheetId: string, rowId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure> }>;
   deleteColumn: (sheetId: string, columnId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure> }>;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
-  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
+  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult | { ok: false; reason: 'pending-model-transition' };
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;

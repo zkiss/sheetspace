@@ -16,7 +16,7 @@ describe('atomic record admission transport', () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ rowId: 'new', alreadyCommitted: true, workbook: encodeWorkbookBundle(before) }), { status: 200 }));
     vi.stubGlobal('fetch', fetch);
 
-    const result = await workbookApi.admitRecordAtomic('first', request);
+    const result = await workbookApi.admitRecord('first', request);
 
     expect(result).toEqual({ rowId: 'new', alreadyCommitted: true, workbook: { ...before, dataModels: {} } });
     expect(fetch).toHaveBeenCalledWith('/api/sheets/first/records', {
@@ -29,7 +29,7 @@ describe('atomic record admission transport', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'sheet-revision-conflict', sheetId: 'other', expectedRevision: 2, actualRevision: 3 }), { status: 409 })));
     const before = workbookWithSheets([]);
 
-    await expect(workbookApi.admitRecordAtomic('first', { rowId: 'new', values: {}, revision: 0, before, rowOrders: [] }))
+    await expect(workbookApi.admitRecord('first', { rowId: 'new', values: {}, revision: 0, before, rowOrders: [] }))
       .rejects.toMatchObject({ status: 409, code: 'sheet-revision-conflict', context: { sheetId: 'other', expectedRevision: 2, actualRevision: 3 } });
   });
 });

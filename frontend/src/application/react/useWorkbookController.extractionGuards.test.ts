@@ -229,10 +229,11 @@ describe('extraction protected rejection', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '3' } });
     const workbook = boundWorkbook('=@A[1]*2', [bound, source]);
     const request = requestFor(workbook, 'source', 'A1');
-    const admission = deferred<{ rowId: string; sheet: SheetDocument }>();
+    const admission = deferred<{ rowId: string; alreadyCommitted: boolean; workbook: Workbook }>();
     let admitRowId = '';
     const api = autosaveClient({
-      admitRecord: vi.fn().mockImplementation((_sheetId: string, rowId: string) => { admitRowId = rowId; return admission.promise; }),
+      loadWorkbook: vi.fn().mockImplementation(async () => result.current.workbook),
+      admitRecord: vi.fn().mockImplementation((_sheetId: string, request: { rowId: string }) => { admitRowId = request.rowId; return admission.promise; }),
       saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -260,7 +261,7 @@ describe('extraction protected rejection', () => {
 
     const admitted = result.current.workbook.documents.bound!;
     await act(async () => {
-      admission.resolve({ rowId: admitRowId, sheet: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } });
+      admission.resolve({ rowId: admitRowId, alreadyCommitted: false, workbook: { ...result.current.workbook, documents: { ...result.current.workbook.documents, bound: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } } } });
       await submission;
     });
     let retry!: ReturnType<typeof result.current.commands.extractSelection>;
@@ -273,15 +274,16 @@ describe('extraction protected rejection', () => {
     expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.bound!, 'A1')!, result.current.workbook, 'bound').text).toBe('=@Target!A[1]');
   });
 
-  it('allows extraction while an admission is in flight on a sheet the extraction does not change', async () => {
+  it('fences extraction on unrelated sheets until full-workbook admission settles', async () => {
     const bound = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 1, columnCount: 2, cells: { A1: '1' } });
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '3' } });
     const workbook = boundWorkbook('=@A[1]*2', [bound, source]);
     const request = requestFor(workbook, 'source', 'A1');
-    const admission = deferred<{ rowId: string; sheet: SheetDocument }>();
+    const admission = deferred<{ rowId: string; alreadyCommitted: boolean; workbook: Workbook }>();
     let admitRowId = '';
     const api = autosaveClient({
-      admitRecord: vi.fn().mockImplementation((_sheetId: string, rowId: string) => { admitRowId = rowId; return admission.promise; }),
+      loadWorkbook: vi.fn().mockResolvedValue(workbook),
+      admitRecord: vi.fn().mockImplementation((_sheetId: string, request: { rowId: string }) => { admitRowId = request.rowId; return admission.promise; }),
       saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -293,15 +295,16 @@ describe('extraction protected rejection', () => {
 
     let attempt!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { attempt = result.current.commands.extractSelection(request); });
-    expect(attempt.result.ok).toBe(true);
-    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+    expect(attempt.result).toMatchObject({ ok: false, reason: 'pending-model-transition' });
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
     expect(api.saveModelLifecycle).not.toHaveBeenCalled();
 
     const admitted = result.current.workbook.documents.bound!;
     await act(async () => {
-      admission.resolve({ rowId: admitRowId, sheet: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } });
+      admission.resolve({ rowId: admitRowId, alreadyCommitted: false, workbook: { ...workbook, documents: { ...workbook.documents, bound: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } } } });
       await submission;
     });
+    act(() => { attempt = result.current.commands.extractSelection(request); });
     await act(async () => { await attempt.completion; });
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();

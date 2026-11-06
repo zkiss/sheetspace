@@ -153,8 +153,22 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
-    admitRecord: vi.fn(),
-    admitRecordAtomic: vi.fn(),
+    admitRecord: vi.fn().mockImplementation(async (sheetId: string, request: Parameters<WorkbookApi['admitRecord']>[1]) => {
+      const { rowId, values } = request;
+      updateSheet(sheetId, (sheet) => {
+        const cells = { ...sheet.content.cells };
+        for (const [propertyId, value] of Object.entries(values)) {
+          const columnId = sheet.modelColumnBindings?.[propertyId];
+          if (columnId && value !== '') cells[cellIdentityKey({ rowId, columnId })] = value;
+        }
+        return { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId], cells } };
+      });
+      updateSheet(sheetId, (sheet) => materializeCalculatedRow(persistedWorkbook, sheet, rowId));
+      for (const { sheetId: id, order } of request.rowOrders) {
+        updateSheet(id, (sheet) => ({ ...sheet, content: { ...sheet.content, rows: [...order] } }));
+      }
+      return { rowId, alreadyCommitted: false, workbook: persistedWorkbook };
+    }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
       const current = findSheetById(persistedWorkbook, sheetId)!;
       const rowId = `${sheetId}:row:${current.content.rows.length + 1}`;

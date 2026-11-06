@@ -54,11 +54,7 @@ describe('calculated row persistence', () => {
   it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
-    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
-      rowId,
-      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
-        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
-    }));
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
 
@@ -77,8 +73,7 @@ describe('calculated row persistence', () => {
   it('retains a rejected draft for correction and submits it with a new identity', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
-    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('invalid', 400, 'invalid-model-record'))
-      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 2 } }));
+    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('invalid', 400, 'invalid-model-record'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
@@ -86,30 +81,31 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
     act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
-    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
-    expect(api.admitRecord.mock.calls[1]![2]).toEqual({ input: '8' });
+    expect(api.admitRecord.mock.calls[1]![1].rowId).not.toBe(api.admitRecord.mock.calls[0]![1].rowId);
+    expect(api.admitRecord.mock.calls[1]![1].values).toEqual({ input: '8' });
   });
 
   it('reloads a revision conflict before allowing a fresh submission', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
-    api.loadSheet.mockResolvedValue({ ...workbook.documents.sheet!, revision: 7 });
+    const refreshed = { ...workbook, documents: { ...workbook.documents, sheet: { ...workbook.documents.sheet!, revision: 7 } } };
+    api.loadWorkbook.mockResolvedValueOnce(workbook).mockResolvedValue(refreshed);
     api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))
-      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 8 } }));
+      .mockImplementationOnce(async (_sheetId, request) => ({ rowId: request.rowId, alreadyCommitted: false, workbook: { ...refreshed, documents: { ...refreshed.documents, sheet: { ...refreshed.documents.sheet!, revision: 8, content: { ...refreshed.documents.sheet!.content, rows: [...refreshed.documents.sheet!.content.rows, request.rowId] } } } } }));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
-    expect(api.loadSheet).toHaveBeenCalledWith('sheet');
+    expect(api.loadWorkbook).toHaveBeenCalledTimes(2);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
-    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
-    expect(api.admitRecord.mock.calls[1]![3]).toBe(7);
+    expect(api.admitRecord.mock.calls[1]![1].rowId).not.toBe(api.admitRecord.mock.calls[0]![1].rowId);
+    expect(api.admitRecord.mock.calls[1]![1].revision).toBe(7);
   });
 
   it('keeps the original retry locked if conflict recovery cannot reload the sheet', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
-    api.loadSheet.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...workbook.documents.sheet!, revision: 7 });
+    api.loadWorkbook.mockResolvedValueOnce(workbook).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...workbook, documents: { ...workbook.documents, sheet: { ...workbook.documents.sheet!, revision: 7 } } });
     api.admitRecord.mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
@@ -126,11 +122,7 @@ describe('calculated row persistence', () => {
     const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '5' } });
     const workbook: Workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
     const api = persistedWorkbookClient(workbook);
-    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
-      rowId,
-      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
-        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
-    }));
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '=@Other!A[1]'));
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
@@ -159,7 +151,7 @@ describe('calculated row persistence', () => {
     expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
-  it('protects the admitting sheet while allowing edits to another sheet', async () => {
+  it('fences the entire workbook until the request settles, then allows unrelated edits', async () => {
     const bound = boundWorkbook();
     const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
     const workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
@@ -173,15 +165,23 @@ describe('calculated row persistence', () => {
     await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
     act(() => {
       expect(result.current.commands.updateCellContent('sheet', 'A1', '8')).toMatchObject({ ok: false });
-      expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: true });
+      expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: false });
+      expect(result.current.commands.createSheet('New', { x: 0, y: 0 })).toMatchObject({ ok: false, reason: 'pending-model-transition' });
+      expect(result.current.commands.addDataModel({ id: 'new', name: 'New', columns: [] }).result).toMatchObject({ ok: false });
+      result.current.commands.appendColumn('other');
+      result.current.commands.appendRow('other');
       expect(result.current.commands.deleteSheet('sheet')).toMatchObject({ ok: false });
     });
     act(() => result.current.commands.undo());
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
     act(() => result.current.commands.redo());
-    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
+    expect(api.createSheet).not.toHaveBeenCalled();
+    expect(api.appendColumn).not.toHaveBeenCalled();
+    expect(api.appendRow).not.toHaveBeenCalled();
     await act(async () => { reject(new Error('connection lost')); await submission; });
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    act(() => { expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: true }); });
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
     act(() => result.current.commands.undo());
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
@@ -218,12 +218,12 @@ describe('calculated row persistence', () => {
     api.writeCells.mockImplementationOnce(async (...args) => {
       await held;
       const response = await write(...args);
-      return { sheets: response.sheets.map((sheet: { sheetId: string; revision: number }) => ({ ...sheet, revision: sheet.revision + 1 })) };
+      return response;
     });
-    api.admitRecord.mockImplementationOnce(async (_sheetId, rowId) => {
+    api.admitRecord.mockImplementationOnce(async (_sheetId, { rowId }) => {
       const saved = await api.loadWorkbook();
       const sheet = saved.documents.sheet!;
-      return { rowId, sheet: { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } } };
+      return { rowId, alreadyCommitted: false, workbook: { ...saved, documents: { ...saved.documents, sheet: { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } } } } };
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => { result.current.commands.updateCellContent('sheet', 'A1', '8'); });
@@ -233,7 +233,8 @@ describe('calculated row persistence', () => {
     act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
     expect(api.admitRecord).not.toHaveBeenCalled();
     await act(async () => { release(); await submission; });
-    expect(api.admitRecord).toHaveBeenCalledWith('sheet', expect.any(String), expect.anything(), workbook.documents.sheet!.revision + 1);
+    expect(api.admitRecord).toHaveBeenCalledWith('sheet', expect.objectContaining({ rowId: expect.any(String), revision: workbook.documents.sheet!.revision, rowOrders: [] }));
+    expect(cellRawContent(api.admitRecord.mock.calls[0]![1].before.documents.sheet!, 'A1')).toBe('8');
     expect(cellRawContent(result.current.workbook.documents.sheet!, 'A1')).toBe('8');
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
   });
