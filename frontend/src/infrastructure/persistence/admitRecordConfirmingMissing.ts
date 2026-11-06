@@ -1,9 +1,9 @@
-import { WorkbookApiError, type WorkbookApi } from './workbookApi';
+import { WorkbookApiError } from './workbookApi';
 import type { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
 import { EntryAdmissionRejected } from '@application/core/modelEntrySession';
 import type { SheetDocument } from '@workbook/core/model';
 
-export function admitRecordConfirmingMissing(admit: WorkbookApi['admitRecord'], coordinator: WorkbookPersistenceCoordinator, reload: (sheetId: string) => Promise<SheetDocument>, reconcile: (sheet: SheetDocument) => void): WorkbookApi['admitRecord'] {
+export function admitRecordConfirmingMissing<Args extends unknown[], Result>(admit: (sheetId: string, ...args: Args) => Promise<Result>, coordinator: WorkbookPersistenceCoordinator, reload: (sheetId: string) => Promise<SheetDocument>, reconcile: (sheet: SheetDocument) => void): (sheetId: string, ...args: Args) => Promise<Result> {
   return async (sheetId, ...args) => {
     try {
       return await admit(sheetId, ...args);

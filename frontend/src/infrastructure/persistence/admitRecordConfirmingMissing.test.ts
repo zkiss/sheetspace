@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { sheetDocument } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { EntryAdmissionRejected } from '@application/core/modelEntrySession';
 import { admitRecordConfirmingMissing } from './admitRecordConfirmingMissing';
-import { WorkbookApiError } from './workbookApi';
+import { WorkbookApiError, type AtomicRecordAdmission } from './workbookApi';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
 
 describe('admission dependency errors', () => {
@@ -29,5 +29,19 @@ describe('admission dependency errors', () => {
 
     expect(coordinator.isSheetMissing('other')).toBe(true);
     expect(coordinator.isSheetMissing('target')).toBe(false);
+  });
+
+  it('preserves the atomic payload when translating a dependency conflict', async () => {
+    const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 1, columnCount: 1 });
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const request: AtomicRecordAdmission = { rowId: 'new', values: {}, revision: target.revision, before: workbookWithSheets([target, other]), rowOrders: [] };
+    const admit = vi.fn<(sheetId: string, request: AtomicRecordAdmission) => Promise<never>>()
+      .mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict', { sheetId: 'other' }));
+    const reload = vi.fn().mockResolvedValue(other);
+
+    await expect(admitRecordConfirmingMissing(admit, new WorkbookPersistenceCoordinator(), reload, vi.fn())('target', request)).rejects.toBeInstanceOf(EntryAdmissionRejected);
+
+    expect(admit).toHaveBeenCalledWith('target', request);
+    expect(reload).toHaveBeenCalledWith('other');
   });
 });
