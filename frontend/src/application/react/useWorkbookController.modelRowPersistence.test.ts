@@ -39,6 +39,31 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
 
+  it('persists a sorted model admission atomically and reloads its physical order', async () => {
+    const original = boundWorkbook();
+    const sheet = original.documents.sheet!;
+    const workbook: Workbook = { ...original, documents: { ...original.documents, sheet: {
+      ...sheet, sorting: [{ columnId: sheet.modelColumnBindings!.output!, direction: 'ascending' }],
+    } } };
+    const api = persistedWorkbookClient(workbook);
+    const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '1'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+
+    const rows = result.current.workbook.documents.sheet!.content.rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toBe(sheet.content.rows[0]);
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(api.writeCells).not.toHaveBeenCalled();
+    expect((await api.loadWorkbook()).documents.sheet!.content.rows).toEqual(rows);
+    unmount();
+
+    const { result: reloaded } = renderHook(() => useWorkbookController({ apiClient: api }));
+    await waitFor(() => expect(reloaded.current.startupLoad.status).toBe('loaded'));
+    expect(reloaded.current.workbook.documents.sheet!.content.rows).toEqual(rows);
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
