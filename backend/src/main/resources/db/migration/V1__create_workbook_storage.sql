@@ -64,7 +64,14 @@ CREATE TABLE record_admissions (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,
     fingerprint TEXT NOT NULL,
+    before_workbook TEXT NOT NULL,
+    after_workbook TEXT NOT NULL,
     PRIMARY KEY (sheet_id, row_id)
+);
+
+CREATE TABLE record_replays (
+    operation_id BLOB PRIMARY KEY CHECK (typeof(operation_id) = 'blob' AND length(operation_id) = 16),
+    fingerprint TEXT NOT NULL
 );
 
 CREATE TABLE sheet_columns (

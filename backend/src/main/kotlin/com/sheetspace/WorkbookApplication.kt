@@ -98,6 +98,7 @@ interface WorkbookApplication {
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
+    fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult
     fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder> = emptyList()): RecordAdmissionResult
 
     fun saveDataModel(model: DataModel): DataModel
@@ -318,6 +319,12 @@ class DefaultWorkbookApplication(
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
+
+    override fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult {
+        val replay = prepareRecordReplay(sheetId, rowId, request)
+        val result = store.replayRecord(replay)
+        return RecordReplayResult(replay.operationId, replay.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
     }
 
     override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder>): RecordAdmissionResult {

@@ -27,6 +27,10 @@ class SqliteWorkbookStore internal constructor(
 
     override fun close() = database.close()
 
+    override fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission = synchronized(updateLock) {
+        database.transaction { conn -> SqliteRecordHistory(conn, reader(conn)).replay(replay) }
+    }
+
     override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission =
         synchronized(updateLock) {
             database.transaction { conn ->
@@ -47,12 +51,7 @@ class SqliteWorkbookStore internal constructor(
                     calculatedAdmission(current, stages.appended)
                     calculatedAdmission(stages.appended, stages.ordered)
                     SqliteWorkbookWriter(conn, reader).persistChanges(current, stages.ordered)
-                    conn.prepareStatement("INSERT INTO record_admissions (sheet_id, row_id, fingerprint) VALUES (?, ?, ?)").use { statement ->
-                        statement.setBytes(1, sheetId.value.toUuidBytes())
-                        statement.setBytes(2, rowId.value.toUuidBytes())
-                        statement.setString(3, fingerprint)
-                        statement.executeUpdate()
-                    }
+                    SqliteRecordHistory(conn, reader).capture(sheetId, rowId, fingerprint, current, stages.ordered)
                     StoredRecordAdmission(reader.loadWorkbookBundle(), false)
                 }
             }

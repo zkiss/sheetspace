@@ -307,6 +307,13 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        post("/api/sheets/{sheetId}/records/{rowId}/replay") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordReplayRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.replayRecord(sheetId, rowId, request)) }
+        }
+
         post("/api/sheets/{sheetId}/records") {
             val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
             val expectedRevision = call.expectedSheetRevision() ?: return@post

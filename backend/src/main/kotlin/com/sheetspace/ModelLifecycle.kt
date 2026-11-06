@@ -27,7 +27,7 @@ internal fun reconcileModelLifecycle(
     )
 }
 
-private fun sameWorkbookContent(left: WorkbookState, right: WorkbookState): Boolean =
+internal fun sameWorkbookContent(left: WorkbookState, right: WorkbookState): Boolean =
     left.copy(manifest = left.manifest.copy(revision = 0), documents = left.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) }) ==
         right.copy(manifest = right.manifest.copy(revision = 0), documents = right.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) })
 

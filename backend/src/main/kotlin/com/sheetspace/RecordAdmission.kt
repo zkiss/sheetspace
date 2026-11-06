@@ -36,23 +36,26 @@ internal fun prepareRecordAdmission(revision: Long, values: Map<String, String>,
     if (normalizedValues.size != values.size || revision < 0) throw invalidRecord()
     val normalizedOrders = orders.map { order -> RecordRowOrder(recordIdentity(order.sheetId), order.order.map(::recordIdentity)) }
     if (normalizedOrders.map { it.sheetId }.distinct().size != orders.size) throw invalidRecord()
-    val normalizedBefore = try {
-        Json.decodeFromJsonElement<WorkbookBundleResponse>(normalizeGuard(Json.encodeToJsonElement(before))).toLifecycleWorkbook()
-    } catch (_: IllegalArgumentException) {
-        throw invalidRecord()
-    } catch (_: WorkbookApplicationException) {
-        throw invalidRecord()
-    }
+    val normalizedBefore = normalizeRecordGuard(before)
     val payload = JsonObject(mapOf(
         "revision" to JsonPrimitive(revision),
         "values" to Json.encodeToJsonElement(normalizedValues),
         "before" to Json.encodeToJsonElement(WorkbookReadTransportAdapter.bundle(normalizedBefore)),
         "orders" to Json.encodeToJsonElement(normalizedOrders.sortedBy { it.sheetId }),
     ))
-    val encoded = canonicalRecordJson(payload).toString()
-    val fingerprint = MessageDigest.getInstance("SHA-256").digest(encoded.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
-    return PreparedRecordAdmission(normalizedBefore, normalizedValues, normalizedOrders, fingerprint)
+    return PreparedRecordAdmission(normalizedBefore, normalizedValues, normalizedOrders, recordFingerprint(payload))
 }
+
+internal fun normalizeRecordGuard(before: WorkbookBundleResponse): WorkbookState = try {
+    Json.decodeFromJsonElement<WorkbookBundleResponse>(normalizeGuard(Json.encodeToJsonElement(before))).toLifecycleWorkbook()
+} catch (_: IllegalArgumentException) {
+    throw invalidRecord()
+} catch (_: WorkbookApplicationException) {
+    throw invalidRecord()
+}
+
+internal fun recordFingerprint(payload: JsonElement): String = MessageDigest.getInstance("SHA-256")
+    .digest(canonicalRecordJson(payload).toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
 private val identityFields = setOf("id", "rowId", "columnId", "sheetId", "modelId", "rows", "columns", "sheetIds", "modelColumnBindings")
 private val identityMaps = setOf("modelColumnBindings", "columnNames", "rowHeights", "columnWidths", "modelFormulaBindings", "rows", "columns")
