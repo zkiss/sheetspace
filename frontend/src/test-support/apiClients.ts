@@ -153,6 +153,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
+    replayRecord: vi.fn().mockRejectedValue(new Error('Record replay is not implemented by this test client.')),
     admitRecord: vi.fn().mockImplementation(async (sheetId: string, request: Parameters<WorkbookApi['admitRecord']>[1]) => {
       const { rowId, values } = request;
       updateSheet(sheetId, (sheet) => {

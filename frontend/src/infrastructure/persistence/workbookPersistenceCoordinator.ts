@@ -15,6 +15,13 @@ export class WorkbookPersistenceCoordinator {
   private readonly missingSheetIds = new Set<SheetId>();
   private readonly missingSheetListeners = new Set<MissingSheetListener>();
   private workbookTail?: Promise<void>;
+  private replayPending = false;
+
+  beginRecordReplay() {
+    if (this.replayPending) throw new Error('Record replay is already pending.');
+    this.replayPending = true;
+    return () => { this.replayPending = false; };
+  }
 
   async serializeWorkbook<T>(request: () => Promise<T>): Promise<T> {
     const predecessors = [...this.writeTails.values(), ...(this.workbookTail ? [this.workbookTail] : [])];

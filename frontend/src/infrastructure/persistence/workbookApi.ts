@@ -7,6 +7,7 @@ import { validSorting } from '@workbook/core/sorting';
 import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import type { RecordAdmissionRequest, RecordAdmissionResult } from '@application/core/recordAdmission';
+import type { RecordReplayRequest, RecordReplayResult } from '@application/core/recordReplay';
 
 type ApiErrorBody = {
   error?: string;
@@ -165,6 +166,11 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  replayRecord(sheetId: string, rowId: string, request: RecordReplayRequest): Promise<RecordReplayResult> {
+    return requestJson<Omit<RecordReplayResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/replay`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
   admitRecord(sheetId: string, request: RecordAdmissionRequest): Promise<RecordAdmissionResult> {
     return requestJson<{ rowId: string; alreadyCommitted: boolean; workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
       method: 'POST',
