@@ -11,23 +11,10 @@
 
 .workspace-grid {
   position: absolute;
-  inset: calc(-1 * var(--workspace-grid-major-size));
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  background-image:
-    linear-gradient(#c8d6db 1px, transparent 1px),
-    linear-gradient(90deg, #c8d6db 1px, transparent 1px),
-    linear-gradient(rgb(200 214 219 / var(--workspace-grid-minor-opacity)) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(200 214 219 / var(--workspace-grid-minor-opacity)) 1px, transparent 1px),
-    linear-gradient(rgb(200 214 219 / var(--workspace-grid-fine-opacity)) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(200 214 219 / var(--workspace-grid-fine-opacity)) 1px, transparent 1px);
-  background-position: 0 0;
-  background-size:
-    var(--workspace-grid-major-size) var(--workspace-grid-major-size),
-    var(--workspace-grid-major-size) var(--workspace-grid-major-size),
-    var(--workspace-grid-minor-size) var(--workspace-grid-minor-size),
-    var(--workspace-grid-minor-size) var(--workspace-grid-minor-size),
-    var(--workspace-grid-fine-size) var(--workspace-grid-fine-size),
-    var(--workspace-grid-fine-size) var(--workspace-grid-fine-size);
 }
 
 .workspace-surface-panning,
@@ -36,8 +23,7 @@
   user-select: none;
 }
 
-.workspace-surface-panning .workspace-plane,
-.workspace-surface-panning .workspace-grid { will-change: transform; }
+.workspace-surface-panning .workspace-plane { will-change: transform; }
 
 .workspace-plane {
   position: absolute;

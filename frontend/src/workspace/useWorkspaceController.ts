@@ -6,6 +6,7 @@ import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import { useDisplayedWorkspaceViewport } from './useDisplayedWorkspaceViewport';
 import { navigationViewportMotion } from './navigationViewportMotion';
+import { drawWorkspaceGrid } from './workspaceGrid';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
@@ -84,9 +85,8 @@ export function useWorkspaceController({
   }, interactionsEnabled);
 
   useLayoutEffect(() => {
-    if (zoomPreview.current) paintPanViewport(zoomPreview.current, false);
-    else if (panPreview.current) paintPanViewport(panPreview.current);
-  });
+    paintPanViewport(zoomPreview.current ?? panPreview.current ?? viewport);
+  }, [viewport, workspaceSurfaceSize]);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -233,7 +233,7 @@ export function useWorkspaceController({
     setViewport(next);
   }
 
-  function paintPanViewport(next: WorkspaceViewport, includeGrid = true) {
+  function paintPanViewport(next: WorkspaceViewport) {
     const surface = workspaceSurfaceRef.current;
     const plane = workspacePlaneRef.current;
     if (!surface || !plane) return;
@@ -241,19 +241,8 @@ export function useWorkspaceController({
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
     surface.dataset.viewportScale = String(next.scale);
-    if (!includeGrid) return;
-    const grid = surface.querySelector<HTMLElement>('.workspace-grid');
-    const size = 40 * 2 ** Math.ceil(Math.log2(1 / next.scale)) * next.scale;
-    if (grid && grid.dataset.viewportScale !== String(next.scale)) {
-      const phase = Math.max(0, Math.min(1, (size - 40) / 40));
-      grid.dataset.viewportScale = String(next.scale);
-      surface.style.setProperty('--workspace-grid-major-size', `${size}px`);
-      surface.style.setProperty('--workspace-grid-minor-size', `${size / 2}px`);
-      surface.style.setProperty('--workspace-grid-fine-size', `${size / 4}px`);
-      surface.style.setProperty('--workspace-grid-minor-opacity', String(0.35 + 0.65 * phase));
-      surface.style.setProperty('--workspace-grid-fine-opacity', String(0.35 * phase));
-    }
-    if (grid && size > 0) grid.style.transform = `translate(${next.x % size}px, ${next.y % size}px)`;
+    const grid = surface.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
+    if (grid) drawWorkspaceGrid(grid, next);
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
@@ -286,10 +275,9 @@ export function useWorkspaceController({
       zoomFrame.current = undefined;
       const next = zoomPreview.current;
       if (!next) return;
-      // Scaling the plane makes the browser re-rasterize the sheet content.
-      // Moving the full-screen grid in the same frame repaints that content
-      // again, so the grid catches up in finishZoomPreview instead.
-      paintPanViewport(next, false);
+      // The canvas grid is cheap to redraw per frame, so the preview moves the
+      // plane and the grid together without re-rasterizing scaled content.
+      paintPanViewport(next);
     });
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
     // Commit once the wheel or pinch gesture settles. A React commit per
