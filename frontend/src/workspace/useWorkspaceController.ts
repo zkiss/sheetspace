@@ -48,7 +48,6 @@ export function useWorkspaceController({
   const zoomPreview = useRef<WorkspaceViewport | null>(null);
   const zoomFrame = useRef<number>();
   const zoomTimer = useRef<number>();
-  const zoomPublication = useRef(0);
   const creationSequence = useRef<{ position?: WorkspacePosition; revision: number }>({ revision: 0 });
   const creationMotionSample = useRef<{ animation: Animation; time: CSSNumberish | null } | undefined>(undefined);
   const viewportRef = useRef(viewport);
@@ -85,7 +84,7 @@ export function useWorkspaceController({
   }, interactionsEnabled);
 
   useLayoutEffect(() => {
-    if (zoomPreview.current) paintPanViewport(zoomPreview.current);
+    if (zoomPreview.current) paintPanViewport(zoomPreview.current, false);
     else if (panPreview.current) paintPanViewport(panPreview.current);
   });
 
@@ -234,18 +233,20 @@ export function useWorkspaceController({
     setViewport(next);
   }
 
-  function paintPanViewport(next: WorkspaceViewport) {
+  function paintPanViewport(next: WorkspaceViewport, includeGrid = true) {
     const surface = workspaceSurfaceRef.current;
     const plane = workspacePlaneRef.current;
     if (!surface || !plane) return;
     plane.style.transform = viewportTransform(next);
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
+    surface.dataset.viewportScale = String(next.scale);
+    if (!includeGrid) return;
     const grid = surface.querySelector<HTMLElement>('.workspace-grid');
     const size = 40 * 2 ** Math.ceil(Math.log2(1 / next.scale)) * next.scale;
-    if (surface.dataset.viewportScale !== String(next.scale)) {
+    if (grid && grid.dataset.viewportScale !== String(next.scale)) {
       const phase = Math.max(0, Math.min(1, (size - 40) / 40));
-      surface.dataset.viewportScale = String(next.scale);
+      grid.dataset.viewportScale = String(next.scale);
       surface.style.setProperty('--workspace-grid-major-size', `${size}px`);
       surface.style.setProperty('--workspace-grid-minor-size', `${size / 2}px`);
       surface.style.setProperty('--workspace-grid-fine-size', `${size / 4}px`);
@@ -274,26 +275,26 @@ export function useWorkspaceController({
     if (!zoomPreview.current) {
       if (gestureGeneration === undefined && !interruptNavigation()) return;
       zoomPreview.current = viewportRef.current;
-      zoomPublication.current = performance.now();
     }
     const current = zoomPreview.current;
     zoomPreview.current = zoomViewportAt(current, zoomScaleBy(current.scale, factor), zoomOrigin(origin));
     if (zoomPreview.current.scale !== current.scale) invalidateCreationSequence();
     viewportRef.current = zoomPreview.current;
     const generation = previewGeneration.current;
-    if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame((time) => {
+    if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame(() => {
       if (generation !== previewGeneration.current) return;
       zoomFrame.current = undefined;
       const next = zoomPreview.current;
       if (!next) return;
-      paintPanViewport(next);
-      if (time - zoomPublication.current >= 150) {
-        zoomPublication.current = time;
-        viewportMovementIsUser.current = true;
-        setViewport(next);
-      }
+      // Scaling the plane makes the browser re-rasterize the sheet content.
+      // Moving the full-screen grid in the same frame repaints that content
+      // again, so the grid catches up in finishZoomPreview instead.
+      paintPanViewport(next, false);
     });
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    // Commit once the wheel or pinch gesture settles. A React commit per
+    // preview frame re-renders every mounted grid while the pointer moves,
+    // which is the hitch this preview exists to avoid.
     zoomTimer.current = window.setTimeout(() => {
       if (generation === previewGeneration.current) finishZoomPreview();
     }, 150);
