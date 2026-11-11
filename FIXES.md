@@ -336,3 +336,15 @@ visible afterward, without console warnings or errors. TypeScript, targeted
 ESLint and `git diff --check` passed. Automated tests remain deferred; add
 coverage for restore visibility, frame mounting, and custom flyover duration
 when hardening.
+
+### 9. Slow the matched presentation animations
+
+Reported: maximise and restore are a little too fast; use a speed between the
+300 ms version and the earlier 650 ms restore.
+
+Fix: set both presentation transitions and the restore flyover to 475 ms. Other
+workspace navigation remains unchanged.
+
+Ad hoc Playwright confirmed workspace visibility during restore and no console
+warnings or errors. TypeScript and targeted ESLint passed. Automated tests
+remain deferred for fixes-mode hardening.
