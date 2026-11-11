@@ -116,3 +116,56 @@ Tests deferred (per user request in this fixes session):
 - New coverage for double-press timing, multi-selection preservation, deck/flight
   rendering, and the insertion-line boundary will be added during hardening.
 
+### 3. Maximise and restore animation and sheet dragging stutter
+
+Reported: minimising and maximising a sheet is slow, and dragging a sheet
+(by its header) to a new position is slow.
+
+Cause: transient frame geometry was committed through React state on every
+animation frame and every drag pointer move. Workspace renders every mounted
+sheet and grid inline, so each commit re-rendered all grids. The presented grid
+also reported its animated body size back into workspace state each frame.
+
+Fix:
+
+- Maximise/restore sampling now paints the presented frame, header and body
+  directly from `sheetFramePresentation.ts`. React commits once at each
+  transition boundary instead of once per frame. `currentPresentation()` on the
+  runtime exposes the live sample for callers that need mid-flight geometry
+  (extraction requests).
+- Reference-viewport reporting pauses while a sheet is presented, so the
+  animated body resize no longer updates workspace state.
+- Dragging a sheet moves the frame's `left`/`top` directly and updates
+  `data-position-x`/`data-position-y`. The committed position still goes
+  through `moveSheetFrame` on release, and a rejected move repaints the start
+  position. Escape, pointer cancel, blur and a removed sheet also restore the
+  start position. Resize and Ctrl-drag scaling keep the preview-state path.
+
+Measured with ad hoc Playwright rAF sampling over 700 ms on the running dev app:
+
+- maximise: 10 frames, avg 79.5 ms, max 233 ms, 615 ms in long tasks before;
+  23 frames, avg 30.8 ms, max 100 ms, 449 ms in long tasks after.
+- restore: 14 frames, avg 54.1 ms, max 150 ms, 683 ms in long tasks before;
+  26 frames, avg 27.3 ms, max 133 ms, 353 ms in long tasks after.
+- sheet drag, 40 pointer moves: ~4.9 s before, ~1.0–1.3 s after including
+  Playwright round-trips.
+- The remaining animation cost is the presented grid re-rendering as its
+  scroll container grows; it is no longer multiplied by every mounted sheet.
+
+Ad hoc Playwright verification against the running app:
+
+- sampled frame rects progress continuously through enter and restore, the
+  maximised frame fills the surface with a detailed grid, and restore returns
+  the sheet to its saved canvas position;
+- drag follows the pointer, commits on release, restores on Escape, and updates
+  `data-position-x`/`data-position-y`;
+- no console warnings or errors.
+
+Tests deferred (per user request in this fixes session):
+
+- `useSheetFrameInteractions.test.ts` has six drag tests asserting
+  `frameLayoutPreview`, which no longer changes during a drag; they need to
+  assert the frame element's style and data attributes.
+- `useMaximiseRuntime.test.tsx` has three tests sampling `presentation`
+  mid-flight; the live sample now comes from `currentPresentation()` while
+  `presentation` commits only at boundary/retarget points.

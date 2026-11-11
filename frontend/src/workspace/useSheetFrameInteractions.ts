@@ -15,7 +15,19 @@ type SheetFrameInteractionSession = (
   | { owner: 'drag'; interaction: SheetFrameDrag }
   | { owner: 'resize'; interaction: SheetFrameResize }
   | { owner: 'pointer-scale'; interaction: SheetFrameScale }
-) & { captureElement: HTMLElement; viewportScale: number };
+) & { captureElement: HTMLElement; viewportScale: number; frameElement?: HTMLElement };
+
+function paintFramePosition(element: HTMLElement, position: WorkspacePosition) {
+  element.style.left = `${position.x}px`;
+  element.style.top = `${position.y}px`;
+  element.dataset.positionX = String(position.x);
+  element.dataset.positionY = String(position.y);
+}
+
+function restoreDragPreview(session: SheetFrameInteractionSession | null) {
+  if (session?.owner !== 'drag' || !session.frameElement) return;
+  paintFramePosition(session.frameElement, session.interaction.startPosition);
+}
 
 export function useSheetFrameInteractions({
   commands,
@@ -44,9 +56,10 @@ export function useSheetFrameInteractions({
     return true;
   }
 
-  function clearInteractionSession() {
+  function clearInteractionSession(restorePreview = true) {
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
+    if (restorePreview) restoreDragPreview(previous);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }
@@ -64,7 +77,7 @@ export function useSheetFrameInteractions({
     if (!sheet) {
       return;
     }
-    if (!startInteraction({ owner: 'drag', captureElement: event.currentTarget, viewportScale, interaction: {
+    if (!startInteraction({ owner: 'drag', captureElement: event.currentTarget, viewportScale, frameElement: event.currentTarget.closest<HTMLElement>('article.sheet-frame') ?? undefined, interaction: {
       pointerId: event.pointerId,
       sheetId,
       startClientX: event.clientX,
@@ -87,16 +100,14 @@ export function useSheetFrameInteractions({
       { x: event.clientX, y: event.clientY },
       current.viewportScale,
     );
-    const sheet = findSheetById(workbook, drag.sheetId);
-    if (!sheet) return;
-    setFrameLayoutPreview({
-      sheetId: drag.sheetId,
-      position: {
+    // Move the frame element directly. A React state commit per pointermove
+    // re-renders every mounted sheet grid while the sheet is dragged.
+    if (current.frameElement) {
+      paintFramePosition(current.frameElement, {
         x: Math.round(drag.startPosition.x + delta.x),
         y: Math.round(drag.startPosition.y + delta.y),
-      },
-      size: sheet.frame.size,
-    });
+      });
+    }
   }
 
   function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -115,11 +126,10 @@ export function useSheetFrameInteractions({
       x: Math.round(finishedDrag.startPosition.x + delta.x),
       y: Math.round(finishedDrag.startPosition.y + delta.y),
     };
-    if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
-      commands.moveSheetFrame(finishedDrag.sheetId, position);
-    }
+    const moved = position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y;
+    const committed = !moved || (commands.moveSheetFrame(finishedDrag.sheetId, position)?.ok ?? true);
 
-    clearInteractionSession();
+    clearInteractionSession(!committed);
   }
 
   function cancelSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -232,6 +242,7 @@ export function useSheetFrameInteractions({
   const cancelSheetFrameScale = useCallback(() => {
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
+    restoreDragPreview(previous);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }

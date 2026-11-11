@@ -34,6 +34,8 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { useMaximiseRuntime } from '@workspace/useMaximiseRuntime';
 import { canvasPresentation, interpolatePresentation, restoredViewport, type SheetPresentation } from '@workspace/maximiseGeometry';
+import { paintSheetFramePresentation } from '@workspace/sheetFramePresentation';
+import type { MaximiseState } from '@workspace/maximiseState';
 import { displayedExtractionFramePosition, extractionOverlayPresentation } from './extractionGeometry';
 import type { ExtractionHandoffResult } from './useExtractionHandoff';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
@@ -42,6 +44,7 @@ import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
+import { displayedWorkspaceViewport } from '@workspace/workspaceViewportMotion';
 import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
@@ -262,10 +265,20 @@ export function Workspace({
     paintOwner && extractionRange.current?.token === paintOwner.token
       ? { token: paintOwner.token, source: paintOwner.source, targetId: paintOwner.targetId, range: extractionRange.current.range, ready: paintOwner.ready }
       : null, extractionHandoff.targetReady, extractionHandoff.targetNotReady, extractionHandoff.empty, workspaceController.viewport, extractionHandoff.registerCoverage);
+  const paintMaximisedPresentation = (sample: SheetPresentation, state: MaximiseState) => {
+    const surface = workspaceController.workspaceSurfaceRef.current;
+    if (!surface || !state.sheetId) return;
+    const article = surface.querySelector<HTMLElement>(`article.sheet-frame[data-sheet-id="${CSS.escape(state.sheetId)}"]`);
+    if (!article) return;
+    // Read the plane so the first painted frame matches the viewport the
+    // handoff just committed, even before React renders it.
+    const viewport = displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current) ?? workspaceController.viewport;
+    paintSheetFramePresentation(article, sample, viewport);
+  };
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
     const sheet = findSheetById(workbook, id);
     return sheet && frameProjection(sheet);
-  });
+  }, paintMaximisedPresentation);
   const extractionInputs = useRef({ workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus });
   extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
   const abortExtractionPresentation = () => {
@@ -776,7 +789,13 @@ export function Workspace({
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
     return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
   };
+  const referenceViewportsPaused = useRef(false);
+  referenceViewportsPaused.current = maximise.state.mode !== 'canvas';
   const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
+    // Frame presentation resizes the sheet body on every animation frame.
+    // Recording each size would re-render the whole workspace per frame, and
+    // reference links are hidden while a sheet is presented anyway.
+    if (referenceViewportsPaused.current && viewport) return;
     setReferenceGridViewports((current) => {
       if (!viewport) {
         if (!current[sheetId]) return current;
@@ -933,7 +952,8 @@ export function Workspace({
         const range = rectangularSelectionAddressRange(sheet, selection);
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
-        const presented = maximise.state.sheetId === sheet.id && maximise.presentation ? maximise.presentation : canvasPresentation(sourceFrame, workspaceController.displayedViewport);
+        const presentedNow = maximise.currentState().sheetId === sheet.id ? maximise.currentPresentation() : undefined;
+        const presented = presentedNow ?? canvasPresentation(sourceFrame, workspaceController.displayedViewport);
         const bodyBounds = body?.getBoundingClientRect(), surfaceBounds = surface?.getBoundingClientRect();
         const displayed = bodyBounds && surfaceBounds && bodyBounds.width > 0 && bodyBounds.height > 0
           ? { ...presented, body: { left: bodyBounds.left - surfaceBounds.left, top: bodyBounds.top - surfaceBounds.top, width: bodyBounds.width, height: bodyBounds.height } }
