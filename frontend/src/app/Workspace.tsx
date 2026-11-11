@@ -1,5 +1,4 @@
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
-/* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
