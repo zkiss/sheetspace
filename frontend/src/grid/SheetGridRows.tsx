@@ -13,7 +13,6 @@ import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { AxisResizeHandle } from './AxisResizeHandle';
 import { getSheetCellDisplayText } from './sheetGridModel';
 import { axisKey, isAddressInRange } from './sheetGridProjection';
-import type { useAxisGather } from './useAxisGather';
 import type { useAxisResize } from './useAxisResize';
 import type { gridSelectionPresentation } from './gridSelectionPresentation';
 
@@ -39,7 +38,6 @@ type SheetGridRowsProps = {
   presentation?: SheetPresentation;
   registerCell: (cellKey: string, element: HTMLElement | null) => void;
   resize: ReturnType<typeof useAxisResize>;
-  gather?: ReturnType<typeof useAxisGather>;
   rowHeaderRef: RefObject<HTMLDivElement>;
   rows: GridAxisProjection['rows'];
   selectionPresentation: ReturnType<typeof gridSelectionPresentation>;
@@ -121,12 +119,12 @@ function RowHeader({ props, row, virtualRow }: {
       }`}
       data-axis-durable-index={row.kind === 'saved' ? row.durableIndex : undefined}
       data-axis-selection-mode={row.kind === 'saved' ? 'rows' : undefined}
+      data-axis-id={row.kind === 'saved' ? row.id : undefined}
       ref={row.kind === 'saved' && row.durableIndex === 0 ? props.rowHeaderRef : undefined}
       role="rowheader"
       style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
     >
       {row.kind === 'creating' ? 'Creating…' : row.durableIndex + 1}
-      {row.kind === 'saved' && props.gather && <button type="button" className="sheet-grid-gather-handle" aria-label={`Drag row ${row.durableIndex + 1}`} onPointerDown={(event) => props.gather?.start(event, 'row', row.id)}>⋮⋮</button>}
       {row.kind === 'saved' && props.onWriteAxisSizes && (
         <AxisResizeHandle axis="row" id={row.id} label={String(row.durableIndex + 1)} size={virtualRow.size} resize={props.resize} />
       )}

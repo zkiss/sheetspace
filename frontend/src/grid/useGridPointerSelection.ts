@@ -3,10 +3,11 @@ import { cellKey } from '@workbook/core/address';
 import type { SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import type { GridAxisMetrics } from './gridAxisMetrics';
-import type { CellSelectionMode, CellTarget, SelectionGesture } from './cellInteractionContracts';
+import type { CellSelectionMode, CellSelection, CellTarget, SelectionGesture } from './cellInteractionContracts';
 import type { SheetGridCellInteraction } from './SheetGridCell';
 import { cellTargetAt, sameTarget } from '@grid/cellInteraction';
 import { dragTargetForSource, savedAxisIndexAtOffset } from './sheetGridProjection';
+import { resizeTargetIds } from './useAxisResize';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from '@grid/gridGeometry';
 
 type GridPointerSelectionOptions = {
@@ -15,9 +16,12 @@ type GridPointerSelectionOptions = {
   columnMetrics: GridAxisMetrics;
   columns: GridAxisProjection['columns'];
   onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
+  /** Starts a header move gesture; returns true when the press was consumed by it. */
+  onAxisPress?: (event: PointerEvent<HTMLDivElement>, axis: 'row' | 'column', id: string) => boolean;
   rowMetrics: GridAxisMetrics;
   rows: GridAxisProjection['rows'];
   scrollContainerRef: RefObject<HTMLElement>;
+  selection?: CellSelection | null;
   selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
   interactionsEnabled: boolean;
@@ -71,9 +75,11 @@ export function useGridPointerSelection({
   columnMetrics,
   columns,
   onSelectAxis,
+  onAxisPress,
   rowMetrics,
   rows,
   scrollContainerRef,
+  selection,
   selectionOwner,
   sheet,
   interactionsEnabled,
@@ -243,16 +249,23 @@ export function useGridPointerSelection({
 
     const axisMode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
     const mode = axisMode ?? 'cells';
+    const axisId = source.dataset.axisId;
+    if (axisMode && axisId && onAxisPress?.(event, axisMode === 'rows' ? 'row' : 'column', axisId)) return;
     const target = dragTargetForSource(source, mode, sheet, rows, columns);
     if (!target) return;
 
     const owner = Symbol('selection-gesture');
     const gesture: SelectionGesture = { owner, start: true };
     const toggle = mode !== 'cells' && !event.shiftKey && (event.ctrlKey || event.metaKey);
+    // A double-click move starts on an already selected header. Keep the full
+    // multi-axis selection so the deck can carry every selected header instead
+    // of collapsing it to the one that was pressed.
+    const preservingSelection = Boolean(axisId) && !event.shiftKey && !event.ctrlKey && !event.metaKey
+      && resizeTargetIds(sheet, mode === 'rows' ? 'row' : 'column', axisId!, selection).length > 1;
     if (mode === 'cells') {
       if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target, gesture);
       else cellInteraction.select(target, gesture);
-    } else {
+    } else if (!preservingSelection) {
       if (toggle) onSelectAxis?.(mode, target, false, gesture, 'toggle');
       else onSelectAxis?.(mode, target, event.shiftKey, gesture);
     }

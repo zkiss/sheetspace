@@ -57,3 +57,51 @@ Tests deferred (per user request in this fixes session):
   preview timing introduced by the earlier fix commit.
 - A test for `workspaceGridGeometry` and canvas drawing will be added during
   hardening.
+
+### 2. Row and column headers are moved by double-click drag
+
+Reported: the six-dot move handles on the row and column headers are visually
+distracting, and moving headers should feel physical: a single insertion line,
+headers that follow the pointer, and a stacked deck for multi-axis moves.
+
+Fix:
+
+- Removed the `⋮⋮` gather buttons from row and column headers.
+- A press, release and second press on the same header (within 650 ms and 6 px)
+  starts a move session on the second press, so the header is dragged while the
+  pointer is still down. Pressing a header that is already part of a multi-axis
+  selection keeps that selection instead of collapsing it to one header.
+- The insertion indicator is a single 2 px line at the current gap, spanning the
+  full grid width including the sticky header strips, so it is visible between
+  header cells as well as in the cell area.
+- The grabbed header follows the pointer: it is rendered as a header card in the
+  grid's content coordinates, so it tracks the pointer through workspace scaling,
+  scrolling, and edge auto-scroll.
+- Multi-axis moves render every selected header as an offset stack of cards, and
+  the stack is what is dragged.
+- On release the cards fly to their landing offsets; a drop outside the grid
+  flies them back to their home headers. The existing row/column FLIP motion
+  still animates the real headers into place.
+- `Escape`, blur, sheet deactivation or a projection change cancel the session
+  and return the cards home.
+
+Ad hoc Playwright verification against the running app:
+
+- single row move down and up, single column move left and right, multi-row move
+  with a preserved two-row selection;
+- the line spans the header strip and the cell area (screenshots inspected);
+- the deck stays under the pointer, including during edge auto-scroll
+  (`scrollTop` advanced 70 → 224 px while the line stayed visible);
+- release flight rendered and real headers settled in the new order;
+- drop outside the grid and `Escape` both cancelled without changing the order;
+- plain click and plain double-click on a header select without starting a move;
+- no console warnings or errors.
+
+Tests deferred (per user request in this fixes session):
+
+- `SheetGrid.gather.test.tsx` and `App.axisGather.test.tsx` still press the
+  removed `Drag row/column` buttons and assert `axis-gather-preview` blocks; they
+  need rewriting around header presses, the `axis-gather-line` and deck cards.
+- New coverage for double-press timing, multi-selection preservation, deck/flight
+  rendering, and the insertion-line boundary will be added during hardening.
+
