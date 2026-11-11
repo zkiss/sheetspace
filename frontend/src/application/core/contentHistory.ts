@@ -6,12 +6,13 @@ export const CONTENT_HISTORY_MAX_BYTES = 64 * 1024;
 export const EXTRACTION_HISTORY_MAX_BYTES = 16 * 1024 * 1024;
 
 export type ContentTransaction = {
-  kind: 'cells' | 'extraction' | 'axis-order';
+  kind: 'cells' | 'extraction' | 'axis-order' | 'model-record';
   writes: readonly CellPersistenceWrite[];
   affected: AffectedWorkbookEntities;
   bytes: number;
   snapshots?: { before: Workbook; after: Workbook };
   order?: { sheetId: string; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] };
+  record?: { sheetId: string; rowId: string };
 };
 
 function extractionBytes(before: Workbook, after: Workbook) {
@@ -29,6 +30,7 @@ function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
     bytes: transaction.bytes,
     ...(transaction.snapshots && { snapshots: structuredClone(transaction.snapshots) }),
     ...(transaction.order && { order: structuredClone(transaction.order) }),
+    ...(transaction.record && { record: { ...transaction.record } }),
   };
 }
 
@@ -81,6 +83,12 @@ export class ContentHistory {
     this.pushUndo(cloneTransaction({ kind: 'axis-order', order, writes: [], affected: { sheetIds: [order.sheetId], cells: [] }, bytes }));
     return { ok: true } as const;
   }
+  recordModelRecord(record: NonNullable<ContentTransaction['record']>) {
+    const bytes = new TextEncoder().encode(JSON.stringify(record)).byteLength;
+    if (bytes > CONTENT_HISTORY_MAX_BYTES) { this.clear(); return; }
+    this.clearRedo();
+    this.pushUndo(cloneTransaction({ kind: 'model-record', record, writes: [], affected: { sheetIds: [record.sheetId], cells: [] }, bytes }));
+  }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
 
@@ -89,7 +97,7 @@ export class ContentHistory {
   private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; }
   private trimUndo() {
     const bytesFor = (kind: ContentTransaction['kind']) => this.undoStack.reduce((sum, entry) => sum + (entry.kind === kind ? entry.bytes : 0), 0);
-    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') > EXTRACTION_HISTORY_MAX_BYTES) {
+    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') + bytesFor('model-record') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') > EXTRACTION_HISTORY_MAX_BYTES) {
       const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes;
     }
   }

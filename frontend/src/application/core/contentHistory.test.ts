@@ -8,6 +8,28 @@ const write = (beforeRaw: string | null, afterRaw: string | null): CellPersisten
 });
 
 describe('ContentHistory', () => {
+  it('retains immutable record replay identities across undo and redo', () => {
+    const history = new ContentHistory();
+    const record = { sheetId: 'sheet', rowId: 'row' };
+    history.recordModelRecord(record);
+    record.rowId = 'changed';
+    const retrieved = history.peekUndo()!;
+    retrieved.record!.rowId = 'changed-again';
+
+    history.commitUndo();
+    expect(history.peekRedo()).toMatchObject({ kind: 'model-record', record: { sheetId: 'sheet', rowId: 'row' } });
+    history.commitRedo();
+    expect(history.peekUndo()?.record?.rowId).toBe('row');
+  });
+
+  it('clears history when a record identity cannot fit the history budget', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'first')], affected);
+    history.recordModelRecord({ sheetId: 'sheet', rowId: 'x'.repeat(CONTENT_HISTORY_MAX_BYTES) });
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+  });
+
   it('keeps immutable content transitions and clears redo after an effective edit', () => {
     const history = new ContentHistory();
     const writes = [write(null, 'first')];
