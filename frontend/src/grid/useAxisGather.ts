@@ -22,7 +22,7 @@ type Options = {
   select?: (mode: 'rows' | 'columns', target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   settle?: (owner: symbol) => void; focus?: (target: CellTarget) => void; gather?: (axis: Axis, ids: readonly string[], gap: number) => void;
 };
-type CardBase = { id: string; label: string; width: number; height: number; order: number };
+type CardBase = { id: string; label: string; width: number; height: number; order: number; homeX: number; homeY: number };
 export type AxisGatherCard = CardBase & { x: number; y: number };
 export type AxisGatherDeck = { axis: Axis; cards: readonly AxisGatherCard[]; primaryId: string };
 export type AxisGatherFlight = { axis: Axis; cards: readonly (AxisGatherCard & { toX: number; toY: number })[] };
@@ -34,6 +34,8 @@ type Preview = { axis: Axis; start: number; line: number; gap: number };
 type Press = { axis: Axis; id: string; time: number; x: number; y: number };
 const DOUBLE_PRESS_MS = 650;
 const DOUBLE_PRESS_SLOP = 6;
+const DECK_VISIBLE_CARDS = 3;
+const DECK_STACK_OFFSET = 4;
 const FLIGHT_MS = 220;
 
 export function useAxisGather(options: Options) {
@@ -87,12 +89,13 @@ export function useAxisGather(options: Options) {
     const px = (x - rect.left) * (rect.width ? container.offsetWidth / rect.width : 1) - container.clientLeft;
     const py = (y - rect.top) * (rect.height ? container.offsetHeight / rect.height : 1) - container.clientTop;
     if (px < 0 || py < 0 || px > container.clientWidth || py > container.clientHeight) return null;
-    if (current.axis === 'row' ? px >= GRID_ROW_HEADER_WIDTH : py >= GRID_COLUMN_HEADER_HEIGHT) return null;
-    if (current.axis === 'row' ? py < GRID_COLUMN_HEADER_HEIGHT : px < GRID_ROW_HEADER_WIDTH) return null;
     const entries = current.axis === 'row' ? next.rows : next.columns;
     const metrics = current.axis === 'row' ? next.rowMetrics : next.columnMetrics;
+    // Drop anywhere over the sheet, not only over the header strip: the line
+    // shows where the block will land. Clamp to the axis range when the pointer
+    // is over a sticky header on the cross axis.
     const offset = current.axis === 'row' ? py + container.scrollTop - GRID_COLUMN_HEADER_HEIGHT : px + container.scrollLeft - GRID_ROW_HEADER_WIDTH;
-    const gap = axisDropGap(entries, metrics, offset);
+    const gap = axisDropGap(entries, metrics, Math.max(0, Math.min(metrics.totalSize, offset)));
     if (gap === undefined) return null;
     const block = axisGatherBlock(entries, metrics, current.ids, gap);
     if (!block) return null;
@@ -115,9 +118,18 @@ export function useAxisGather(options: Options) {
     const scaleY = rect.height ? grid.offsetHeight / rect.height : 1;
     const anchorX = (clientX - current.grabClientX - rect.left) * scaleX;
     const anchorY = (clientY - current.grabClientY - rect.top) * scaleY;
-    const cards = current.cards.map((card) => {
-      const spread = card.id === current.primaryId ? 0 : 3 * (card.order + 1);
-      return { ...card, x: anchorX + spread, y: anchorY + spread };
+    // The dragged header stays on top; every other card tucks in behind it.
+    // Only the first three depths are visible, so a long selection still reads
+    // as a small deck.
+    const primary = current.cards.find((card) => card.id === current.primaryId);
+    const ordered = primary ? [primary, ...current.cards.filter((card) => card.id !== current.primaryId)] : current.cards;
+    const cards = ordered.map((card, index) => {
+      const depth = Math.min(index, DECK_VISIBLE_CARDS - 1);
+      return {
+        ...card,
+        x: anchorX + depth * DECK_STACK_OFFSET,
+        y: anchorY + depth * DECK_STACK_OFFSET,
+      };
     });
     return { axis: current.axis, cards, primaryId: current.primaryId };
   }
@@ -131,7 +143,7 @@ export function useAxisGather(options: Options) {
     const targets = new Map<string, number>();
     if (result) {
       running = result.start;
-      for (const card of currentDeck.cards) {
+      for (const card of current.cards) {
         targets.set(card.id, running);
         running += current.axis === 'row' ? card.height : card.width;
       }
@@ -159,17 +171,21 @@ export function useAxisGather(options: Options) {
   }
   function cardsFor(axis: Axis, ids: readonly string[]): readonly CardBase[] | null {
     const next = latest.current;
+    const container = next.scrollContainerRef.current;
     const entries = axis === 'row' ? next.rows : next.columns;
     const metrics = axis === 'row' ? next.rowMetrics : next.columnMetrics;
+    const scrollLeft = container?.scrollLeft ?? 0;
+    const scrollTop = container?.scrollTop ?? 0;
     const cards: CardBase[] = [];
     for (const [order, id] of ids.entries()) {
       const index = entries.findIndex((entry) => entry.kind === 'saved' && entry.id === id);
       const entry = entries[index];
       const size = metrics.itemSize(index);
       if (index < 0 || !entry || entry.kind !== 'saved' || size === undefined) return null;
+      const offset = metrics.itemOffset(index) ?? 0;
       cards.push(axis === 'row'
-        ? { id, label: String(entry.durableIndex + 1), width: GRID_ROW_HEADER_WIDTH, height: size, order }
-        : { id, label: next.columnLabels?.get(id) ?? columnIndexToLabel(entry.durableIndex), width: size, height: GRID_COLUMN_HEADER_HEIGHT, order });
+        ? { id, label: String(entry.durableIndex + 1), width: GRID_ROW_HEADER_WIDTH, height: size, order, homeX: scrollLeft, homeY: offset }
+        : { id, label: next.columnLabels?.get(id) ?? columnIndexToLabel(entry.durableIndex), width: size, height: GRID_COLUMN_HEADER_HEIGHT, order, homeX: offset, homeY: scrollTop });
     }
     return cards;
   }

@@ -138,12 +138,28 @@
   color: #34495a;
   font-size: 0.78rem;
   font-weight: 600;
-  box-shadow: 0 8px 18px rgb(23 32 42 / 22%);
+  box-shadow: 0 1px 2px rgb(23 32 42 / 18%);
   user-select: none;
+}
+
+/* The grabbed card sits on top of the deck; the cards behind it only need a
+   thin edge, so the whole stack reads as three crisp sheets. */
+.sheet-grid-axis-card:first-child {
+  box-shadow: 0 10px 20px rgb(23 32 42 / 22%), 0 2px 4px rgb(23 32 42 / 12%);
 }
 
 .sheet-grid-axis-flight-card {
   animation: axis-gather-flight 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sheet-grid-axis-card-stacking {
+  background: #eef3f6;
+  animation: axis-gather-stack 160ms ease-out both;
+}
+
+@keyframes axis-gather-stack {
+  from { transform: translate(var(--stack-from-x), var(--stack-from-y)); }
+  to { transform: translate(0, 0); }
 }
 
 @keyframes axis-gather-flight {

@@ -77,11 +77,17 @@ Fix:
 - The grabbed header follows the pointer: it is rendered as a header card in the
   grid's content coordinates, so it tracks the pointer through workspace scaling,
   scrolling, and edge auto-scroll.
-- Multi-axis moves render every selected header as an offset stack of cards, and
-  the stack is what is dragged.
-- On release the cards fly to their landing offsets; a drop outside the grid
-  flies them back to their home headers. The existing row/column FLIP motion
-  still animates the real headers into place.
+- The deck is what is dragged: the grabbed header stays on top, the other
+  selected headers tuck in behind it as a neat stack of tinted cards offset by
+  4 px each. Only the first three depths are drawn, so a long selection still
+  reads as a small deck. On pickup every selected header flies from its real
+  position into the deck, and on release every card flies out to its landing
+  offset (or home when the drop is cancelled). The existing row/column FLIP
+  motion still animates the real headers into place.
+- Drops are accepted anywhere over the sheet, not only over the header strip:
+  the insertion line already shows the target gap, so the pointer can stay over
+  ordinary cells while dragging (cross-axis header strips clamp to the axis
+  range).
 - `Escape`, blur, sheet deactivation or a projection change cancel the session
   and return the cards home.
 
@@ -92,6 +98,11 @@ Ad hoc Playwright verification against the running app:
 - the line spans the header strip and the cell area (screenshots inspected);
 - the deck stays under the pointer, including during edge auto-scroll
   (`scrollTop` advanced 70 → 224 px while the line stayed visible);
+- the three-card stack was inspected at 4× zoom: the grabbed header on top, two
+  tinted cards offset behind it, and the fly-in animation ran while the deck
+  settled;
+- dropping over an ordinary cell in the middle of the sheet reordered the row to
+  the gap shown by the line, and Ctrl+Z restored the original order;
 - release flight rendered and real headers settled in the new order;
 - drop outside the grid and `Escape` both cancelled without changing the order;
 - plain click and plain double-click on a header select without starting a move;
