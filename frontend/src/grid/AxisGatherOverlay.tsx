@@ -38,7 +38,7 @@ export function AxisGatherOverlay({ deck, flight }: {
                 '--stack-from-y': `${card.homeY - card.y}px`,
               } as CSSProperties}
             >
-              {card.label}
+              {index === 0 ? card.label : null}
             </div>
           ))}
         </div>

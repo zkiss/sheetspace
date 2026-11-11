@@ -435,3 +435,16 @@ and shifted columns and confirmed mixed-size column flight scale targets,
 reorder and undo. TypeScript, targeted ESLint and diff checks passed. Automated
 tests remain deferred; cover synchronized flight timing and size transforms in
 hardening. Human visual acceptance remains separate.
+
+### 15. Hide text on stacked header cards
+
+Reported: labels on cards behind the top dragged header remain visible, sometimes
+wrapping outside the stack.
+
+Fix: only the top card displays its label while stacked; all cards display their
+own labels again during the release flight.
+
+Ad hoc Playwright confirmed an empty label on each underlying deck card, all
+labels present in the flight, reorder and undo, with no console warnings or
+errors. TypeScript and targeted ESLint passed. Automated test updates remain
+deferred for fixes-mode hardening.
