@@ -1358,6 +1358,17 @@ export function Workspace({
               )}
               key={sheet.id}
               onOpenSheetMenu={workspaceController.openSheetMenu}
+              onMaximise={interactionsEnabled && !modeActive && sheet.id !== paintOwner?.source.id && sheet.id !== paintOwner?.targetId && sheet.id !== extractionPresentation?.targetId ? (keyboard) => {
+                cancelNavigationBeforeUserMovement.current();
+                cancelSheetFrameScale();
+                onActivateSheet(sheet.id, false);
+                maximise.enter(sheet.id, frameProjection(sheet), displayedFrames.current.get(sheet.id) ?? frameProjection(sheet));
+                if (keyboard) requestAnimationFrame(() => {
+                  if (maximise.currentState().sheetId === sheet.id && document.activeElement === document.body) {
+                    document.querySelector<HTMLButtonElement>('.workspace-toolbar [aria-label="Restore to workspace"]')?.focus({ preventScroll: true });
+                  }
+                });
+              } : undefined}
               onResizeCancel={cancelSheetFrameResize}
               onResizeMove={handleSheetFrameResizeMove}
               onResizeStart={(id, direction, event) => {

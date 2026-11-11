@@ -371,3 +371,27 @@ and reduced-motion restore, workspace visibility, final centering and console
 errors were checked. TypeScript and targeted ESLint passed. Automated tests
 remain deferred; add coverage for viewport publication, virtualization while
 flying over new sheets, and live extraction geometry during hardening.
+
+### 11. Sheet title-bar maximise and toolbar restore controls
+
+Requested: add a maximise button to sheet title bars and put an icon-only
+restore button at the right of the top toolbar when maximised.
+
+Fix:
+
+- Added a labelled maximise icon to each available sheet header; it activates and
+  presents that sheet without starting a frame drag. The existing toolbar
+  maximise control remains available.
+- Moved the maximised restore action to the right end of the toolbar and gave
+  it an icon, accessible name and tooltip. Keyboard activation of a title-bar
+  button moves focus to the restore control once the title bar disappears.
+
+Ad hoc Playwright verification: maximising an initially unselected sheet opens
+that sheet, restoring keeps its saved position, the restore icon is rightmost,
+keyboard activation works, and no browser warnings or errors were observed.
+TypeScript and targeted ESLint passed. Automated tests remain deferred; update
+maximise and toolbar interaction coverage during fixes-mode hardening.
+
+Follow-up: constrained the title-bar icon's minimum height so its hover and
+focus surface stays within the header. Ad hoc Playwright checked its bounds
+while hovered.

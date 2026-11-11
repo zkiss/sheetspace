@@ -65,7 +65,7 @@ export function WorkspaceToolbar({
         <button aria-label="Forward" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoForward} onClick={onGoForward} title={titles.forward} type="button">Forward</button>
         <button className="workspace-new-sheet" data-workspace-navigation id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
         <button aria-label="Command palette" className="workspace-new-sheet" data-workspace-navigation onClick={onOpenCommandPalette} title={titles.commandPalette} type="button">Commands</button>
-        <button className="workspace-new-sheet" data-workspace-navigation data-workspace-presentation-action disabled={!canMaximise} onFocus={onFocusMaximise} onBlur={onBlurMaximise} onMouseDown={(event) => event.preventDefault()} onClick={onToggleMaximise} type="button">{maximised ? 'Restore to workspace' : 'Maximise sheet'}</button>
+        {!maximised && <button className="workspace-new-sheet" data-workspace-navigation data-workspace-presentation-action disabled={!canMaximise} onFocus={onFocusMaximise} onBlur={onBlurMaximise} onMouseDown={(event) => event.preventDefault()} onClick={onToggleMaximise} type="button">Maximise sheet</button>}
         <button aria-pressed={referencesVisible} className="workspace-new-sheet" data-workspace-navigation onClick={onToggleReferences} type="button">{referencesVisible ? 'Hide references' : 'Show references'}</button>
         <div className="workspace-format-slot">{formatControls}</div>
         <div className="workspace-status">
@@ -79,6 +79,7 @@ export function WorkspaceToolbar({
           <span aria-label={saveStatusText(saveStatus)} className="save-status-announcement" role="status">{saveStatusText(saveStatus)}</span>
         </span>
         </div>
+        {maximised && <button aria-label="Restore to workspace" className="workspace-new-sheet workspace-restore" data-workspace-navigation data-workspace-presentation-action disabled={!canMaximise} onFocus={onFocusMaximise} onBlur={onBlurMaximise} onMouseDown={(event) => event.preventDefault()} onClick={onToggleMaximise} title="Restore to workspace" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 6h3V3M10 3v3h3M13 10h-3v3M6 13v-3H3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" /></svg></button>}
       </header>
     </div>
   );
