@@ -139,7 +139,8 @@ Fix:
   `data-position-x`/`data-position-y`. The committed position still goes
   through `moveSheetFrame` on release, and a rejected move repaints the start
   position. Escape, pointer cancel, blur and a removed sheet also restore the
-  start position. Resize and Ctrl-drag scaling keep the preview-state path.
+  start position. Ctrl-drag scaling keeps the preview-state path; resizing is
+  covered in entry 4.
 
 Measured with ad hoc Playwright rAF sampling over 700 ms on the running dev app:
 
@@ -169,3 +170,51 @@ Tests deferred (per user request in this fixes session):
 - `useMaximiseRuntime.test.tsx` has three tests sampling `presentation`
   mid-flight; the live sample now comes from `currentPresentation()` while
   `presentation` commits only at boundary/retarget points.
+
+### 4. Sheet frame resizing stutters
+
+Reported: resizing a sheet by dragging its edge is jerky, like the earlier
+maximise and drag cases.
+
+Cause: two per-pointer-move React commits. The resize preview went through
+`frameLayoutPreview` state, and the resized grid reported its growing body size
+back into workspace reference-viewport state on every frame. That second commit
+re-rendered every mounted frame and grid, on top of the resized grid rendering
+its newly visible cells.
+
+Fix:
+
+- Resizing now paints the frame's `left`/`top`/width/height and
+  `data-position-x`/`data-position-y`/`data-frame-width`/`data-frame-height`
+  directly on the frame element. React commits once when the gesture ends, and
+  a rejected resize repaints the start geometry.
+- Reference-viewport reports are buffered while a sheet is presented or a frame
+  gesture is active, then applied once when it settles. The cancelled case is
+  buffered too, so a gesture that ends where it started still records the
+  correct geometry.
+- Ctrl-drag scaling keeps the preview-state path because it changes rendering
+  mode live.
+
+Measured with ad hoc Playwright rAF sampling on the running dev app, dragging
+the bottom-right handle 40 times (600×460 to 943×689):
+
+- before: 6.2 s of pointer moves, 184 frames over that time, 82 long tasks
+  totalling 6.0 s;
+- after: 0.87 s, 51 frames (about 59 fps), 2 long tasks totalling 0.28 s.
+
+The remaining cost is the resized grid rendering cells that become visible as
+its container grows.
+
+Ad hoc Playwright verification against the running app:
+
+- growing and shrinking commit the painted size and position, including from
+  the top-left handle where the position moves too;
+- Escape mid-resize repaints the start geometry and does not commit;
+- the sheet was restored to its saved 600×460 at (1, 561);
+- maximise/restore and sheet dragging still behave as in entry 3;
+- no console warnings or errors.
+
+Tests deferred (per user request in this fixes session):
+
+- `useSheetFrameInteractions.test.ts` resize tests assert `frameLayoutPreview`;
+  they need to assert the frame element's style and data attributes instead.

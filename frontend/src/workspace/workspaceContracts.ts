@@ -8,9 +8,8 @@ export type PendingSheetMenu = {
 };
 
 export type SheetFrameLayoutCommands = {
-  /** A drag must learn whether the move committed so it can undo its own paint. */
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult | void;
-  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult | void;
   setSheetVisualScale: (sheetId: string, visualScale: number) => void;
 };
 

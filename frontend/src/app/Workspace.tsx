@@ -789,24 +789,52 @@ export function Workspace({
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
     return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
   };
-  const referenceViewportsPaused = useRef(false);
-  referenceViewportsPaused.current = maximise.state.mode !== 'canvas';
-  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
-    // Frame presentation resizes the sheet body on every animation frame.
-    // Recording each size would re-render the whole workspace per frame, and
-    // reference links are hidden while a sheet is presented anyway.
-    if (referenceViewportsPaused.current && viewport) return;
+  const referenceViewportsPaused = maximise.state.mode !== 'canvas' || interactionPinnedSheetId !== null;
+  const referenceViewportsPausedRef = useRef(referenceViewportsPaused);
+  referenceViewportsPausedRef.current = referenceViewportsPaused;
+  const bufferedReferenceViewports = useRef(new Map<string, GridReferenceViewport | null>());
+  const applyReferenceViewports = useCallback((updates: Map<string, GridReferenceViewport | null>) => {
+    if (!updates.size) return;
     setReferenceGridViewports((current) => {
-      if (!viewport) {
-        if (!current[sheetId]) return current;
-        const next = { ...current }; delete next[sheetId]; return next;
+      let next: Record<string, GridReferenceViewport | undefined> = current;
+      const copy = () => {
+        if (next === current) next = { ...current };
+        return next;
+      };
+      for (const [sheetId, viewport] of updates) {
+        const previous = next[sheetId];
+        if (!viewport) {
+          if (!previous) continue;
+          const changed = copy();
+          delete changed[sheetId];
+          continue;
+        }
+        if (previous
+          && previous.scrollLeft === viewport.scrollLeft && previous.scrollTop === viewport.scrollTop
+          && previous.size.width === viewport.size.width && previous.size.height === viewport.size.height
+          && previous.renderingMode === viewport.renderingMode) continue;
+        copy()[sheetId] = viewport;
       }
-      const nextViewport: GridReferenceViewport = { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' };
-      const previous = current[sheetId];
-      return previous?.scrollLeft === nextViewport.scrollLeft && previous?.scrollTop === nextViewport.scrollTop && previous.size.width === nextViewport.size.width && previous.size.height === nextViewport.size.height && previous.renderingMode === 'detailed'
-        ? current : { ...current, [sheetId]: nextViewport };
+      return next;
     });
   }, []);
+  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
+    // A frame presentation or a frame gesture resizes the sheet body on every
+    // frame. Recording each size would re-render the whole workspace per
+    // frame, and reference links are hidden or stale until it settles anyway.
+    // Keep only the latest size so the settled geometry is still recorded.
+    if (referenceViewportsPausedRef.current) {
+      bufferedReferenceViewports.current.set(sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' });
+      return;
+    }
+    applyReferenceViewports(new Map([[sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' }]]));
+  }, [applyReferenceViewports]);
+  useLayoutEffect(() => {
+    if (referenceViewportsPaused) return;
+    const buffered = bufferedReferenceViewports.current;
+    bufferedReferenceViewports.current = new Map();
+    applyReferenceViewports(buffered);
+  }, [applyReferenceViewports, referenceViewportsPaused]);
   const reportReferenceRenderingMode = useCallback((sheetId: string, renderingMode: 'detailed' | 'overview') => {
     if (renderingMode === 'detailed') return;
     setReferenceGridViewports((current) => current[sheetId]?.renderingMode === renderingMode ? current : { ...current, [sheetId]: { scrollLeft: 0, scrollTop: 0, size: { width: 0, height: 0 }, mounted: true, renderingMode } });
