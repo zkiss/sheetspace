@@ -31,13 +31,7 @@ This is a Makefile-driven monorepo with `frontend/` and `backend/` applications.
 
 Prefer root commands unless current context needs something narrower:
 
-```bash
-make setup
-make test
-make compile
-make frontend-dist
-make build
-```
+`make build` runs the full project build: compile + tests + lint
 
 ## Compatibility and test environments
 
