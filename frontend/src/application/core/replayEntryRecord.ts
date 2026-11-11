@@ -6,10 +6,15 @@ export type ReplayOperation = {
   rowId: string;
   operationId: string;
   direction: 'undo' | 'redo';
-  request?: RecordReplayRequest;
-  path?: { sheetId: string; rowId: string };
-  pending?: boolean;
 };
+
+type ReplayState = {
+  identity: Pick<ReplayOperation, 'sheetId' | 'rowId' | 'operationId' | 'direction'>;
+  request?: RecordReplayRequest;
+  pending: boolean;
+  retired: boolean;
+};
+const states = new WeakMap<ReplayOperation, ReplayState>();
 
 type ReplayCoordinator = {
   beginRecordReplay(): () => void;
@@ -31,9 +36,15 @@ export async function replayEntryRecord(options: {
   recover?: (error: unknown, refresh: () => Promise<void>) => Promise<never>;
 }) {
   const { operation, coordinator } = options;
-  if (operation.pending) throw new Error('Record replay is already pending.');
+  let state = states.get(operation);
+  if (!state) {
+    state = { identity: structuredClone(operation), pending: false, retired: false };
+    states.set(operation, state);
+  }
+  if (state.pending) throw new Error('Record replay is already pending.');
+  if (state.retired) throw new Error('Record replay operation has already settled.');
   const release = coordinator.beginRecordReplay();
-  operation.pending = true;
+  state.pending = true;
   try {
     await options.waitForPredecessors();
     return await coordinator.serializeWorkbook(async () => {
@@ -48,26 +59,29 @@ export async function replayEntryRecord(options: {
         removed.forEach((id) => coordinator.confirmSheetMissing(id));
         options.reconcile(workbook);
       };
-      if (!operation.request) {
+      if (!state.request) {
         const before = await options.loadWorkbook();
         adopt(before);
-        operation.request = structuredClone({ operationId: operation.operationId, direction: operation.direction, before });
-        operation.path = { sheetId: operation.sheetId, rowId: operation.rowId };
+        state.request = structuredClone({ operationId: state.identity.operationId, direction: state.identity.direction, before });
       }
-      const request = operation.request;
-      const path = operation.path!;
+      const request = state.request;
+      const path = state.identity;
       const result = await options.replay(path.sheetId, path.rowId, structuredClone(request)).catch((error: unknown) => {
-        if (options.recover) return options.recover(error, async () => adopt(await options.loadWorkbook()));
+        if (options.recover) return options.recover(error, async () => {
+          adopt(await options.loadWorkbook());
+          state.retired = true;
+        });
         throw error;
       });
       if (result.operationId.toLowerCase() !== request.operationId.toLowerCase() || result.rowId.toLowerCase() !== path.rowId.toLowerCase() || typeof result.alreadyCommitted !== 'boolean') {
         throw new Error('The replay response did not match the operation. Retry to confirm it.');
       }
       adopt(result.workbook);
+      state.retired = true;
       return result;
     });
   } finally {
-    operation.pending = false;
+    state.pending = false;
     release();
   }
 }

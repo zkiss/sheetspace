@@ -35,32 +35,34 @@ it('retries the identical frozen request after an ambiguous failure', async () =
   const { options, before, operation } = setup();
   options.replay.mockRejectedValueOnce(new Error('lost'));
   await expect(replayEntryRecord(options)).rejects.toThrow('lost');
-  const frozen = structuredClone(operation.request);
+  const frozen = structuredClone(options.replay.mock.calls[0]);
   before.documents.first!.name = 'changed';
+  operation.operationId = 'changed';
+  operation.sheetId = 'changed';
+  operation.direction = 'redo';
   await replayEntryRecord(options);
-  expect(operation.request).toEqual(frozen);
-  expect(options.replay.mock.calls[0]).toEqual(options.replay.mock.calls[1]);
+  expect(options.replay.mock.calls[1]).toEqual(frozen);
 });
 
 it('rejects overlap and releases the pending marker', async () => {
-  const { options, operation } = setup();
+  const { options } = setup();
   const drain = deferred<void>();
   options.waitForPredecessors.mockReturnValue(drain.promise);
   const pending = replayEntryRecord(options);
   await expect(replayEntryRecord(options)).rejects.toThrow('already pending');
   drain.resolve();
   await pending;
-  expect(operation.pending).toBe(false);
+  await expect(replayEntryRecord(options)).rejects.toThrow('already settled');
 });
 
 it('rejects stale receipt snapshots and preserves the request', async () => {
-  const { options, coordinator, operation } = setup();
+  const { options, coordinator } = setup();
   options.replay.mockImplementation(async () => {
     coordinator.recordRevision('second', 2);
     return { operationId: 'op', rowId: 'row', alreadyCommitted: true, workbook: options.currentWorkbook() };
   });
   await expect(replayEntryRecord(options)).rejects.toThrow('older');
-  expect(operation.request).toBeDefined();
+  expect(options.replay).toHaveBeenCalledOnce();
 });
 
 it('returns current receipt state without recreating a subsequently deleted sheet', async () => {
@@ -76,15 +78,28 @@ it('returns current receipt state without recreating a subsequently deleted shee
 });
 
 it('retains the frozen operation if recovery refresh fails', async () => {
-  const { options, operation } = setup();
+  const { options } = setup();
   options.replay.mockRejectedValue(new Error('conflict'));
   options.loadWorkbook.mockRejectedValueOnce(new Error('refresh failed'));
   await expect(replayEntryRecord({ ...options, recover: async (_error, refresh) => { await refresh(); throw new Error('conflict'); } })).rejects.toThrow('refresh failed');
-  expect(operation.request).toBeUndefined();
+  expect(options.replay).not.toHaveBeenCalled();
   options.loadWorkbook.mockResolvedValueOnce(options.currentWorkbook());
   options.loadWorkbook.mockRejectedValueOnce(new Error('refresh failed'));
   await expect(replayEntryRecord({ ...options, recover: async (_error, refresh) => { await refresh(); throw new Error('conflict'); } })).rejects.toThrow('refresh failed');
-  expect(operation.request).toBeDefined();
+  expect(options.replay).toHaveBeenCalledOnce();
+  const original = structuredClone(options.replay.mock.calls[0]);
+  options.replay.mockResolvedValueOnce({ operationId: 'op', rowId: 'row', alreadyCommitted: true, workbook: options.currentWorkbook() });
+  await replayEntryRecord(options);
+  expect(options.replay.mock.calls[1]).toEqual(original);
+});
+
+it('retires a rejected operation only after authoritative refresh succeeds', async () => {
+  const { options } = setup();
+  options.replay.mockRejectedValueOnce(new Error('conflict'));
+  await expect(replayEntryRecord({ ...options, recover: async (_error, refresh) => { await refresh(); throw new Error('conflict'); } })).rejects.toThrow('conflict');
+  await expect(replayEntryRecord(options)).rejects.toThrow('already settled');
+  options.loadWorkbook.mockResolvedValue(options.currentWorkbook());
+  await replayEntryRecord({ ...options, operation: { ...options.operation, operationId: 'fresh' }, replay: vi.fn().mockResolvedValue({ operationId: 'fresh', rowId: 'row', alreadyCommitted: false, workbook: options.currentWorkbook() }) });
 });
 
 it('fences other workbook writes through adoption and rejects overlapping replay operations', async () => {
@@ -92,7 +107,7 @@ it('fences other workbook writes through adoption and rejects overlapping replay
   const hold = deferred<void>();
   const predecessor = coordinator.serialize(['first'], async () => { await hold.promise; });
   const pending = replayEntryRecord(options);
-  await expect(replayEntryRecord({ ...options, operation: { ...options.operation, operationId: 'other', pending: false } })).rejects.toThrow('already pending');
+  await expect(replayEntryRecord({ ...options, operation: { ...options.operation, operationId: 'other' } })).rejects.toThrow('already pending');
   expect(options.loadWorkbook).not.toHaveBeenCalled();
   hold.resolve();
   await predecessor;
