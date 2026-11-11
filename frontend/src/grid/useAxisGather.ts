@@ -31,9 +31,6 @@ type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; s
   primaryId: string; cards: readonly CardBase[]; grabClientX: number; grabClientY: number;
   x: number; y: number; clientX: number; clientY: number; moved: boolean; focusTarget?: CellTarget };
 type Preview = { axis: Axis; start: number; line: number; gap: number };
-type Press = { axis: Axis; id: string; time: number; x: number; y: number };
-const DOUBLE_PRESS_MS = 650;
-const DOUBLE_PRESS_SLOP = 6;
 const DECK_VISIBLE_CARDS = 3;
 const DECK_STACK_OFFSET = 4;
 const FLIGHT_MS = 220;
@@ -41,7 +38,6 @@ const FLIGHT_MS = 220;
 export function useAxisGather(options: Options) {
   const latest = useRef(options); latest.current = options;
   const session = useRef<Session | null>(null);
-  const lastPress = useRef<Press | null>(null);
   const frame = useRef<number | null>(null);
   const flightTimer = useRef<number | null>(null);
   const [active, setActive] = useState(false);
@@ -192,7 +188,7 @@ export function useAxisGather(options: Options) {
   function update() {
     const current = session.current; const container = latest.current.scrollContainerRef.current;
     if (!current || !container || !owns()) { if (current) cancel(); return; }
-    setDeck(deckAt(current, current.clientX, current.clientY));
+    setDeck(current.moved ? deckAt(current, current.clientX, current.clientY) : null);
     const result = current.moved ? target(current.clientX, current.clientY) : null;
     setPreview(result);
     if (!result) {
@@ -262,21 +258,18 @@ export function useAxisGather(options: Options) {
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
       primaryId: id, cards, grabClientX, grabClientY,
       pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, clientX: event.clientX, clientY: event.clientY, moved: false, focusTarget };
-    setActive(true); setDeck(deckAt(session.current, event.clientX, event.clientY)); element.setPointerCapture?.(event.pointerId);
+    setActive(true); setDeck(null); element.setPointerCapture?.(event.pointerId);
     return true;
   }
   function press(event: PointerEvent<HTMLElement>, axis: Axis, id: string): boolean {
     const next = latest.current;
     if (!next.enabled || !next.gather || (axis === 'column' && !next.allowColumns)
-      || event.button !== 0 || event.isPrimary === false || session.current) return false;
-    const now = performance.now();
-    const previous = lastPress.current;
-    lastPress.current = { axis, id, time: now, x: event.clientX, y: event.clientY };
-    const double = Boolean(previous && previous.axis === axis && previous.id === id
-      && now - previous.time <= DOUBLE_PRESS_MS
-      && Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= DOUBLE_PRESS_SLOP);
-    if (!double) return false;
-    lastPress.current = null;
+      || event.button !== 0 || event.isPrimary === false || session.current
+      || event.shiftKey || event.ctrlKey || event.metaKey) return false;
+    // Selecting headers by dragging comes first. Once a full row or column
+    // selection exists, dragging any header reorders: there is no second press
+    // or timing gate. Shift, Ctrl and Cmd still drag a selection.
+    if (next.selection?.mode !== (axis === 'row' ? 'rows' : 'columns')) return false;
     return begin(event, axis, id);
   }
   function move(event: PointerEvent<HTMLDivElement>) {

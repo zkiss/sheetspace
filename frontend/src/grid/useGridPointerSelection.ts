@@ -257,9 +257,9 @@ export function useGridPointerSelection({
     const owner = Symbol('selection-gesture');
     const gesture: SelectionGesture = { owner, start: true };
     const toggle = mode !== 'cells' && !event.shiftKey && (event.ctrlKey || event.metaKey);
-    // A double-click move starts on an already selected header. Keep the full
-    // multi-axis selection so the deck can carry every selected header instead
-    // of collapsing it to the one that was pressed.
+    // A header press that did not start a reorder keeps an existing multi-header
+    // selection instead of collapsing it to the one that was pressed, so the
+    // drag can extend the selection it belongs to.
     const preservingSelection = Boolean(axisId) && !event.shiftKey && !event.ctrlKey && !event.metaKey
       && resizeTargetIds(sheet, mode === 'rows' ? 'row' : 'column', axisId!, selection).length > 1;
     if (mode === 'cells') {

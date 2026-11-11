@@ -218,3 +218,43 @@ Tests deferred (per user request in this fixes session):
 
 - `useSheetFrameInteractions.test.ts` resize tests assert `frameLayoutPreview`;
   they need to assert the frame element's style and data attributes instead.
+
+### 5. Header moves need a double click
+
+Reported: moving a row or column header needed pressing the header twice. A
+single drag should work: first drag headers to select them, then drag any header
+to move once a full row or column selection exists. No timer, no double click.
+This replaces the double-press gesture from entry 2.
+
+Fix:
+
+- Removed the 650 ms double-press detection from `useAxisGather`.
+- A header press now starts one of two gestures, chosen by the current
+  selection:
+  - no full row or column selection: the press and drag select headers;
+  - a full row or column selection exists: the press immediately starts the
+    move session, so one drag reorders. Pressing a header outside that selection
+    selects it and moves it. Shift, Ctrl and Cmd presses still drag a selection.
+- The deck is only drawn once the pointer passes the click slop, so clicking a
+  selected header no longer flashes cards.
+
+Ad hoc Playwright verification against the running app:
+
+- drag-selecting rows from a cell selection shows no insertion line or deck and
+  leaves the order unchanged;
+- dragging a selected header shows the three-card deck and insertion line,
+  reorders the rows, and Ctrl+Z restores the order;
+- dragging an unselected header while rows are selected moves that row and
+  selects it;
+- column drag-select then selected-column drag on a non-model sheet shows the
+  deck, moves the columns, and undo restores them; model-bound sheets still
+  disallow column moves;
+- Shift+drag from cells mode selects headers without moving;
+- clicking a selected header keeps the selection and does not reorder;
+- no console warnings or errors.
+
+Tests deferred (per user request in this fixes session):
+
+- `SheetGrid.gather.test.tsx` and `App.axisGather.test.tsx` still assume the
+  removed gather buttons and the double-press gesture; they need rewriting
+  around select-then-drag.
