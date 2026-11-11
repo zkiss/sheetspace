@@ -25,7 +25,7 @@ type Options = {
 type CardBase = { id: string; label: string; width: number; height: number; order: number; homeX: number; homeY: number };
 export type AxisGatherCard = CardBase & { x: number; y: number };
 export type AxisGatherDeck = { axis: Axis; cards: readonly AxisGatherCard[]; primaryId: string };
-export type AxisGatherFlight = { axis: Axis; cards: readonly (AxisGatherCard & { toX: number; toY: number })[] };
+export type AxisGatherFlight = { axis: Axis; cards: readonly (AxisGatherCard & { toX: number; toY: number; toWidth: number; toHeight: number })[] };
 type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; modelId?: string; owner: symbol | null | undefined;
   gesture?: symbol; awaitingOwner: boolean; selection?: CellSelection | null; activeSheetId: string | null | undefined; pointerId: number; element: HTMLElement;
   primaryId: string; cards: readonly CardBase[]; grabClientX: number; grabClientY: number;
@@ -123,6 +123,8 @@ export function useAxisGather(options: Options) {
       const depth = Math.min(index, DECK_VISIBLE_CARDS - 1);
       return {
         ...card,
+        width: primary?.width ?? card.width,
+        height: primary?.height ?? card.height,
         x: anchorX + depth * DECK_STACK_OFFSET,
         y: anchorY + depth * DECK_STACK_OFFSET,
       };
@@ -151,12 +153,15 @@ export function useAxisGather(options: Options) {
     }
     const scrollLeft = container?.scrollLeft ?? 0;
     const scrollTop = container?.scrollTop ?? 0;
+    const originalCards = new Map(current.cards.map((card) => [card.id, card]));
     return {
       axis: current.axis,
       cards: currentDeck.cards.map((card) => ({
         ...card,
         toX: current.axis === 'row' ? scrollLeft : targets.get(card.id) ?? 0,
         toY: current.axis === 'row' ? targets.get(card.id) ?? 0 : scrollTop,
+        toWidth: originalCards.get(card.id)?.width ?? card.width,
+        toHeight: originalCards.get(card.id)?.height ?? card.height,
       })),
     };
   }

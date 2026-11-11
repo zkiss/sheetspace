@@ -56,6 +56,8 @@ export function AxisGatherOverlay({ deck, flight }: {
                 '--flight-from-y': `${card.y}px`,
                 '--flight-to-x': `${card.toX}px`,
                 '--flight-to-y': `${card.toY}px`,
+                '--flight-to-width': `${card.toWidth}px`,
+                '--flight-to-height': `${card.toHeight}px`,
               } as CSSProperties}
             >
               {card.label}

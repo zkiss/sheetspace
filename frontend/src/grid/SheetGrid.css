@@ -164,5 +164,5 @@
 
 @keyframes axis-gather-flight {
   from { transform: translate(var(--flight-from-x), var(--flight-from-y)); }
-  to { transform: translate(var(--flight-to-x), var(--flight-to-y)); }
+  to { transform: translate(var(--flight-to-x), var(--flight-to-y)); width: var(--flight-to-width); height: var(--flight-to-height); }
 }

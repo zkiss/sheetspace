@@ -401,3 +401,21 @@ while hovered.
 Requested: remove the top-toolbar "Maximise sheet" button. Sheet title-bar
 maximise controls and the maximised toolbar restore icon remain available.
 Automated test updates remain deferred for fixes-mode hardening.
+
+### 13. Uniform header deck and release resizing
+
+Requested: while dragging rows or columns, make stacked headers the size of the
+header being dragged; on release, animate each back to its real size as it
+flies to its destination.
+
+Fix: the deck uses the primary header's width and height for every card, while
+the release flight interpolates each card's dimensions to its own saved size
+alongside its position. The same behavior applies when returning from an invalid
+drop.
+
+Ad hoc Playwright verified a three-column selection with widths 170, 90 and
+100: the deck cards all used 170, and flight targets retained 170, 90 and 100.
+Row dragging and undo for both axes were checked; no console warnings or errors
+were observed in the column check. TypeScript, targeted ESLint and diff checks
+passed. Automated tests remain deferred; cover mixed row/column sizes and
+release flights during hardening.
