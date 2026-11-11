@@ -368,7 +368,7 @@ export function useWorkspaceController({
   }
   function freezeDisplayedViewport(programmatic = false) { return freezeDisplayedViewportOwned(programmatic).viewport; }
 
-  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void) { return animateViewport(nextViewport, onSettled, onCancelled); }
+  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void, duration?: number) { return animateViewport(nextViewport, onSettled, onCancelled, duration); }
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
@@ -391,7 +391,7 @@ export function useWorkspaceController({
     return animateViewport(nextViewport, options.onSettled, options.onCancelled);
   }
 
-  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void): () => void {
+  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void, duration?: number): () => void {
     if (unmounted.current) { onCancelled?.(); return () => {}; }
     finishZoomPreview();
     const active = activeViewportMotion.current;
@@ -417,7 +417,9 @@ export function useWorkspaceController({
       || (incoming && Object.values(incoming.velocity).some((speed) => Math.abs(speed) > 1e-6));
     if (changed) invalidateCreationSequence();
     if (!reducedMotion && changed && workspacePlaneRef.current?.animate) {
-      const motion = navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration);
+      const motion = duration === undefined
+        ? navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration)
+        : navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration, duration);
       const timing = { duration: motion.duration, easing: 'linear', fill: 'both' as const };
       let animation: Animation;
       if (active?.animation.effect instanceof KeyframeEffect) {

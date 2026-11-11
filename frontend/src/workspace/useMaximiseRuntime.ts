@@ -3,14 +3,14 @@ import type { SheetFrameSize } from '@workbook/core/model';
 import type { WorkspaceViewport } from './workspaceContracts';
 import { canvasPresentation, restoredViewport } from './maximiseGeometry';
 import type { SavedFrame, SheetPresentation } from './maximiseGeometry';
-import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, maximiseTransitionDuration, reconcileMaximiseFrame, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
+import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, reconcileMaximiseFrame, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
 import type { MaximiseState } from './maximiseState';
 
 type Handoff = {
   freezeDisplayedViewport: (programmatic?: boolean) => WorkspaceViewport;
   freezeDisplayedViewportOwned?: (programmatic?: boolean) => { viewport: WorkspaceViewport; owned: boolean };
   commitFrozenViewport: (viewport: WorkspaceViewport) => boolean | void;
-  restoreViewport?: (viewport: WorkspaceViewport) => () => void;
+  restoreViewport?: (viewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void, duration?: number) => () => void;
 };
 type Result = 'settled' | 'cancelled';
 
@@ -78,12 +78,12 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     publish(next, now);
     if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); releaseTarget(next.mode === 'maximised' ? 'settled' : 'cancelled'); return; }
     if (next.mode === 'restoring' && next.frame && next.size) {
-      cancelFlyover.current = options.current.handoff.restoreViewport?.(restoredViewport(next.frame, next.size));
+      cancelFlyover.current = options.current.handoff.restoreViewport?.(restoredViewport(next.frame, next.size), undefined, undefined, MAXIMISE_TRANSITION_MS);
     }
     const identity = next.identity;
     const tick = (time: number) => {
       if (current.current.identity !== identity) return;
-      if (time - next.motion!.start >= maximiseTransitionDuration(next)) {
+      if (time - next.motion!.start >= MAXIMISE_TRANSITION_MS) {
         update(completeMaximise(current.current, identity), time, current.current.mode === 'restoring', false, current.current.mode === 'entering');
       } else {
         // Paint the sampled frame directly: a React commit per animation frame

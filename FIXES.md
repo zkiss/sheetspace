@@ -315,3 +315,24 @@ Ad hoc Playwright verification against the running app:
   were not run per the fixes-session request. During hardening, update the
   maximise runtime/state tests for restore timing, shared flyover ownership,
   intermediate chrome painting, retargeting and cancellation.
+
+### 8. Reveal the workspace during restore and match motion speeds
+
+Reported: the workspace stays white until restore finishes. Show it while the
+sheet contracts, and make maximise and restore animation speeds match.
+
+Fix:
+
+- Reveal the workspace grid and peer sheets as soon as restore starts, while
+  retaining frames already mounted and pre-mounting those in the destination
+  viewport for the flyover. The maximised view still conceals them.
+- Keep the existing 300 ms maximise duration and use it for both the restore
+  presentation and its shared viewport flyover. Other workspace navigation
+  retains its existing duration. This supersedes entry 7's restore duration.
+
+Ad hoc Playwright verification against the running app confirmed that peers and
+workspace grid are hidden when maximised, visible during restore, and remain
+visible afterward, without console warnings or errors. TypeScript, targeted
+ESLint and `git diff --check` passed. Automated tests remain deferred; add
+coverage for restore visibility, frame mounting, and custom flyover duration
+when hardening.

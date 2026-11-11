@@ -782,7 +782,12 @@ export function Workspace({
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
+  const restorePeerIds = useRef<ReadonlySet<string>>(new Set());
   const mountedSheetIds = new Set(mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport }));
+  if (maximise.state.mode === 'restoring') {
+    for (const id of restorePeerIds.current) mountedSheetIds.add(id);
+    for (const id of mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.viewport })) mountedSheetIds.add(id);
+  } else restorePeerIds.current = new Set(mountedSheetIds);
   if (extractionHandoff.handoff) {
     mountedSheetIds.add(extractionHandoff.handoff.source.id);
     mountedSheetIds.add(extractionHandoff.handoff.targetId);
@@ -1217,8 +1222,8 @@ export function Workspace({
          },
        } : undefined} /> : null}
       <WorkspaceSurface
-        concealBackground={modeActive}
-        concealPeers={modeActive}
+        concealBackground={modeActive && maximise.state.mode !== 'restoring'}
+        concealPeers={modeActive && maximise.state.mode !== 'restoring'}
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
             key={menuSheet.id}

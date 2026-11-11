@@ -1,12 +1,9 @@
 import type { SheetFrameSize } from '@workbook/core/model';
-import { WORKSPACE_NAVIGATION_TRANSITION_MS, zoomScaleBy } from './workspaceGeometry';
+import { zoomScaleBy } from './workspaceGeometry';
 import { canvasPresentation, interpolatePresentation, maximisedPresentation, restoredViewport } from './maximiseGeometry';
 import type { SavedFrame, SheetPresentation } from './maximiseGeometry';
 
 export const MAXIMISE_TRANSITION_MS = 300;
-export function maximiseTransitionDuration(state: MaximiseState) {
-  return state.mode === 'restoring' ? WORKSPACE_NAVIGATION_TRANSITION_MS : MAXIMISE_TRANSITION_MS;
-}
 type Mode = 'canvas' | 'entering' | 'maximised' | 'restoring';
 type Motion = { from: SheetPresentation; to: SheetPresentation; start: number };
 export type MaximiseState = {
@@ -21,7 +18,7 @@ function validSize(size: SheetFrameSize | undefined): size is SheetFrameSize {
 }
 
 export function sampleMaximise(state: MaximiseState, now: number): SheetPresentation | undefined {
-  if (state.motion) return interpolatePresentation(state.motion.from, state.motion.to, (now - state.motion.start) / maximiseTransitionDuration(state));
+  if (state.motion) return interpolatePresentation(state.motion.from, state.motion.to, (now - state.motion.start) / MAXIMISE_TRANSITION_MS);
   if (state.mode === 'maximised' && state.size) return maximisedPresentation(state.size, state.zoom);
   return undefined;
 }
