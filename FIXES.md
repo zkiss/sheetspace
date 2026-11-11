@@ -395,3 +395,9 @@ maximise and toolbar interaction coverage during fixes-mode hardening.
 Follow-up: constrained the title-bar icon's minimum height so its hover and
 focus surface stays within the header. Ad hoc Playwright checked its bounds
 while hovered.
+
+### 12. Remove the toolbar maximise button
+
+Requested: remove the top-toolbar "Maximise sheet" button. Sheet title-bar
+maximise controls and the maximised toolbar restore icon remain available.
+Automated test updates remain deferred for fixes-mode hardening.

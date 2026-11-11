@@ -65,7 +65,6 @@ export function WorkspaceToolbar({
         <button aria-label="Forward" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoForward} onClick={onGoForward} title={titles.forward} type="button">Forward</button>
         <button className="workspace-new-sheet" data-workspace-navigation id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
         <button aria-label="Command palette" className="workspace-new-sheet" data-workspace-navigation onClick={onOpenCommandPalette} title={titles.commandPalette} type="button">Commands</button>
-        {!maximised && <button className="workspace-new-sheet" data-workspace-navigation data-workspace-presentation-action disabled={!canMaximise} onFocus={onFocusMaximise} onBlur={onBlurMaximise} onMouseDown={(event) => event.preventDefault()} onClick={onToggleMaximise} type="button">Maximise sheet</button>}
         <button aria-pressed={referencesVisible} className="workspace-new-sheet" data-workspace-navigation onClick={onToggleReferences} type="button">{referencesVisible ? 'Hide references' : 'Show references'}</button>
         <div className="workspace-format-slot">{formatControls}</div>
         <div className="workspace-status">
