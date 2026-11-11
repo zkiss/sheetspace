@@ -448,3 +448,10 @@ Ad hoc Playwright confirmed an empty label on each underlying deck card, all
 labels present in the flight, reorder and undo, with no console warnings or
 errors. TypeScript and targeted ESLint passed. Automated test updates remain
 deferred for fixes-mode hardening.
+
+### 16. Default quota-run model
+
+Requested: default `quota-run` to `openai/gpt-6.1-sol#medium` when no model is
+supplied. Explicit `--model` overrides it; a saved model remains in effect when
+resuming a wrapper session. Updated the command's help and checked shell syntax
+with `bash -n`. Automated tests remain deferred.

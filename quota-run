@@ -12,7 +12,7 @@ then continue the same session without repeating the original prompt.
 
   --session ID       Continue an existing session, even after a successful turn
   --agent NAME       OpenCode agent (otherwise use its default)
-  --model MODEL      OpenCode provider/model#variant
+  --model MODEL      OpenCode provider/model#variant (default: openai/gpt-6.1-sol#medium)
   --auto             Explicitly enable unattended permission approval
   --checker PATH     Quota checker (default: ~/Work/codex-usage.sh)
   --threshold PCT    Required remaining quota in BOTH windows (default: 1)
@@ -169,6 +169,7 @@ fi
 state=$(jq -c --arg agent "$agent" --arg model "$model" --arg auto "$auto" '
   if $agent != "" then .options.agent = $agent else . end
   | if $model != "" then .options.model = $model else . end
+  | .options.model //= "openai/gpt-6.1-sol#medium"
   | if $auto == "true" then .options.auto = true else . end
 ' <<<"$state")
 phase=$(jq -er '.phase' <<<"$state")
