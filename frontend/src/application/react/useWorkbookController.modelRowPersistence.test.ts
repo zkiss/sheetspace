@@ -278,7 +278,10 @@ describe('calculated row persistence', () => {
       result.current.commands.appendColumn('other');
       result.current.commands.appendRow('other');
       expect(result.current.commands.deleteSheet('sheet')).toMatchObject({ ok: false });
+      result.current.commands.retryFailedSaves();
+      expect(result.current.mutationFailure).toBeUndefined();
     });
+    expect(result.current.mutationFailure).toBe('pending-model-transition');
     act(() => result.current.commands.undo());
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
     act(() => result.current.commands.redo());
@@ -455,5 +458,18 @@ describe('calculated row persistence', () => {
 
     expect(result.current.canUndo).toBe(true);
     expect(await api.loadWorkbook()).toEqual(result.current.workbook);
+  });
+  it('rejects admission after a failed predecessor without losing the optimistic edit', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.writeCells.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => { result.current.commands.updateCellContent('sheet', 'A1', '8'); });
+    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(true));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'A1')).toBe('8');
+    expect(result.current.canUndo).toBe(true);
   });
 });

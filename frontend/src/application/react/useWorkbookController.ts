@@ -34,6 +34,7 @@ import { settleSorting } from '@application/core/settleSorting';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
+import { WorkbookMutationBarrier } from '@application/core/workbookMutationBarrier';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -82,7 +83,9 @@ export function useWorkbookController({
     return modelId ? current.dataModels?.[modelId] : undefined;
   }
   const admissionLocks = useRef(new Set<string>());
-  const admissionFence = useRef(false);
+  const barrierRef = useRef<WorkbookMutationBarrier | undefined>(undefined);
+  barrierRef.current ??= new WorkbookMutationBarrier();
+  const admissionFence = barrierRef.current;
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
   const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
   contentHistoryRef.current ??= new ContentHistory();
@@ -200,7 +203,7 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!lifecycle.hasPending() && !admissionFence.current) return undefined;
+    if (!lifecycle.hasPending() && !admissionFence.held) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
@@ -219,7 +222,7 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
-    if (admissionFence.current) {
+    if (admissionFence.held) {
       setMutationFailure('pending-model-transition');
       const result = { ok: false, reason: 'pending-model-transition' } as const;
       return { result, completion: Promise.resolve(result) };
@@ -346,7 +349,7 @@ export function useWorkbookController({
 
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
-    enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || admissionFence.current, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
+    enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || admissionFence.held, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
@@ -404,17 +407,14 @@ export function useWorkbookController({
             setWorkbook(next, { kind: 'structure' });
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
-          admissionFence.current = true;
           try {
-            return await admitEntryRecord({
+            return await admissionFence.run({
+              hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || startupLoad.status === 'loading',
+              snapshot: savedAutosave.currentOutboxSnapshot,
+              waitFor: savedAutosave.waitFor,
+              execute: () => admitEntryRecord({
               sheetId, submission, coordinator: persistenceCoordinator,
-              waitForPredecessors: async () => {
-                if (hasPendingCreations() || axisCreation.hasUnsettled()) throw new Error('Resolve pending sheet and axis creation before adding a record.');
-                for (const entry of savedAutosave.currentOutboxSnapshot()) {
-                  const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
-                  if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
-                }
-              },
+              waitForPredecessors: async () => {},
               currentWorkbook: () => optimisticWorkbook.current,
               loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook,
               prepare: (before) => settleSorting(
@@ -424,11 +424,12 @@ export function useWorkbookController({
               admit: resolvedApiClient.admitRecord ?? workbookApi.admitRecord,
               recover: (error, refresh) => recoverRecordAdmission(error, sheetId, persistenceCoordinator, refresh),
               reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
+              }),
             });
           } catch (error) {
             if (!submission.request) throw new EntryAdmissionRejected(error instanceof Error ? error.message : 'Could not prepare record.');
             throw error;
-          } finally { admissionFence.current = false; }
+          }
         });
         publishEntries();
         try {
@@ -459,12 +460,12 @@ export function useWorkbookController({
       renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
-      appendColumn: (sheetId) => { if (!admissionFence.current && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
-      appendRow: (sheetId) => { if (!admissionFence.current && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendColumn: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendRow: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       deleteRow: (sheetId, rowId, publication) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId), undefined, false, publication),
       deleteColumn: (sheetId, columnId, publication) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId), undefined, false, publication),
       changeSheetZOrder,
-      createSheet: (...args) => admissionFence.current ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
+      createSheet: (...args) => admissionFence.held ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       moveCells,
@@ -472,7 +473,7 @@ export function useWorkbookController({
       pasteStoredCells: pasteCells,
       moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
-      retryFailedSaves: savedAutosave.retryFailedSaves,
+      retryFailedSaves: () => { if (admissionFence.held) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
       resizeSheetFrame,
       setSheetVisualScale,
       undo: () => mixedHistory.replay('undo'),
@@ -489,7 +490,7 @@ export function useWorkbookController({
     extractionReplayFailure: mixedHistory.extractionFailure,
     mutationFailure,
     formulaResults,
-    retryStartupLoad,
+    retryStartupLoad: () => { if (admissionFence.held) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
     creatingFrames,
     creatingAxes: axisCreation.creatingAxes,
     saveStatus: creationFailed || savedAutosave.saveStatus === 'failed'
