@@ -258,3 +258,30 @@ Tests deferred (per user request in this fixes session):
 - `SheetGrid.gather.test.tsx` and `App.axisGather.test.tsx` still assume the
   removed gather buttons and the double-press gesture; they need rewriting
   around select-then-drag.
+
+### 6. Cell selection moves slowly with arrow keys
+
+Reported: moving the cell selection, especially with arrow keys, feels slow;
+check the React redraw path.
+
+Fix:
+
+- Keep the grid cell-registration callback stable until its actual focus targets
+  change, rather than replacing every cell ref on each workspace render.
+- Memoize the cell's rendered presentation when its sheet content, visual
+  state and geometry are unchanged. Interaction callbacks forward to the latest
+  handlers, so memoized cells do not retain stale commands. Editing cells still
+  update when editor interactions change.
+
+Ad hoc verification against the running development app:
+
+- CDP sampling during 20 alternating arrow presses showed substantially less
+  React DOM-property reconciliation after the change; rendering and formatting
+  of visible grid cells still contribute to navigation cost.
+- Right/down navigation, Shift+down range extension, collapse with up, starting
+  an editor and Escape all kept native focus and selection aligned; no browser
+  warnings or errors were observed.
+- TypeScript and ESLint passed for the changed files. Automated tests were not
+  run, per the fixes-session request. Add focused regression coverage for
+  memoized cell callbacks, focus registration and selection changes during
+  hardening.

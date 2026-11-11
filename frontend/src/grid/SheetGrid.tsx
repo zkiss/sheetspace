@@ -385,20 +385,11 @@ export function SheetGrid({
   const focusIntentIsInWindow = Boolean(focusIntentAddress
     && nativeRows.some((virtualRow) => hasDurableIndex(rows[virtualRow.index], focusIntentAddress.rowIndex))
     && nativeColumns.some((virtualColumn) => hasDurableIndex(columns[virtualColumn.index], focusIntentAddress.columnIndex)));
-  function registerCell(key: string, cellElement: HTMLElement | null) {
-    if (
-      key === activeCellKey
-      || key === keyboardFocusRequest?.targetKey
-      || key === focusIntent?.targetKey
-      || key === cellKeyForTarget(sheet, editingCell?.target ?? null)
-      || key === navigationHighlightCellKey
-      || key === navigationTargetKey
-    ) {
-      if (key === focusIntent?.targetKey || key === navigationTargetKey) {
-        focusTargetRef.current = { element: cellElement, key };
-      }
+  const registerCell = useCallback((key: string, cellElement: HTMLElement | null) => {
+    if (key === focusIntent?.targetKey || key === navigationTargetKey) {
+      focusTargetRef.current = { element: cellElement, key };
     }
-  }
+  }, [focusIntent?.targetKey, navigationTargetKey]);
   useEffect(() => {
     if (!revealEnabled || !focusIntent || editingCell) return;
     if (document.activeElement?.closest('form, [role="dialog"]')) return;
