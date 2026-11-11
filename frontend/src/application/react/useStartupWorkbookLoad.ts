@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import type { StartupLoadState } from '@application/core/state';
 import { Workbook } from '@workbook/core/model';
@@ -18,6 +18,7 @@ export function useStartupWorkbookLoad({
   const [startupLoad, setStartupLoad] = useState<StartupLoadState>(
     initialWorkbook ? { status: 'loaded' } : { status: 'loading' },
   );
+  const loading = useRef(!initialWorkbook);
 
   useEffect(() => {
     if (initialWorkbook || startupLoad.status !== 'loading') {
@@ -35,6 +36,7 @@ export function useStartupWorkbookLoad({
         }
 
         setWorkbook(loadedWorkbook, { kind: 'structure' });
+        loading.current = false;
         setStartupLoad({ status: 'loaded' });
         markSaved();
       })
@@ -44,6 +46,7 @@ export function useStartupWorkbookLoad({
         }
 
         const message = cause instanceof Error ? cause.message : 'Workbook could not be loaded.';
+        loading.current = false;
         setStartupLoad({
           status: 'error',
           message,
@@ -56,7 +59,8 @@ export function useStartupWorkbookLoad({
   }, [resolvedApiClient, initialWorkbook, markSaved, setWorkbook, startupLoad.status]);
 
   return {
-    retryStartupLoad: () => setStartupLoad({ status: 'loading' }),
+    isStartupLoading: () => loading.current,
+    retryStartupLoad: () => { if (!initialWorkbook) { loading.current = true; setStartupLoad({ status: 'loading' }); } },
     startupLoad,
   };
 }

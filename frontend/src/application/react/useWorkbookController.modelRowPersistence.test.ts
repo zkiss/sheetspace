@@ -24,6 +24,32 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  it('rejects admission during a same-turn startup retry until its load completes', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    let resolveRetry!: (value: Workbook) => void;
+    api.loadWorkbook.mockResolvedValueOnce(workbook).mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve; }));
+    const { result } = renderHook(() => useWorkbookController({ apiClient: api }));
+    await waitFor(() => expect(result.current.startupLoad.status).toBe('loaded'));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+
+    let submission!: ReturnType<typeof result.current.commands.submitEntryDraft>;
+    act(() => {
+      result.current.retryStartupLoad();
+      submission = result.current.commands.submitEntryDraft('sheet');
+    });
+    await act(async () => { await submission; });
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+    expect(result.current.startupLoad.status).toBe('loading');
+
+    await act(async () => { resolveRetry(workbook); });
+    expect(result.current.startupLoad.status).toBe('loaded');
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+  });
+
   it('sorts a committed model entry by its calculated value without including the draft', async () => {
     const original = boundWorkbook();
     const sheet = original.documents.sheet!;

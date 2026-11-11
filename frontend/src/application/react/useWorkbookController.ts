@@ -146,7 +146,7 @@ export function useWorkbookController({
     resolvedApiClient,
     setWorkbook,
   });
-  const { retryStartupLoad, startupLoad } = useStartupWorkbookLoad({
+  const { isStartupLoading, retryStartupLoad, startupLoad } = useStartupWorkbookLoad({
     initialWorkbook,
     markSaved: savedAutosave.markSaved,
     resolvedApiClient,
@@ -409,7 +409,7 @@ export function useWorkbookController({
           }
           try {
             return await admissionFence.run({
-              hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || startupLoad.status === 'loading',
+              hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || isStartupLoading(),
               snapshot: savedAutosave.currentOutboxSnapshot,
               waitFor: savedAutosave.waitFor,
               execute: () => admitEntryRecord({
