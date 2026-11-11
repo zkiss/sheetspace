@@ -64,6 +64,7 @@ A Deliverable is the coherent set of changes that completes the requested work. 
 4. Complete the work on that branch, either directly or through Devflow.
 5. Push the completed Deliverable branch.
 6. Only when the user asks, close the associated Bead, if any, squash-merge the branch into `main`, and push `main`.
+7. Delete the deliverable branch from local and remote.
 
 When Devflow is selected, prepare the Deliverable branch before invoking `devflow-runner`. Devflow works entirely on that branch and stops when the work is complete. It does not create, switch, push, or merge branches.
 
