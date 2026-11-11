@@ -285,3 +285,33 @@ Ad hoc verification against the running development app:
   run, per the fixes-session request. Add focused regression coverage for
   memoized cell callbacks, focus registration and selection changes during
   hardening.
+
+### 7. Restore frame and viewport motion
+
+Reported: restore should resemble a reverse maximise, with the title bar and
+sheet headers moving together, borders wrapping the sheet progressively, and
+workspace movement and zoom using the shared flyover to center the sheet at its
+native scale.
+
+Fix:
+
+- Paint the presentation chrome variable on every sampled frame, so the frame
+  border appears progressively instead of jumping in at the end.
+- Run restore over the shared workspace navigation duration and start its
+  existing viewport flyover at the same time; cancel the owned flyover when
+  the presentation is interrupted or retargeted. Maximise timing is unchanged.
+- Sample the displayed plane viewport and repaint the live presentation after
+  React commits, preventing a stale presentation from displacing the frame
+  during the concurrent viewport animation.
+
+Ad hoc Playwright verification against the running app:
+
+- Sampled restore frames show the title-bar height and border chrome growing
+  alongside the contracting sheet while the workspace plane moves and zooms;
+  the restored frame lands centered at native scale without a final jump.
+- Checked normal and reduced-motion restore, preserved the saved Team Time
+  position after an exploratory drag, and saw no browser warnings or errors.
+- TypeScript, targeted ESLint and `git diff --check` passed. Automated tests
+  were not run per the fixes-session request. During hardening, update the
+  maximise runtime/state tests for restore timing, shared flyover ownership,
+  intermediate chrome painting, retargeting and cancellation.

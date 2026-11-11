@@ -12,6 +12,7 @@ export function paintSheetFramePresentation(article: HTMLElement, sample: SheetP
   article.style.width = `${sample.frame.width}px`;
   article.style.height = `${sample.frame.height}px`;
   article.style.transform = `scale(${1 / viewport.scale})`;
+  article.style.setProperty('--presentation-chrome', String(sample.chrome));
   const header = article.querySelector<HTMLElement>(':scope > .sheet-frame-header');
   if (header) {
     header.style.height = `${Math.max(0, sample.body.top - sample.frame.top)}px`;

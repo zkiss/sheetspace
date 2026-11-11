@@ -3,13 +3,14 @@ import type { SheetFrameSize } from '@workbook/core/model';
 import type { WorkspaceViewport } from './workspaceContracts';
 import { canvasPresentation, restoredViewport } from './maximiseGeometry';
 import type { SavedFrame, SheetPresentation } from './maximiseGeometry';
-import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, reconcileMaximiseFrame, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
+import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, maximiseTransitionDuration, reconcileMaximiseFrame, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
 import type { MaximiseState } from './maximiseState';
 
 type Handoff = {
   freezeDisplayedViewport: (programmatic?: boolean) => WorkspaceViewport;
   freezeDisplayedViewportOwned?: (programmatic?: boolean) => { viewport: WorkspaceViewport; owned: boolean };
   commitFrozenViewport: (viewport: WorkspaceViewport) => boolean | void;
+  restoreViewport?: (viewport: WorkspaceViewport) => () => void;
 };
 type Result = 'settled' | 'cancelled';
 
@@ -18,6 +19,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const [state, setState] = useState(initialMaximiseState);
   const current = useRef(state);
   const frame = useRef<number>();
+  const cancelFlyover = useRef<() => void>();
   const waiters = useRef<Array<(result: Result) => void>>([]);
   const canvasWaiters = useRef<Array<(result: Result) => void>>([]);
   const targetWaiters = useRef<Array<(result: Result) => void>>([]);
@@ -52,6 +54,8 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     if (next === previous) return;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
+    cancelFlyover.current?.();
+    cancelFlyover.current = undefined;
     if (previous.identity !== next.identity) {
       release('cancelled');
       if (!retargetRestore) { ownership.current++; releaseCanvas('cancelled'); }
@@ -73,10 +77,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     }
     publish(next, now);
     if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); releaseTarget(next.mode === 'maximised' ? 'settled' : 'cancelled'); return; }
+    if (next.mode === 'restoring' && next.frame && next.size) {
+      cancelFlyover.current = options.current.handoff.restoreViewport?.(restoredViewport(next.frame, next.size));
+    }
     const identity = next.identity;
     const tick = (time: number) => {
       if (current.current.identity !== identity) return;
-      if (time - next.motion!.start >= MAXIMISE_TRANSITION_MS) {
+      if (time - next.motion!.start >= maximiseTransitionDuration(next)) {
         update(completeMaximise(current.current, identity), time, current.current.mode === 'restoring', false, current.current.mode === 'entering');
       } else {
         // Paint the sampled frame directly: a React commit per animation frame
@@ -188,6 +195,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     presentationOwner.current++;
     transaction.current++;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+    cancelFlyover.current?.();
     current.current = cancelMaximise(current.current);
     ownership.current++;
     targetOwnership.current++;

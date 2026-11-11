@@ -272,13 +272,17 @@ export function Workspace({
     if (!article) return;
     // Read the plane so the first painted frame matches the viewport the
     // handoff just committed, even before React renders it.
-    const viewport = displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current) ?? workspaceController.viewport;
+    const viewport = displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.viewport;
     paintSheetFramePresentation(article, sample, viewport);
   };
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
     const sheet = findSheetById(workbook, id);
     return sheet && frameProjection(sheet);
   }, paintMaximisedPresentation);
+  useLayoutEffect(() => {
+    const sample = maximise.currentPresentation();
+    if (sample) paintMaximisedPresentation(sample, maximise.currentState());
+  });
   const extractionInputs = useRef({ workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus });
   extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
   const abortExtractionPresentation = () => {
@@ -1318,7 +1322,7 @@ export function Workspace({
               presentationZIndex={extractionSlots?.slots.get(sheet.id)}
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
-              presentation={extractionPresentation?.targetId === sheet.id ? { sample: extractionPresentation.sample, viewport: workspaceController.viewport } : maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}
+              presentation={extractionPresentation?.targetId === sheet.id ? { sample: extractionPresentation.sample, viewport: workspaceController.viewport } : maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.currentPresentation() ?? maximise.presentation, viewport: displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.viewport } : undefined}
               isActiveSheet={activeSheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
