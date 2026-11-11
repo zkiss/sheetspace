@@ -348,3 +348,26 @@ workspace navigation remains unchanged.
 Ad hoc Playwright confirmed workspace visibility during restore and no console
 warnings or errors. TypeScript and targeted ESLint passed. Automated tests
 remain deferred for fixes-mode hardening.
+
+### 10. Restore stutters while revealing the workspace
+
+Reported: restore stutters, potentially because React redraws the workspace on
+animation frames; resizing is smooth.
+
+Fix:
+
+- During viewport flyovers, publish a sampled viewport to React only when it
+  changes the set of mounted sheets, and publish the final viewport on settle.
+  The plane and presented sheet continue to animate without React commits on
+  every frame.
+- Retain sheets encountered during restore until the flyover settles, avoiding
+  unnecessary unmount/remount churn. Extraction samples the live plane when it
+  needs the exact displayed viewport rather than relying on a render snapshot.
+
+Ad hoc Playwright/CDP profiling against the running development app showed fewer
+long tasks during restore (one comparable sample: 7 before, 3 after); frame
+pacing still varies with development-build rendering and machine load. Normal
+and reduced-motion restore, workspace visibility, final centering and console
+errors were checked. TypeScript and targeted ESLint passed. Automated tests
+remain deferred; add coverage for viewport publication, virtualization while
+flying over new sheets, and live extraction geometry during hardening.

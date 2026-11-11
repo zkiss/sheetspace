@@ -787,6 +787,7 @@ export function Workspace({
   if (maximise.state.mode === 'restoring') {
     for (const id of restorePeerIds.current) mountedSheetIds.add(id);
     for (const id of mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.viewport })) mountedSheetIds.add(id);
+    restorePeerIds.current = new Set(mountedSheetIds);
   } else restorePeerIds.current = new Set(mountedSheetIds);
   if (extractionHandoff.handoff) {
     mountedSheetIds.add(extractionHandoff.handoff.source.id);
@@ -796,7 +797,8 @@ export function Workspace({
   if (maximise.state.sheetId) mountedSheetIds.add(maximise.state.sheetId);
   panViewportNeedsRender.current = (viewport) => {
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
-    return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
+    return (maximise.state.mode !== 'restoring' && next.size !== mountedSheetIds.size)
+      || [...next].some((id) => !mountedSheetIds.has(id));
   };
   const referenceViewportsPaused = maximise.state.mode !== 'canvas' || interactionPinnedSheetId !== null;
   const referenceViewportsPausedRef = useRef(referenceViewportsPaused);
@@ -990,7 +992,7 @@ export function Workspace({
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
         const presentedNow = maximise.currentState().sheetId === sheet.id ? maximise.currentPresentation() : undefined;
-        const presented = presentedNow ?? canvasPresentation(sourceFrame, workspaceController.displayedViewport);
+        const presented = presentedNow ?? canvasPresentation(sourceFrame, displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.displayedViewport);
         const bodyBounds = body?.getBoundingClientRect(), surfaceBounds = surface?.getBoundingClientRect();
         const displayed = bodyBounds && surfaceBounds && bodyBounds.width > 0 && bodyBounds.height > 0
           ? { ...presented, body: { left: bodyBounds.left - surfaceBounds.left, top: bodyBounds.top - surfaceBounds.top, width: bodyBounds.width, height: bodyBounds.height } }

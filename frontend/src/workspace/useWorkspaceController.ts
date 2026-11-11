@@ -53,7 +53,7 @@ export function useWorkspaceController({
   const creationMotionSample = useRef<{ animation: Animation; time: CSSNumberish | null } | undefined>(undefined);
   const viewportRef = useRef(viewport);
   viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
-  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
+  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport, shouldRenderPanViewport);
   const navigationMayBeMoving = useRef(false);
   const activeViewportMotion = useRef<{ animation: Animation; motion: ReturnType<typeof navigationViewportMotion> }>();
   const viewportMovementIsUser = useRef(false);
