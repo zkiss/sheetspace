@@ -419,3 +419,19 @@ Row dragging and undo for both axes were checked; no console warnings or errors
 were observed in the column check. TypeScript, targeted ESLint and diff checks
 passed. Automated tests remain deferred; cover mixed row/column sizes and
 release flights during hardening.
+
+### 14. Synchronize header flights with axis movement
+
+Reported: released header cards appear to wait while columns shift, then fly;
+the movements should happen together.
+
+Fix: animate each flight card's size with its translation using a top-left
+transform, rather than animating width and height (which forces layout). Match
+the axis-shift animation's 220 ms ease-out timing. This supersedes the
+layout-driven sizing animation in entry 13.
+
+Ad hoc Playwright observed matching browser animation start times for the cards
+and shifted columns and confirmed mixed-size column flight scale targets,
+reorder and undo. TypeScript, targeted ESLint and diff checks passed. Automated
+tests remain deferred; cover synchronized flight timing and size transforms in
+hardening. Human visual acceptance remains separate.

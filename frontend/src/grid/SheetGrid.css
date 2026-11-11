@@ -149,7 +149,8 @@
 }
 
 .sheet-grid-axis-flight-card {
-  animation: axis-gather-flight 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top left;
+  animation: axis-gather-flight 220ms ease-out both;
 }
 
 .sheet-grid-axis-card-stacking {
@@ -163,6 +164,6 @@
 }
 
 @keyframes axis-gather-flight {
-  from { transform: translate(var(--flight-from-x), var(--flight-from-y)); }
-  to { transform: translate(var(--flight-to-x), var(--flight-to-y)); width: var(--flight-to-width); height: var(--flight-to-height); }
+  from { transform: translate(var(--flight-from-x), var(--flight-from-y)) scale(1, 1); }
+  to { transform: translate(var(--flight-to-x), var(--flight-to-y)) scale(var(--flight-scale-x), var(--flight-scale-y)); }
 }
