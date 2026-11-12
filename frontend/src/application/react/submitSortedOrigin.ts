@@ -16,10 +16,12 @@ export function submitSortedOrigin(options: {
   history: ContentHistory;
   submit: (candidate: Workbook, success: (before: Workbook, after: Workbook) => void) => { result: { ok: true; value: Workbook } | TransitionFailure };
   publish: () => void;
+  isNoop?: (final: Workbook) => boolean;
 }): Result {
   const baseline = options.calculation.fork();
   baseline.updateStored(calculationProjection(options.before), options.before, { kind: 'structure' });
   const final = settleSorting(options.candidate, baseline, options.impact).workbook;
+  if (options.isNoop?.(final)) return { ok: true, value: options.before };
   if (!options.history.canRecordSemantic(options.before, final)) return { ok: false, reason: 'sorting-history-too-large' };
   return options.submit(final, (before, after) => {
     options.history.recordSemantic(before, after);

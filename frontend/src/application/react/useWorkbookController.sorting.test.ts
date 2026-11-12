@@ -137,6 +137,58 @@ it('rejects an oversized sorting transaction before publication or persistence',
   expect(api.saveModelLifecycle).not.toHaveBeenCalled();
 });
 
+it('returns the settled row order rather than the requested manual permutation', async () => {
+  const base = sheetDocument({ id: 's', name: 'S', rowCount: 3, columnCount: 1, cells: { A1: '3', A2: '1', A3: '2' } });
+  const sheet = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'ascending' as const }] };
+  const [a, b, c] = sheet.content.rows;
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => {
+    const move = result.current.commands.shiftAxis('s', 'row', [a!], 1);
+    expect(move.status).toBe('changed');
+    if (move.status === 'changed') {
+      expect(move.before).toEqual([a, b, c]);
+      expect(move.after).toEqual([b, c, a]);
+      expect(move.workbook.documents.s!.content.rows).toEqual(move.after);
+    }
+  });
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+});
+
+it('does not persist or record a row move fully reversed by sorting', () => {
+  const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '1', A2: '2' } });
+  const sheet = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'ascending' as const }] };
+  const api = autosaveClient();
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => {
+    const move = result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1);
+    expect(move.status).toBe('unchanged');
+    expect(move.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+  });
+  expect(result.current.canUndo).toBe(false);
+  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.writeAxisOrder).not.toHaveBeenCalled();
+});
+
+it('keeps induced changes on another sheet when the moved axis returns to its original order', async () => {
+  const first = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '1', A2: '2' } });
+  const second = sheetDocument({ id: 't', name: 'T', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+  const sorted = (sheet: typeof first) => ({ ...sheet, sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }] });
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sorted(first), sorted(second)]), apiClient: api }));
+  act(() => {
+    const move = result.current.commands.shiftAxis('s', 'row', [first.content.rows[0]!], 1);
+    expect(move.status).toBe('unchanged');
+    expect(move.workbook.documents.t!.content.rows).toEqual([...second.content.rows].reverse());
+  });
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.t!.content.rows).toEqual(second.content.rows);
+});
+
 it('settles a manual column move with stable criteria and exact semantic replay', async () => {
   const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
   const context = workbookWithSheets([base]);

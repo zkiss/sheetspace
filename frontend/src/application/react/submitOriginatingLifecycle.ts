@@ -22,6 +22,7 @@ export function submitOriginatingLifecycle<T extends { ok: true; value: Workbook
   history: ContentHistory;
   submit: <R extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => R, success?: (before: Workbook, after: Workbook) => void, protect?: boolean, publication?: LifecyclePublication) => { result: R | TransitionFailure; completion: Promise<R | TransitionFailure> };
   publish: () => void;
+  isNoop?: (final: Workbook) => boolean;
 }) {
   const candidate = options.transform(options.before);
   if (!candidate.ok || candidate.value === options.before || !(sheetsInOrder(options.before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(candidate.value).some((sheet) => sheet.sorting?.length))) {
@@ -37,7 +38,7 @@ export function submitOriginatingLifecycle<T extends { ok: true; value: Workbook
       const submission = options.submit(() => ({ ok: true as const, value: final }), success, true, options.publication);
       completion = submission.completion;
       return submission;
-    }, publish: options.publish,
+    }, publish: options.publish, isNoop: options.isNoop,
   });
   return { result, completion: completion ?? Promise.resolve(result) };
 }

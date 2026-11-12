@@ -260,8 +260,8 @@ export function useWorkbookController({
 
   }
 
-  function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void) {
-    return submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+  function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void, isNoop?: (final: Workbook) => boolean) {
+    return submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, isNoop, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
   }
 
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
@@ -407,8 +407,8 @@ export function useWorkbookController({
     commands: {
       currentWorkbook: () => optimisticWorkbook.current,
       configureSorting: sortingHistory.configure,
-      gatherAxis: (sheetId, axis, ids, gap) => reorderOrigin({ before: optimisticWorkbook.current, sheetId, axis, transform: (source) => gatherAxis(source, sheetId, axis, ids, gap), reorder: mixedHistory.reorder, submit: (candidate) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate })).result }),
-      shiftAxis: (sheetId, axis, ids, direction) => reorderOrigin({ before: optimisticWorkbook.current, sheetId, axis, transform: (source) => shiftAxis(source, sheetId, axis, ids, direction), reorder: mixedHistory.reorder, submit: (candidate) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate })).result }),
+      gatherAxis: (sheetId, axis, ids, gap) => reorderOrigin({ before: optimisticWorkbook.current, sheetId, axis, transform: (source) => gatherAxis(source, sheetId, axis, ids, gap), reorder: mixedHistory.reorder, submit: (candidate, isNoop) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate }), undefined, undefined, isNoop).result }),
+      shiftAxis: (sheetId, axis, ids, direction) => reorderOrigin({ before: optimisticWorkbook.current, sheetId, axis, transform: (source) => shiftAxis(source, sheetId, axis, ids, direction), reorder: mixedHistory.reorder, submit: (candidate, isNoop) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate }), undefined, undefined, isNoop).result }),
       extractSelection: (request, publication) => extractionCommand(request, {
         history: contentHistory,
         submit: (transform, success) => applyModelLifecycleTransition(transform, success, true, publication),

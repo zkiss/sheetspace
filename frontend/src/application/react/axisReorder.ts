@@ -14,14 +14,18 @@ export function reorderOrigin(options: {
   axis: ReorderAxis;
   transform: (source: Workbook) => ReorderResult;
   reorder: (sheetId: string, axis: ReorderAxis, transform: (source: Workbook) => ReorderResult) => ReorderCommandResult;
-  submit: (candidate: Workbook) => { ok: true; value: Workbook } | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
+  submit: (candidate: Workbook, isNoop: (final: Workbook) => boolean) => { ok: true; value: Workbook } | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
 }): ReorderCommandResult {
   const result = options.transform(options.before);
   if (result.status !== 'changed') return result;
   if (!(sheetsInOrder(options.before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.workbook).some((sheet) => sheet.sorting?.length))) return options.reorder(options.sheetId, options.axis, options.transform);
-  const submitted = options.submit(result.workbook);
+  const finalOrder = (workbook: Workbook) => options.axis === 'row' ? workbook.documents[options.sheetId]!.content.rows : workbook.documents[options.sheetId]!.content.columns;
+  const sameOrder = (order: readonly string[]) => result.before.every((id, index) => id === order[index]);
+  const submitted = options.submit(result.workbook, (final) => sameOrder(finalOrder(final)) && Object.keys(options.before.documents).every((id) => id === options.sheetId || options.before.documents[id] === final.documents[id]));
   if (!submitted.ok) return { status: 'rejected', workbook: options.before, reason: submitted.reason };
-  return { ...result, workbook: submitted.value };
+  const after = finalOrder(submitted.value);
+  if (sameOrder(after)) return { status: 'unchanged', workbook: submitted.value };
+  return { ...result, workbook: submitted.value, after };
 }
 
 type Options = {
