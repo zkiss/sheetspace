@@ -17,22 +17,29 @@ export function useRecordReplay(options: {
   const owner = useRef<RecordReplayOwner | undefined>(undefined);
   owner.current ??= new RecordReplayOwner(options.history);
   const pending = useRef(false);
-  const [state, setState] = useState<Readonly<{ pending: boolean; error?: string }>>({ pending: false });
-  function replay(transaction: ContentTransaction, direction: 'undo' | 'redo') {
+  const [state, setState] = useState<Readonly<{ pending: boolean; unresolved: boolean; error?: string }>>({ pending: false, unresolved: false });
+  const executePersisted = (operation: Parameters<typeof replayEntryRecord>[0]['operation']) => options.run(() => replayEntryRecord({
+    ...options.replayOptions, operation, waitForPredecessors: async () => {},
+    recover: (error, refresh) => recoverRecordReplay(error, options.coordinator, refresh),
+  }));
+  function run(action: () => Promise<unknown>) {
     if (pending.current) return;
     pending.current = true;
-    setState({ pending: true });
-    void owner.current!.replay(transaction, direction, (operation) => options.run(() => transaction.localRecord ? Promise.resolve().then(() => options.replayLocal(transaction, direction)) : replayEntryRecord({
-      ...options.replayOptions, operation, waitForPredecessors: async () => {},
-      recover: (error, refresh) => recoverRecordReplay(error, options.coordinator, refresh),
-    }))).then(() => {
+    setState({ pending: true, unresolved: owner.current!.unresolved });
+    void action().then(() => {
       pending.current = false;
-      setState({ pending: false });
+      setState({ pending: false, unresolved: owner.current!.unresolved });
       options.publishHistory();
     }, (error: unknown) => {
       pending.current = false;
-      setState({ pending: false, error: error instanceof Error ? error.message : 'Record replay failed.' });
+      setState({ pending: false, unresolved: owner.current!.unresolved, error: error instanceof Error ? error.message : 'Record replay failed.' });
+      options.publishHistory();
     });
   }
-  return { state, replay };
+  function replay(transaction: ContentTransaction, direction: 'undo' | 'redo') {
+    run(() => owner.current!.replay(transaction, direction, (operation) => transaction.localRecord
+      ? options.run(() => Promise.resolve().then(() => options.replayLocal(transaction, direction)))
+      : executePersisted(operation)));
+  }
+  return { state, replay, confirmRetained: () => run(() => owner.current!.confirmRetained(executePersisted)) };
 }

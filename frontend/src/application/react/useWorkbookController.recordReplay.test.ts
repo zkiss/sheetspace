@@ -43,7 +43,7 @@ function fixture(loseFirstReplay = false) {
     const receipt = receipts.get(request.operationId);
     if (receipt) {
       expect({ sheetId, rowId, request }).toEqual({ sheetId: receipt.sheetId, rowId: receipt.rowId, request: receipt.request });
-      return { operationId: request.operationId, rowId, alreadyCommitted: true, workbook: receipt.workbook };
+      return { operationId: request.operationId, rowId, alreadyCommitted: true, workbook: current };
     }
     const endpoint = request.direction === 'undo' ? initial : admitted;
     revision++;
@@ -55,7 +55,7 @@ function fixture(loseFirstReplay = false) {
     }
     return { operationId: request.operationId, rowId, alreadyCommitted: false, workbook: current };
   });
-  return { api, initial };
+  return { api, initial, setCurrent: (workbook: Workbook) => { current = workbook; } };
 }
 
 async function submit(result: { current: ReturnType<typeof useWorkbookController> }) {
@@ -86,7 +86,7 @@ function assertEndpoint(result: { current: ReturnType<typeof useWorkbookControll
     expect(Object.prototype.hasOwnProperty.call(result.current.workbook.documents.sheet!.content.cells, inputKey)).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(result.current.workbook.documents.sheet!.content.cells, outputKey)).toBe(false);
   }
-  expect(result.current.canUndo).toBe(admitted);
+  expect(result.current.canUndo).toBe(admitted || result.current.recordReplay.unresolved);
   expect(result.current.canRedo).toBe(!admitted);
 }
 
@@ -169,5 +169,24 @@ describe('persisted record replay integration', () => {
     expect(third![2].direction).toBe('redo');
     expect(third![2].operationId).not.toBe(first![2].operationId);
     assertNoSubstituteWrites(api);
+  });
+
+  it('confirms a retained receipt before an intervening history entry', async () => {
+    const { api, initial, setCurrent } = fixture(true);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
+    await waitFor(() => expect(api.writeCells).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    const laterContent = result.current.workbook.documents.other!.content;
+    setCurrent(result.current.workbook);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(result.current.recordReplay.error).toMatch(/history position changed/i);
+    expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.workbook.documents.other!.content).toEqual(laterContent);
   });
 });

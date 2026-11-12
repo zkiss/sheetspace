@@ -90,7 +90,7 @@ export type WorkbookController = {
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
   extractionReplayFailure: ExtractionReplayFailure | undefined;
   orderReplayFailure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined;
-  recordReplay: Readonly<{ pending: boolean; error?: string }>;
+  recordReplay: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
   mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;

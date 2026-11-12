@@ -82,3 +82,45 @@ it('refuses a retained retry when a different record becomes current', async () 
   await expect(owner.replay(history.peekUndo()!, 'undo', execute)).rejects.toThrow('Resolve the pending');
   expect(replay).toHaveBeenCalledOnce();
 });
+
+it('confirms a retained receipt independently of the current history position', async () => {
+  const { history, owner, replay, execute, barrier } = setup();
+  replay.mockRejectedValueOnce(new Error('lost'));
+  await expect(owner.replay(history.peekUndo()!, 'undo', execute)).rejects.toThrow('lost');
+  expect(owner.unresolved).toBe(true);
+  history.recordModelRecord({ sheetId: 's', rowId: 'other' });
+  const current = history.peekUndo();
+  await expect(owner.confirmRetained(execute)).rejects.toThrow('history position changed');
+  expect(replay.mock.calls[1]).toEqual(replay.mock.calls[0]);
+  expect(history.peekUndo()).toEqual(current);
+  expect(owner.unresolved).toBe(false);
+  expect(barrier.held).toBe(false);
+  await expect(owner.confirmRetained(execute)).rejects.toThrow('no unresolved');
+});
+
+it('confirms a matching retained receipt exactly once', async () => {
+  const { history, owner, replay, execute } = setup();
+  replay.mockRejectedValueOnce(new Error('lost'));
+  await expect(owner.replay(history.peekUndo()!, 'undo', execute)).rejects.toThrow('lost');
+  await owner.confirmRetained(execute);
+  expect(history.canRedo).toBe(true);
+  expect(owner.unresolved).toBe(false);
+  await expect(owner.confirmRetained(execute)).rejects.toThrow('no unresolved');
+});
+
+it('keeps the retained request through a blocked predecessor and confirms after history clear', async () => {
+  const { history, owner, replay, execute, barrier } = setup();
+  replay.mockRejectedValueOnce(new Error('lost'));
+  await expect(owner.replay(history.peekUndo()!, 'undo', execute)).rejects.toThrow('lost');
+  history.clear();
+  const blocked = () => barrier.run({ hasUnsettled: () => false, snapshot: () => [{ operationId: 'save', status: 'failed' }],
+    waitFor: async () => { throw new Error('unexpected'); }, execute: async () => {} });
+  await expect(owner.confirmRetained(blocked)).rejects.toThrow('failed saves');
+  expect(owner.unresolved).toBe(true);
+  expect(barrier.held).toBe(false);
+  await expect(owner.confirmRetained(execute)).rejects.toThrow('history position changed');
+  expect(replay.mock.calls[1]).toEqual(replay.mock.calls[0]);
+  expect(history.canUndo).toBe(false);
+  expect(history.canRedo).toBe(false);
+  expect(owner.unresolved).toBe(false);
+});
