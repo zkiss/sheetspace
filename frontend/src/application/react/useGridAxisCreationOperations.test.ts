@@ -239,3 +239,66 @@ it('holds workbook-wide ownership until the earlier backend append reconciles', 
   expect(reconcile).toHaveBeenCalledWith({ kind: 'append-row', sheetId: 'a', rowId: 'first' });
   expect(appendRow).toHaveBeenCalledTimes(1);
 });
+
+it('retains physical ownership after missing confirmation and rejects stale owner tokens', async () => {
+  const a = positionedSheet('a', 'A', { x: 0, y: 0 });
+  const b = positionedSheet('b', 'B', { x: 0, y: 0 });
+  const workbook = workbookWithSheets([a, b]);
+  const first = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  const appendRow = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ sheetId: 'b', revision: 1, rowCount: 21, rowId: 'b-row' });
+  const coordinator = new WorkbookPersistenceCoordinator();
+  const { result } = renderHook(() => useGridAxisCreationOperations({ autosaveEnabled: true, currentWorkbook: () => workbook, persistenceCoordinator: coordinator, reconcile: vi.fn(), resolvedApiClient: { appendRow }, setWorkbook: () => {} }));
+  act(() => result.current.appendRow('a'));
+  const owner = result.current.creatingAxes.a!.rows[0]!.operationId;
+  expect(result.current.admitsOwner(owner)).toBe(true);
+  expect(result.current.admitsOwner('unknown')).toBe(false);
+  act(() => { coordinator.confirmSheetMissing('a'); result.current.appendRow('b'); });
+  expect(result.current.admitsOwner(owner)).toBe(false);
+  expect(appendRow).toHaveBeenCalledTimes(1);
+  expect(result.current.creatingAxes.b?.rows).toHaveLength(1);
+  await act(async () => first.resolve({ sheetId: 'a', revision: 1, rowCount: 21, rowId: 'a-row' }));
+  await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(2));
+  expect(result.current.admitsOwner(owner)).toBe(false);
+});
+
+it.each(['deletion', 'missing'] as const)('does not dispatch an owner waiting when its sheet has %s', async (reason) => {
+  const wait = deferred<void>();
+  const sheet = positionedSheet('a', 'A', { x: 0, y: 0 });
+  const workbook = workbookWithSheets([sheet]);
+  const coordinator = new WorkbookPersistenceCoordinator();
+  const appendRow = vi.fn();
+  const createSorted = vi.fn();
+  const { result } = renderHook(() => useGridAxisCreationOperations({ autosaveEnabled: true, beforeCreate: () => wait.promise, currentWorkbook: () => workbook, persistenceCoordinator: coordinator, reconcile: vi.fn(), createSorted, resolvedApiClient: { appendRow }, setWorkbook: () => {} }));
+  act(() => result.current.appendRow('a'));
+  let deletion: Promise<void> | undefined;
+  act(() => { if (reason === 'deletion') deletion = result.current.prepareSheetDeletion('a'); else coordinator.confirmSheetMissing('a'); });
+  await act(async () => { wait.resolve(); await deletion; });
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(createSorted).not.toHaveBeenCalled();
+  expect(appendRow).not.toHaveBeenCalled();
+});
+
+it('rejects a foreign failed predecessor but retires an already queued same-sheet failure', async () => {
+  const a = positionedSheet('a', 'A', { x: 0, y: 0 });
+  const b = positionedSheet('b', 'B', { x: 0, y: 0 });
+  const workbook = workbookWithSheets([a, b]);
+  const first = deferred<boolean>();
+  const admissions: Array<[string, boolean]> = [];
+  const coordinator = new WorkbookPersistenceCoordinator();
+  let admitsOwner: (id: string) => boolean = () => false;
+  const createSorted = vi.fn(({ operationId, sheetId }: { operationId: string; sheetId: string }) => {
+    const admitted = admitsOwner(operationId);
+    admissions.push([sheetId, admitted]);
+    if (admissions.length === 1) return first.promise;
+    if (!admitted) throw new Error('pending-axis-creation');
+    return true;
+  });
+  const { result } = renderHook(() => useGridAxisCreationOperations({ autosaveEnabled: true, currentWorkbook: () => workbook, persistenceCoordinator: coordinator, reconcile: vi.fn(), createSorted, resolvedApiClient: {}, setWorkbook: () => {} }));
+  admitsOwner = (id) => result.current.admitsOwner(id);
+  act(() => { result.current.appendRow('a'); result.current.appendRow('b'); result.current.appendColumn('b'); });
+  await act(async () => first.reject(new Error('definite failure')));
+  await waitFor(() => expect(createSorted).toHaveBeenCalledTimes(3));
+  expect(admissions).toEqual([['a', true], ['b', false], ['b', false]]);
+  expect(result.current.hasUnsettledSheet('a')).toBe(true);
+  expect(result.current.hasUnsettledSheet('b')).toBe(true);
+});
