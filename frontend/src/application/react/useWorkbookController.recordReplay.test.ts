@@ -206,24 +206,22 @@ describe('persisted record replay integration', () => {
     assertNoSubstituteWrites(api);
   });
 
-  it('confirms a retained receipt before an intervening history entry', async () => {
+  it('blocks an intervening edit until the retained undo is confirmed', async () => {
     const { api, initial } = fixture(true, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
-    act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
-    await waitFor(() => expect(api.writeCells).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    const before = result.current.workbook;
+    act(() => { expect(result.current.commands.updateCellContent('other', 'A1', '42').ok).toBe(false); });
+    expect(api.writeCells).not.toHaveBeenCalled();
+    expect(result.current.workbook).toEqual(before);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
-    expect(result.current.recordReplay.error).toMatch(/history position changed/i);
+    expect(result.current.recordReplay.error).toBeUndefined();
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
-    expect(result.current.canUndo).toBe(true);
-    const other = result.current.workbook.documents.other!;
-    const savedCell = api.writeCells.mock.calls.flatMap(([, cells]) => cells).find((cell) => cell.raw === '42')!;
-    expect(other.content.cells[cellIdentityKey(savedCell)]).toBe('42');
-    expect(other.content.rows).toEqual(initial.documents.other!.content.rows);
+    expect(result.current.canRedo).toBe(true);
+    expect(result.current.workbook.documents.other!.content).toEqual(before.documents.other!.content);
     expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
   });
 
@@ -262,7 +260,7 @@ describe('persisted record replay integration', () => {
     await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
   });
 
-  it('confirms a lost redo after an edit invalidates redo without restoring the old cursor', async () => {
+  it('blocks edits while a lost redo retains its cursor and identity', async () => {
     const { api, initial, loseNext } = fixture(false, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
@@ -270,30 +268,34 @@ describe('persisted record replay integration', () => {
     loseNext();
     act(() => result.current.commands.redo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
-    act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.canRedo).toBe(false);
+    const before = result.current.workbook;
+    act(() => { expect(result.current.commands.updateCellContent('other', 'A1', '42').ok).toBe(false); });
+    expect(api.writeCells).not.toHaveBeenCalled();
+    expect(result.current.workbook).toEqual(before);
+    expect(result.current.canRedo).toBe(true);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
-    expect(result.current.recordReplay.error).toMatch(/history position changed/i);
+    expect(result.current.recordReplay.error).toBeUndefined();
     expect(api.replayRecord.mock.calls[2]).toEqual(api.replayRecord.mock.calls[1]);
     expect(result.current.canRedo).toBe(false);
     expect(result.current.canUndo).toBe(true);
   });
 
-  it('confirms a receipt after the target sheet is deleted without resurrecting it', async () => {
+  it('blocks target sheet deletion until the retained receipt is confirmed', async () => {
     const { api, initial } = fixture(true, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
-    act(() => { result.current.commands.deleteSheet('sheet'); });
-    await waitFor(() => expect(api.deleteSheet).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    const before = result.current.workbook;
+    act(() => { expect(result.current.commands.deleteSheet('sheet').ok).toBe(false); });
+    expect(api.deleteSheet).not.toHaveBeenCalled();
+    expect(result.current.workbook).toEqual(before);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
-    expect(result.current.workbook.documents.sheet).toBeUndefined();
+    expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
+    expect(result.current.canRedo).toBe(true);
   });
 
   it('fences sorted sheet deletion until an ambiguous record receipt is confirmed', async () => {

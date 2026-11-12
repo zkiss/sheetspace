@@ -181,7 +181,6 @@ export function useWorkbookController({
       return { ok: false, reason: 'pending-model-transition' };
     }
     if ((operation.kind === 'write-cells' || operation.kind === 'rename-sheet') && result.ok && result.value.changed && (sheetsInOrder(optimisticWorkbook.current).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) {
-      if (recordReplay.state.unresolved) { setMutationFailure('pending-model-transition'); return { ok: false, reason: 'pending-model-transition' }; }
       const submitted = submitSortedOrigin({ before: optimisticWorkbook.current, candidate: result.value.nextWorkbook, impact: operation.kind === 'rename-sheet' ? { kind: 'structure' } : result.value.calculationImpact, calculation: committedCalculation.current!, history: contentHistory, submit: (candidate, success) => applyModelLifecycleTransition(() => ({ ok: true as const, value: candidate }), success, true), publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
       if (!submitted.ok) return submitted;
       setMutationFailure(undefined);
@@ -201,14 +200,12 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!mutationBlocked()) return undefined;
+    if (!lifecycle.hasPending() && !replayFenceBlocked()) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
 
-  function mutationBlocked() {
-    return lifecycle.hasPending() || admissionFence.held || recordReplay.blocked();
-  }
+  const replayFenceBlocked = () => admissionFence.held || recordReplay.blocked();
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
     const before = optimisticWorkbook.current;
@@ -224,7 +221,7 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication, axisOwner?: string): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
-    if (mutationBlocked()) {
+    if (replayFenceBlocked()) {
       setMutationFailure('pending-model-transition');
       const result = { ok: false, reason: 'pending-model-transition' } as const;
       return { result, completion: Promise.resolve(result) };
@@ -370,7 +367,7 @@ export function useWorkbookController({
   });
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
-    enqueue: savedAutosave.enqueue, hasPending: mutationBlocked, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
+    enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || replayFenceBlocked(), hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
@@ -486,12 +483,12 @@ export function useWorkbookController({
       renameColumn: (sheetId, columnId, name) => applyOriginatingLifecycle((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
-      appendColumn: (sheetId) => { if (!mutationBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
-      appendRow: (sheetId) => { if (!mutationBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendColumn: (sheetId) => { if (!replayFenceBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendRow: (sheetId) => { if (!replayFenceBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       deleteRow: (sheetId, rowId, publication) => applyOriginatingLifecycle((source) => deleteRow(source, sheetId, rowId), publication),
       deleteColumn: (sheetId, columnId, publication) => applyOriginatingLifecycle((source) => deleteColumn(source, sheetId, columnId), publication),
       changeSheetZOrder,
-      createSheet: (...args) => mutationBlocked() ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
+      createSheet: (...args) => replayFenceBlocked() ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       moveCells,
@@ -499,7 +496,7 @@ export function useWorkbookController({
       pasteStoredCells: pasteCells,
       moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
-      retryFailedSaves: () => { if (mutationBlocked()) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
+      retryFailedSaves: () => { if (replayFenceBlocked()) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
       resizeSheetFrame,
       setSheetVisualScale,
       undo: () => recordReplay.state.unresolved ? recordReplay.confirmRetained() : mixedHistory.replay('undo'),
@@ -517,7 +514,7 @@ export function useWorkbookController({
     extractionReplayFailure: mixedHistory.extractionFailure,
     mutationFailure,
     formulaResults,
-    retryStartupLoad: () => { if (mutationBlocked()) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
+    retryStartupLoad: () => { if (replayFenceBlocked()) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
     creatingFrames,
     creatingAxes: axisCreation.creatingAxes,
     saveStatus: creationFailed || savedAutosave.saveStatus === 'failed'
