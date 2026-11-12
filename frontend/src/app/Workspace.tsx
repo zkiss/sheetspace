@@ -862,19 +862,33 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     if (parsed.ok && parsed.value.kind === 'cut') {
       const moved = commands.moveStoredCells(destination.id, destinationKey, parsed.value.source);
+      if (!moved.ok) reportWriteAdmissionFailure(moved.reason);
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
       if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!moved.ok && moved.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
       if (!moved.ok && moved.reason === 'unrepresentable-range') setCalculatedCellFeedback('The move did not happen because it would split a referenced range. Move the entire referenced range or choose another destination.');
     } else {
       const pasted = commands.pasteStoredCells(destination.id, destinationKey, parsed);
+      if (!pasted.ok) reportWriteAdmissionFailure(pasted.reason);
       if (!pasted.ok && pasted.reason === 'malformed-tsv') setCalculatedCellFeedback('The clipboard contains malformed tabular text. Check quoted fields and try again. No cells were changed.');
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!pasted.ok && pasted.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
     }
   }
-  /** Reports a rejected content write instead of leaving the user without a reason. */
+  function reportWriteAdmissionFailure(reason: string) {
+    const messages: Record<string, string> = {
+      'pending-model-transition': 'Wait for the pending workbook change to finish, then try again. No cells were changed.',
+      'pending-axis-creation': 'Wait for the pending row or column to finish saving, then try again. No cells were changed.',
+      'pending-sheet-creation': 'Wait for the pending sheet to finish saving, then try again. No cells were changed.',
+      'blocked-persistence-prerequisite': 'Resolve the earlier save failure, then try again. No cells were changed.',
+      'persistence-failed': 'The workbook could not be saved. Resolve the save failure, then try again. No cells were changed.',
+      'sorting-history-too-large': 'This change is too large to undo while sorting is active. Reduce the change or clear sorting and try again. No cells were changed.',
+    };
+    if (messages[reason]) setCalculatedCellFeedback(messages[reason]);
+  }
+
   function reportWriteOutcome(outcome: CellWriteResult | undefined) {
+    if (outcome && !outcome.ok) reportWriteAdmissionFailure(outcome.reason);
     if (outcome && !outcome.ok && outcome.reason === 'calculated-cell-write') {
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     } else if (outcome && !outcome.ok && outcome.reason === 'invalid-cell-type') {
