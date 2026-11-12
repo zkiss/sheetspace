@@ -259,7 +259,7 @@ describe('persisted record replay integration', () => {
   });
 
   it('confirms a receipt after the target sheet is deleted without resurrecting it', async () => {
-    const { api, initial } = fixture(true);
+    const { api, initial } = fixture(true, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     act(() => result.current.commands.undo());
@@ -271,6 +271,20 @@ describe('persisted record replay integration', () => {
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
     expect(result.current.workbook.documents.sheet).toBeUndefined();
+  });
+
+  it('fences sorted sheet deletion until an ambiguous record receipt is confirmed', async () => {
+    const { api, initial } = fixture(true);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => { result.current.commands.deleteSheet('sheet'); });
+    expect(api.deleteSheet).not.toHaveBeenCalled();
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(result.current.workbook.documents.sheet).toBeDefined();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
   });
 
   it('retains an uncommitted request through failed reconciliation and retires it after refresh', async () => {
