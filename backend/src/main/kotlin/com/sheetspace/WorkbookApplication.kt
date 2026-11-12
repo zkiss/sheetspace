@@ -72,6 +72,7 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun deleteRecord(sheetId: String, rowId: String, request: RecordDeletionRequest): RecordDeletionResult
     fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument
     fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument
     fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
@@ -319,6 +320,12 @@ class DefaultWorkbookApplication(
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
+
+    override fun deleteRecord(sheetId: String, rowId: String, request: RecordDeletionRequest): RecordDeletionResult {
+        val prepared = prepareRecordDeletion(sheetId, rowId, request)
+        val result = store.deleteRecord(prepared) { deleteRecord(it, prepared) }
+        return RecordDeletionResult(prepared.operationId, prepared.operationId, prepared.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
     }
 
     override fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult {

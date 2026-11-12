@@ -6,6 +6,9 @@ class InMemoryWorkbookStore(
     private var workbook = initialWorkbook
     private val admissions = mutableMapOf<Pair<SheetId, RowId>, String>()
 
+    override fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission =
+        error("Use SQLite for durable record history tests")
+
     override fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission = error("Use SQLite for durable record history tests")
 
     override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission = synchronized(this) {

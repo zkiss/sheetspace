@@ -27,6 +27,25 @@ class SqliteWorkbookStore internal constructor(
 
     override fun close() = database.close()
 
+    override fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission = synchronized(updateLock) {
+        database.transaction { conn ->
+            val reader = reader(conn)
+            val history = SqliteRecordHistory(conn, reader)
+            history.receipt(request.operationId, request.fingerprint) ?: run {
+                val current = reader.loadWorkbookBundle()
+                val stages = transform(current)
+                validateModelMetadata(stages.appended)
+                validateModelMetadata(stages.ordered)
+                calculatedAdmission(current, stages.appended)
+                calculatedAdmission(stages.appended, stages.ordered)
+                SqliteWorkbookWriter(conn, reader).persistChanges(current, stages.ordered)
+                val persisted = reader.loadWorkbookBundle()
+                history.captureDeletion(request, current, persisted)
+                StoredRecordAdmission(persisted, false)
+            }
+        }
+    }
+
     override fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission = synchronized(updateLock) {
         database.transaction { conn -> SqliteRecordHistory(conn, reader(conn)).replay(replay) }
     }

@@ -93,6 +93,14 @@ CREATE TABLE sheet_model_column_bindings (
     FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
 );
 
+CREATE TABLE record_deletions (
+    deletion_id BLOB PRIMARY KEY NOT NULL,
+    sheet_id BLOB NOT NULL,
+    row_id BLOB NOT NULL,
+    before_workbook TEXT NOT NULL,
+    after_workbook TEXT NOT NULL
+);
+
 CREATE TABLE cells (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,
