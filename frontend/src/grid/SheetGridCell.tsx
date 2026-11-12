@@ -1,4 +1,4 @@
-import { useCallback, useRef, type KeyboardEvent, type CSSProperties } from 'react';
+import { memo, useCallback, useMemo, useRef, type KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellNavigationRequest, CellTarget } from './cellInteractionContracts';
@@ -19,7 +19,51 @@ export type SheetGridCellInteraction = {
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 
-export function SheetGridCell({
+type CellProps = Parameters<typeof Cell>[0];
+
+export function SheetGridCell(props: CellProps) {
+  const latest = useRef(props);
+  latest.current = props;
+  const hasKeyboard = Boolean(props.cellInteraction.navigateKeyboard);
+  const hasExtend = Boolean(props.cellInteraction.extend);
+  const hasFocus = Boolean(props.cellInteraction.focusSelection);
+  const hasCurrentFocus = Boolean(props.cellInteraction.focusCurrentSelection);
+  const hasSettle = Boolean(props.cellInteraction.settleSelectionGesture);
+  const interaction = useMemo<SheetGridCellInteraction>(() => ({
+    clear: (...args) => latest.current.cellInteraction.clear(...args),
+    navigate: (...args) => latest.current.cellInteraction.navigate(...args),
+    navigateKeyboard: hasKeyboard ? (...args) => latest.current.cellInteraction.navigateKeyboard!(...args) : undefined,
+    select: (...args) => latest.current.cellInteraction.select(...args),
+    extend: hasExtend ? (...args) => latest.current.cellInteraction.extend!(...args) : undefined,
+    focusSelection: hasFocus ? (...args) => latest.current.cellInteraction.focusSelection!(...args) : undefined,
+    focusCurrentSelection: hasCurrentFocus ? () => latest.current.cellInteraction.focusCurrentSelection!() : undefined,
+    settleSelectionGesture: hasSettle ? (...args) => latest.current.cellInteraction.settleSelectionGesture!(...args) : undefined,
+    startEditing: (...args) => latest.current.cellInteraction.startEditing(...args),
+  }), [hasKeyboard, hasExtend, hasFocus, hasCurrentFocus, hasSettle]);
+  const onNativeFocusTarget = useCallback((target: CellTarget) => latest.current.onNativeFocusTarget?.(target), []);
+  return <MemoCell {...props} cellInteraction={interaction} onNativeFocusTarget={onNativeFocusTarget} />;
+}
+
+const MemoCell = memo(Cell, (before, after) => {
+  for (const key of Object.keys(after) as (keyof CellProps)[]) {
+    if (key === 'style') {
+      const a = before.style ?? {};
+      const b = after.style ?? {};
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof CSSProperties)[]);
+      if ([...keys].some((name) => a[name] !== b[name])) return false;
+    } else if (key === 'sheet') {
+      const a = before.sheet;
+      const b = after.sheet;
+      if (a.id !== b.id || a.name !== b.name || a.revision !== b.revision
+        || a.rows !== b.rows || a.columns !== b.columns || a.cells !== b.cells) return false;
+    } else if (key === 'editorInteraction' && !before.isEditing && !after.isEditing) {
+      continue;
+    } else if (before[key] !== after[key]) return false;
+  }
+  return Object.keys(before).length === Object.keys(after).length;
+});
+
+function Cell({
   cellKey,
   columnIndex,
   motionColumnId,

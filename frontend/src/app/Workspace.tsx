@@ -34,6 +34,8 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { useMaximiseRuntime } from '@workspace/useMaximiseRuntime';
 import { canvasPresentation, interpolatePresentation, restoredViewport, type SheetPresentation } from '@workspace/maximiseGeometry';
+import { paintSheetFramePresentation } from '@workspace/sheetFramePresentation';
+import type { MaximiseState } from '@workspace/maximiseState';
 import { displayedExtractionFramePosition, extractionOverlayPresentation } from './extractionGeometry';
 import type { ExtractionHandoffResult } from './useExtractionHandoff';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
@@ -42,6 +44,7 @@ import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
+import { displayedWorkspaceViewport } from '@workspace/workspaceViewportMotion';
 import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
@@ -262,9 +265,23 @@ export function Workspace({
     paintOwner && extractionRange.current?.token === paintOwner.token
       ? { token: paintOwner.token, source: paintOwner.source, targetId: paintOwner.targetId, range: extractionRange.current.range, ready: paintOwner.ready }
       : null, extractionHandoff.targetReady, extractionHandoff.targetNotReady, extractionHandoff.empty, workspaceController.viewport, extractionHandoff.registerCoverage);
+  const paintMaximisedPresentation = (sample: SheetPresentation, state: MaximiseState) => {
+    const surface = workspaceController.workspaceSurfaceRef.current;
+    if (!surface || !state.sheetId) return;
+    const article = surface.querySelector<HTMLElement>(`article.sheet-frame[data-sheet-id="${CSS.escape(state.sheetId)}"]`);
+    if (!article) return;
+    // Read the plane so the first painted frame matches the viewport the
+    // handoff just committed, even before React renders it.
+    const viewport = displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.viewport;
+    paintSheetFramePresentation(article, sample, viewport);
+  };
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
     const sheet = findSheetById(workbook, id);
     return sheet && frameProjection(sheet);
+  }, paintMaximisedPresentation);
+  useLayoutEffect(() => {
+    const sample = maximise.currentPresentation();
+    if (sample) paintMaximisedPresentation(sample, maximise.currentState());
   });
   const extractionInputs = useRef({ workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus });
   extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
@@ -766,7 +783,13 @@ export function Workspace({
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
+  const restorePeerIds = useRef<ReadonlySet<string>>(new Set());
   const mountedSheetIds = new Set(mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport }));
+  if (maximise.state.mode === 'restoring') {
+    for (const id of restorePeerIds.current) mountedSheetIds.add(id);
+    for (const id of mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.viewport })) mountedSheetIds.add(id);
+    restorePeerIds.current = new Set(mountedSheetIds);
+  } else restorePeerIds.current = new Set(mountedSheetIds);
   if (extractionHandoff.handoff) {
     mountedSheetIds.add(extractionHandoff.handoff.source.id);
     mountedSheetIds.add(extractionHandoff.handoff.targetId);
@@ -775,20 +798,55 @@ export function Workspace({
   if (maximise.state.sheetId) mountedSheetIds.add(maximise.state.sheetId);
   panViewportNeedsRender.current = (viewport) => {
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
-    return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
+    return (maximise.state.mode !== 'restoring' && next.size !== mountedSheetIds.size)
+      || [...next].some((id) => !mountedSheetIds.has(id));
   };
-  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
+  const referenceViewportsPaused = maximise.state.mode !== 'canvas' || interactionPinnedSheetId !== null;
+  const referenceViewportsPausedRef = useRef(referenceViewportsPaused);
+  referenceViewportsPausedRef.current = referenceViewportsPaused;
+  const bufferedReferenceViewports = useRef(new Map<string, GridReferenceViewport | null>());
+  const applyReferenceViewports = useCallback((updates: Map<string, GridReferenceViewport | null>) => {
+    if (!updates.size) return;
     setReferenceGridViewports((current) => {
-      if (!viewport) {
-        if (!current[sheetId]) return current;
-        const next = { ...current }; delete next[sheetId]; return next;
+      let next: Record<string, GridReferenceViewport | undefined> = current;
+      const copy = () => {
+        if (next === current) next = { ...current };
+        return next;
+      };
+      for (const [sheetId, viewport] of updates) {
+        const previous = next[sheetId];
+        if (!viewport) {
+          if (!previous) continue;
+          const changed = copy();
+          delete changed[sheetId];
+          continue;
+        }
+        if (previous
+          && previous.scrollLeft === viewport.scrollLeft && previous.scrollTop === viewport.scrollTop
+          && previous.size.width === viewport.size.width && previous.size.height === viewport.size.height
+          && previous.renderingMode === viewport.renderingMode) continue;
+        copy()[sheetId] = viewport;
       }
-      const nextViewport: GridReferenceViewport = { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' };
-      const previous = current[sheetId];
-      return previous?.scrollLeft === nextViewport.scrollLeft && previous?.scrollTop === nextViewport.scrollTop && previous.size.width === nextViewport.size.width && previous.size.height === nextViewport.size.height && previous.renderingMode === 'detailed'
-        ? current : { ...current, [sheetId]: nextViewport };
+      return next;
     });
   }, []);
+  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
+    // A frame presentation or a frame gesture resizes the sheet body on every
+    // frame. Recording each size would re-render the whole workspace per
+    // frame, and reference links are hidden or stale until it settles anyway.
+    // Keep only the latest size so the settled geometry is still recorded.
+    if (referenceViewportsPausedRef.current) {
+      bufferedReferenceViewports.current.set(sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' });
+      return;
+    }
+    applyReferenceViewports(new Map([[sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' }]]));
+  }, [applyReferenceViewports]);
+  useLayoutEffect(() => {
+    if (referenceViewportsPaused) return;
+    const buffered = bufferedReferenceViewports.current;
+    bufferedReferenceViewports.current = new Map();
+    applyReferenceViewports(buffered);
+  }, [applyReferenceViewports, referenceViewportsPaused]);
   const reportReferenceRenderingMode = useCallback((sheetId: string, renderingMode: 'detailed' | 'overview') => {
     if (renderingMode === 'detailed') return;
     setReferenceGridViewports((current) => current[sheetId]?.renderingMode === renderingMode ? current : { ...current, [sheetId]: { scrollLeft: 0, scrollTop: 0, size: { width: 0, height: 0 }, mounted: true, renderingMode } });
@@ -948,7 +1006,8 @@ export function Workspace({
         const range = rectangularSelectionAddressRange(sheet, selection);
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
-        const presented = maximise.state.sheetId === sheet.id && maximise.presentation ? maximise.presentation : canvasPresentation(sourceFrame, workspaceController.displayedViewport);
+        const presentedNow = maximise.currentState().sheetId === sheet.id ? maximise.currentPresentation() : undefined;
+        const presented = presentedNow ?? canvasPresentation(sourceFrame, displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.displayedViewport);
         const bodyBounds = body?.getBoundingClientRect(), surfaceBounds = surface?.getBoundingClientRect();
         const displayed = bodyBounds && surfaceBounds && bodyBounds.width > 0 && bodyBounds.height > 0
           ? { ...presented, body: { left: bodyBounds.left - surfaceBounds.left, top: bodyBounds.top - surfaceBounds.top, width: bodyBounds.width, height: bodyBounds.height } }
@@ -1180,8 +1239,8 @@ export function Workspace({
          },
        } : undefined} /> : null}
       <WorkspaceSurface
-        concealBackground={modeActive}
-        concealPeers={modeActive}
+        concealBackground={modeActive && maximise.state.mode !== 'restoring'}
+        concealPeers={modeActive && maximise.state.mode !== 'restoring'}
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
             key={menuSheet.id}
@@ -1286,7 +1345,7 @@ export function Workspace({
               presentationZIndex={extractionSlots?.slots.get(sheet.id)}
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
-              presentation={extractionPresentation?.targetId === sheet.id ? { sample: extractionPresentation.sample, viewport: workspaceController.viewport } : maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}
+              presentation={extractionPresentation?.targetId === sheet.id ? { sample: extractionPresentation.sample, viewport: workspaceController.viewport } : maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.currentPresentation() ?? maximise.presentation, viewport: displayedWorkspaceViewport(workspaceController.workspacePlaneRef.current, true) ?? workspaceController.viewport } : undefined}
               isActiveSheet={activeSheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
@@ -1315,6 +1374,17 @@ export function Workspace({
               )}
               key={sheet.id}
               onOpenSheetMenu={workspaceController.openSheetMenu}
+              onMaximise={interactionsEnabled && !modeActive && sheet.id !== paintOwner?.source.id && sheet.id !== paintOwner?.targetId && sheet.id !== extractionPresentation?.targetId ? (keyboard) => {
+                cancelNavigationBeforeUserMovement.current();
+                cancelSheetFrameScale();
+                onActivateSheet(sheet.id, false);
+                maximise.enter(sheet.id, frameProjection(sheet), displayedFrames.current.get(sheet.id) ?? frameProjection(sheet));
+                if (keyboard) requestAnimationFrame(() => {
+                  if (maximise.currentState().sheetId === sheet.id && document.activeElement === document.body) {
+                    document.querySelector<HTMLButtonElement>('.workspace-toolbar [aria-label="Restore to workspace"]')?.focus({ preventScroll: true });
+                  }
+                });
+              } : undefined}
               onResizeCancel={cancelSheetFrameResize}
               onResizeMove={handleSheetFrameResizeMove}
               onResizeStart={(id, direction, event) => {

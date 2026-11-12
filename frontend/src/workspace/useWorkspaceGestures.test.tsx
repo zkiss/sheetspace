@@ -83,8 +83,9 @@ describe('workspace wheel and gesture routing', () => {
     const scale = Math.exp(64 / 500);
     expect(x).toBeCloseTo(120 * (1 - scale));
     expect(y).toBeCloseTo(80 * (1 - scale));
-    expect(screen.getByTestId('grid').style.transform).toContain(`${x}px`);
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     act(() => vi.advanceTimersByTime(150));
+    expect(screen.getByTestId('grid').style.transform).toContain(`${x}px`);
     expect(state().viewport.scale).toBeCloseTo(scale);
     expect(state().viewport.x).toBeCloseTo(x);
     expect(state().viewport.y).toBeCloseTo(y);
@@ -393,9 +394,12 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(Number(surface.dataset.viewportScale)).toBeCloseTo(1.5);
     expect(Number(surface.dataset.viewportX)).toBeCloseTo(-50);
     expect(Number(surface.dataset.viewportY)).toBeCloseTo(-50);
-    expect(screen.getByTestId('grid').style.transform).toContain(`${surface.dataset.viewportX}px`);
+    // The grid stays frozen while the gesture previews; it catches up on settle
+    // so the scaled plane is not re-rasterized on every pinch frame.
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     act(() => gesture('gestureend', 1.5));
     act(() => vi.advanceTimersByTime(150));
+    expect(screen.getByTestId('grid').style.transform).toContain(`${surface.dataset.viewportX}px`);
     expect(state().viewport.scale).toBeCloseTo(1.5);
     expect(state().viewport.x).toBeCloseTo(-50);
     expect(state().viewport.y).toBeCloseTo(-50);

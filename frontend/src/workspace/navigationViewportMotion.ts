@@ -4,8 +4,7 @@ import { clampWorkspaceZoom, WORKSPACE_NAVIGATION_TRANSITION_MS } from './worksp
 type ViewportVelocity = { x: number; y: number; scale: number };
 
 /** Preserve velocity and acceleration when steering, then settle at rest. */
-export function navigationViewportMotion(start: WorkspaceViewport, target: WorkspaceViewport, velocity: ViewportVelocity = { x: 0, y: 0, scale: 0 }, acceleration: ViewportVelocity = { x: 0, y: 0, scale: 0 }) {
-  const duration = WORKSPACE_NAVIGATION_TRANSITION_MS;
+export function navigationViewportMotion(start: WorkspaceViewport, target: WorkspaceViewport, velocity: ViewportVelocity = { x: 0, y: 0, scale: 0 }, acceleration: ViewportVelocity = { x: 0, y: 0, scale: 0 }, duration = WORKSPACE_NAVIGATION_TRANSITION_MS) {
   function sample(time: number) {
     const progress = Math.max(0, Math.min(1, time / duration));
     const remaining = 1 - progress;
