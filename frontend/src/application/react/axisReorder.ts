@@ -24,7 +24,7 @@ export function reorderOrigin(options: {
   const submitted = options.submit(result.workbook, (final) => sameOrder(finalOrder(final)) && Object.keys(options.before.documents).every((id) => id === options.sheetId || options.before.documents[id] === final.documents[id]));
   if (!submitted.ok) return { status: 'rejected', workbook: options.before, reason: submitted.reason };
   const after = finalOrder(submitted.value);
-  if (sameOrder(after)) return { status: 'unchanged', workbook: submitted.value };
+  if (submitted.value === options.before) return { status: 'unchanged', workbook: submitted.value };
   return { ...result, workbook: submitted.value, after };
 }
 

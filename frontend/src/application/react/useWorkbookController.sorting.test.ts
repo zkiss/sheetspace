@@ -179,8 +179,13 @@ it('keeps induced changes on another sheet when the moved axis returns to its or
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sorted(first), sorted(second)]), apiClient: api }));
   act(() => {
     const move = result.current.commands.shiftAxis('s', 'row', [first.content.rows[0]!], 1);
-    expect(move.status).toBe('unchanged');
-    expect(move.workbook.documents.t!.content.rows).toEqual([...second.content.rows].reverse());
+    expect(move.status).toBe('changed');
+    if (move.status === 'changed') {
+      expect(move.before).toEqual(first.content.rows);
+      expect(move.after).toEqual(first.content.rows);
+      expect(move.workbook.documents.s!.content.rows).toEqual(move.after);
+      expect(move.workbook.documents.t!.content.rows).toEqual([...second.content.rows].reverse());
+    }
   });
   await waitFor(() => expect(result.current.canUndo).toBe(true));
   expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
