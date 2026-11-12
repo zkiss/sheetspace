@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { Workbook } from '@workbook/core/model';
-import { autosaveClient, deferred } from '@test-support/apiClients';
+import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
@@ -340,6 +340,51 @@ it('aggregates column creation when sorting is active only on another sheet', as
   expect(result.current.workbook.documents.b!.content.rows).toEqual([...b.content.rows].reverse());
   expect(api.appendColumn).not.toHaveBeenCalled();
   expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+});
+
+it('persists and exactly replays a row append with dependent positional sorting across reload', async () => {
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '1' } });
+  const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
+  let workbook = workbookWithSheets([source, dependent]);
+  for (const [cell, formula] of [['B1', '=@A[#1]+@Source!A[1]'], ['B2', '=@A[#2]+@Source!A[1]']]) {
+    dependent.content.cells[cellIdentityKey(cellIdentityAt(dependent.content, cell!)!)] = prepareUserFormula(formula!, workbook, 'dependent');
+  }
+  workbook = workbookWithSheets([source, { ...dependent, sorting: [{ columnId: dependent.content.columns[1]!, direction: 'ascending' }] }]);
+  const api = persistedWorkbookClient(workbook);
+  const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => result.current.commands.appendRow('source'));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(api.appendRow).not.toHaveBeenCalled();
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  const [before, after] = vi.mocked(api.saveModelLifecycle).mock.calls[0]!;
+  const rows = after.documents.source!.content.rows;
+  expect(before.documents.source!.content.rows).toEqual(source.content.rows);
+  expect(before.documents.dependent!.content.rows).toEqual(dependent.content.rows);
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toBe(source.content.rows[0]);
+  expect(rows[1]).not.toBe(rows[0]);
+  expect(after.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
+  expect((await api.loadWorkbook()).documents.source!.content.rows).toEqual(rows);
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.source!.content.rows).toEqual(source.content.rows);
+  expect(result.current.workbook.documents.dependent!.content.rows).toEqual(dependent.content.rows);
+  const undone = await api.loadWorkbook();
+  expect(undone.documents.source!.content.rows).toEqual(source.content.rows);
+  expect(undone.documents.dependent!.content.rows).toEqual(dependent.content.rows);
+  act(() => result.current.commands.redo());
+  await waitFor(() => expect(result.current.canRedo).toBe(false));
+  expect(result.current.workbook.documents.source!.content.rows).toEqual(rows);
+  expect(result.current.workbook.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
+  const persisted = await api.loadWorkbook();
+  expect(persisted.documents.source!.content.rows).toEqual(rows);
+  expect(persisted.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(3);
+  unmount();
+  const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: persisted, apiClient: api }));
+  expect(reloaded.result.current.workbook.documents.source!.content.rows).toEqual(rows);
+  expect(reloaded.result.current.workbook.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(3);
 });
 
 it('serializes queued axis creations behind an aggregate and admits its queued successor', async () => {
