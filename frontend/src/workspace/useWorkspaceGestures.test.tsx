@@ -199,7 +199,9 @@ describe('workspace wheel and gesture routing', () => {
 describe('workspace pointer ownership and lifecycle', () => {
   it('coalesces drag previews, aligns the grid, and commits the final unpainted move', () => {
     vi.useFakeTimers();
+    const draw = vi.spyOn(grid, 'drawWorkspaceGrid').mockImplementation(() => {});
     const { surface, state } = setup();
+    draw.mockClear();
     fireEvent.keyDown(screen.getByRole('cell'), { code: 'Space' });
     pointer(screen.getByRole('cell'), 'pointerdown');
     const frame = vi.spyOn(window, 'requestAnimationFrame');
@@ -213,12 +215,15 @@ describe('workspace pointer ownership and lifecycle', () => {
     act(() => vi.advanceTimersByTime(16));
     expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
     expect(screen.getByTestId('plane').style.transform).toContain('35px');
+    expect(draw).toHaveBeenLastCalledWith(screen.getByTestId('grid'), expect.objectContaining({ x: 35, y: 25, scale: 1 }));
     expect(screen.getByTestId('grid').style.transform).toBe('');
     pointer(surface, 'pointermove', { clientX: 49, clientY: 33 });
     pointer(surface, 'pointerup');
     expect(state().viewport).toEqual({ x: 49, y: 33, scale: 1 });
+    expect(draw).toHaveBeenLastCalledWith(screen.getByTestId('grid'), expect.objectContaining({ x: 49, y: 33, scale: 1 }));
     expect(screen.getByTestId('grid').style.transform).toBe('');
     frame.mockRestore();
+    draw.mockRestore();
   });
 
   it('ends a focused-cell Space pan on keyup before pointerup and releases capture', () => {

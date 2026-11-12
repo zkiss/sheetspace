@@ -160,7 +160,7 @@ export function SheetGrid({
   /** Acknowledges either final saved-scroll restoration or an explicit reveal. */
   onNavigationSettled?: (generation: number) => void;
   /** Publishes real detailed-grid viewport changes for workspace reference geometry. */
-  onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => void;
+  onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null, measure?: () => { scrollLeft: number; scrollTop: number; width: number; height: number }) => void;
   activeCellKey: string | null;
   selectionTransition?: { from: CellTarget; to: CellTarget; id: number } | null;
   /**
@@ -272,7 +272,8 @@ export function SheetGrid({
   useEffect(() => {
     const element = scrollContainerRef.current;
     if (!element || !onReferenceViewport) return;
-    const report = () => onReferenceViewport(sheet.id, { scrollLeft: element.scrollLeft, scrollTop: element.scrollTop, width: element.clientWidth, height: element.clientHeight });
+    const measure = () => ({ scrollLeft: element.scrollLeft, scrollTop: element.scrollTop, width: element.clientWidth, height: element.clientHeight });
+    const report = () => onReferenceViewport(sheet.id, measure(), measure);
     report();
     element.addEventListener('scroll', report, { passive: true });
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(report);

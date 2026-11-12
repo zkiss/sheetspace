@@ -542,3 +542,4 @@ it('restores moved position and size when a top-left resize is rejected', () => 
   act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 20, clientY: 30 })));
   expect(frame.dataset).toMatchObject({ positionX: '10', positionY: '20', frameWidth: '240', frameHeight: '160' });
 });
+

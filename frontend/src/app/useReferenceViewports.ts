@@ -8,6 +8,7 @@ export function useReferenceViewports(paused: boolean) {
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const buffered = useRef(new Map<string, GridReferenceViewport | null>());
+  const measurements = useRef(new Map<string, () => ViewportReport>());
   const apply = useCallback((updates: Map<string, GridReferenceViewport | null>) => {
     if (!updates.size) return;
     setViewports((current) => {
@@ -24,7 +25,9 @@ export function useReferenceViewports(paused: boolean) {
       return next;
     });
   }, []);
-  const reportReferenceViewport = useCallback((sheetId: string, report: ViewportReport | null) => {
+  const reportReferenceViewport = useCallback((sheetId: string, report: ViewportReport | null, measure?: () => ViewportReport) => {
+    if (!report) measurements.current.delete(sheetId);
+    else if (measure) measurements.current.set(sheetId, measure);
     const viewport: GridReferenceViewport | null = report && {
       scrollLeft: report.scrollLeft, scrollTop: report.scrollTop,
       size: { width: report.width, height: report.height }, mounted: true, renderingMode: 'detailed',
@@ -39,6 +42,13 @@ export function useReferenceViewports(paused: boolean) {
     if (paused) return;
     const updates = buffered.current;
     buffered.current = new Map();
+    for (const [sheetId, measure] of measurements.current) {
+      const pending = updates.get(sheetId);
+      if (updates.has(sheetId) && (!pending || pending.renderingMode !== 'detailed')) continue;
+      const report = measure();
+      updates.set(sheetId, { scrollLeft: report.scrollLeft, scrollTop: report.scrollTop,
+        size: { width: report.width, height: report.height }, mounted: true, renderingMode: 'detailed' });
+    }
     apply(updates);
   }, [apply, paused]);
   const reportReferenceRenderingMode = useCallback((sheetId: string, renderingMode: 'detailed' | 'overview') => {
