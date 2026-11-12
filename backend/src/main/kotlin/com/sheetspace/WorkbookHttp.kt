@@ -32,18 +32,6 @@ data class AxisOrderRequest(val axis: String, val order: List<String>)
 data class SortingWriteRequest(val sorting: List<SortCriterion>, val order: List<String>)
 
 @Serializable
-data class HealthResponse(val status: String, val service: String)
-
-@Serializable
-data class CreateSheetRequest(
-    val name: String,
-    val position: WorkspacePosition = WorkspacePosition(),
-    val frameSize: SheetFrameSize = SheetFrameSize(),
-    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
-    val zIndex: Int? = null,
-)
-
-@Serializable
 data class UpdateSheetRequest(
     val name: String? = null,
     val position: WorkspacePosition? = null,
@@ -305,6 +293,21 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                 )
                 call.respond(CellPatchResponse(sheets.map { SheetRevisionResponse(it.id.value, it.revision) }))
             }
+        }
+
+        post("/api/sheets/{sheetId}/records/{rowId}/deletions") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordDeletionRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.deleteRecord(sheetId, rowId, request)) }
+        }
+
+        post("/api/sheets/{sheetId}/records/{rowId}/deletions/{deletionId}/replay") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val deletionId = call.parameters["deletionId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordReplayRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.replayDeletion(sheetId, rowId, deletionId, request)) }
         }
 
         post("/api/sheets/{sheetId}/records/{rowId}/replay") {

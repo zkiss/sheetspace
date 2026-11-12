@@ -21,3 +21,10 @@ internal suspend fun ApplicationCall.receiveRecordReplayRequest(): RecordReplayR
     respond(HttpStatusCode.BadRequest, ErrorResponse("invalid-request"))
     null
 }
+
+internal suspend fun ApplicationCall.receiveRecordDeletionRequest(): RecordDeletionRequest? = try {
+    replayJson.decodeFromString<RecordDeletionRequest>(receiveText())
+} catch (_: Exception) {
+    respond(HttpStatusCode.BadRequest, ErrorResponse("invalid-request"))
+    null
+}
