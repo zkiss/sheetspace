@@ -35,7 +35,7 @@ describe('structural deletion selection', () => {
     api.deleteRecord.mockImplementation(async (sheetId: string, rowId: string, request: { operationId: string }) => {
       const deleted = deleteRow(workbook, sheetId, rowId);
       if (!deleted.ok) throw new Error(deleted.reason);
-      return { operationId: request.operationId, rowId, deletionId: crypto.randomUUID(), alreadyCommitted: false, workbook: deleted.value };
+      return { operationId: request.operationId, rowId, deletionId: request.operationId, alreadyCommitted: false, workbook: deleted.value };
     });
     render(<App initialWorkbook={workbook} apiClient={api} />);
     await user.click(screen.getByRole('cell', { name: 'Sheet A1 empty cell' }));
