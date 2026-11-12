@@ -60,7 +60,7 @@ export function SheetSortingControls({ sheet, labels, onApply }: {
     });
   };
   return <div className="sheet-sorting" onKeyDown={(event) => { if (event.key === 'Escape' && draft && !pending) { event.stopPropagation(); close(); } }}>
-    <button ref={button} type="button" role="menuitem" onClick={() => { opening.current = true; setDraft(active.map((item) => ({ ...item, key: nextKey.current++ }))); setFeedback(''); }}>Sorting…</button>
+    <button ref={button} type="button" role="menuitem" aria-disabled={pending} onClick={() => { if (pending) return; opening.current = true; setDraft(active.map((item) => ({ ...item, key: nextKey.current++ }))); setFeedback(''); }}>Sorting…</button>
     <div aria-label="Active sorting">{active.length ? `Sorted by ${active.map((item) => `${name(item.columnId)} (${item.direction})`).join(', then ')}` : 'Sorting off'}</div>
     {draft && <div ref={editor} data-sheet-sorting-editor role="group" aria-label={`Sorting for ${sheet.name}`}>
       {criteria.map((item, index) => <div key={item.key} className="sheet-sorting-criterion">

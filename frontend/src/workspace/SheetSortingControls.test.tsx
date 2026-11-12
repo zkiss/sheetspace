@@ -50,7 +50,8 @@ it('shows rejection and pending feedback without losing the draft', async () => 
   let finish!: (result: { ok: false; reason: string }) => void;
   const rejected = { ok: false as const, reason: 'pending-model-transition' };
   const apply = vi.fn().mockReturnValueOnce({ result: rejected, completion: Promise.resolve(rejected) })
-    .mockReturnValueOnce({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    .mockReturnValueOnce({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) })
+    .mockReturnValueOnce({ result: rejected, completion: Promise.resolve(rejected) });
   render(<SheetSortingControls sheet={sheet} onApply={apply} />);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Sorting…' }));
   expect(screen.getByRole('button', { name: 'Add criterion' })).toHaveFocus();
@@ -60,9 +61,14 @@ it('shows rejection and pending feedback without losing the draft', async () => 
   fireEvent.click(screen.getByRole('button', { name: 'Apply sorting' }));
   expect(screen.getByRole('status')).toHaveTextContent('Saving');
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  const open = screen.getByRole('menuitem', { name: 'Sorting…' });
+  expect(open).toHaveAttribute('aria-disabled', 'true');
+  fireEvent.click(open);
   finish({ ok: false, reason: 'persistence-failed' });
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
   expect(screen.getByLabelText('Column 1')).toHaveValue('s:column:1');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply sorting' }));
+  expect(apply).toHaveBeenLastCalledWith('s', [{ columnId: 's:column:1', direction: 'ascending' }]);
 });
 
 
