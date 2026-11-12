@@ -63,7 +63,7 @@ export type SortingResult = { ok: true; value: Workbook; changed: boolean } | Tr
 export type SortingSubmission = Readonly<{ result: SortingResult; completion: Promise<SortingResult> }>;
 
 export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
-export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' | 'pending-axis-creation' | 'order-history-too-large' };
+export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: TransitionFailure['reason'] | 'order-history-too-large' | 'sorting-history-too-large' };
 export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
 

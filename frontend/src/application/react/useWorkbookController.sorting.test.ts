@@ -136,3 +136,100 @@ it('rejects an oversized sorting transaction before publication or persistence',
   expect(result.current.canUndo).toBe(false);
   expect(api.saveModelLifecycle).not.toHaveBeenCalled();
 });
+
+it('settles a manual column move with stable criteria and exact semantic replay', async () => {
+  const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
+  const context = workbookWithSheets([base]);
+  for (const [cell, formula] of [['B1', '=@A[#1]'], ['B2', '=@A[#2]']]) {
+    base.content.cells[cellIdentityKey(cellIdentityAt(base.content, cell!)!)] = prepareUserFormula(formula!, context, 's');
+  }
+  const criteria = [{ columnId: base.content.columns[1]!, direction: 'ascending' as const }];
+  const sheet = { ...base, sorting: criteria };
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => expect(result.current.commands.shiftAxis('s', 'column', [sheet.content.columns[0]!], 1).status).toBe('changed'));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  const after = result.current.workbook.documents.s!;
+  expect(after.content.columns).toEqual([...sheet.content.columns].reverse());
+  expect(after.content.rows).toEqual([...sheet.content.rows].reverse());
+  expect(after.sorting).toEqual(criteria);
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.writeAxisOrder).not.toHaveBeenCalled();
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.s!.content).toEqual(sheet.content);
+  act(() => result.current.commands.redo());
+  await waitFor(() => expect(result.current.canRedo).toBe(false));
+  expect(result.current.workbook.documents.s!.content).toEqual(after.content);
+});
+
+it('deletes a sheet and settles surviving sorting in one replayable aggregate', async () => {
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '1' } });
+  const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A2: '2' } });
+  let workbook = workbookWithSheets([source, base]);
+  const identity = cellIdentityKey(cellIdentityAt(base.content, 'A1')!);
+  const sheet = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'ascending' as const }], content: { ...base.content, cells: { ...base.content.cells, [identity]: prepareUserFormula('=@Source!A[1]', workbook, 's') } } };
+  workbook = workbookWithSheets([source, sheet]);
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => expect(result.current.commands.deleteSheet('source').ok).toBe(true));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(result.current.workbook.documents.source).toBeUndefined();
+  expect(result.current.workbook.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.source).toBeDefined();
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+  act(() => result.current.commands.redo());
+  await waitFor(() => expect(result.current.canRedo).toBe(false));
+  expect(result.current.workbook.documents.source).toBeUndefined();
+  expect(result.current.workbook.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
+});
+
+it('rejects sorted axis moves and sheet deletion while an unrelated axis creation is pending', () => {
+  const sorted = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2 });
+  const other = sheetDocument({ id: 'o', name: 'O' });
+  const workbook = workbookWithSheets([{ ...sorted, sorting: [{ columnId: sorted.content.columns[0]!, direction: 'ascending' }] }, other]);
+  const creation = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  const api = autosaveClient({ appendRow: () => creation.promise });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => result.current.commands.appendRow('o'));
+  const before = result.current.commands.currentWorkbook();
+  act(() => {
+    expect(result.current.commands.shiftAxis('s', 'column', [sorted.content.columns[0]!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' });
+    expect(result.current.commands.deleteSheet('s')).toEqual({ ok: false, reason: 'pending-axis-creation' });
+  });
+  expect(result.current.commands.currentWorkbook()).toBe(before);
+  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.writeAxisOrder).not.toHaveBeenCalled();
+});
+
+it('drains an older sheet write before an aggregate sorted deletion', async () => {
+  const sorted = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1 });
+  const other = sheetDocument({ id: 'o', name: 'O' });
+  const workbook = workbookWithSheets([{ ...sorted, sorting: [{ columnId: sorted.content.columns[0]!, direction: 'ascending' }] }, other]);
+  const write = deferred<{ sheetId: string; revision: number }>();
+  const api = autosaveClient({ updateSheetPosition: vi.fn().mockReturnValue(write.promise), saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => result.current.commands.moveSheetFrame('o', { x: 10, y: 20 }));
+  await waitFor(() => expect(api.updateSheetPosition).toHaveBeenCalledOnce());
+  act(() => expect(result.current.commands.deleteSheet('o').ok).toBe(true));
+  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  await act(async () => write.resolve({ sheetId: 'o', revision: 1 }));
+  await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+  expect(api.updateSheetPosition).toHaveBeenCalledOnce();
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+});
+
+it('rolls back a rejected sorted deletion without recording history', async () => {
+  const sorted = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+  const other = sheetDocument({ id: 'o', name: 'O' });
+  const workbook = workbookWithSheets([{ ...sorted, sorting: [{ columnId: sorted.content.columns[0]!, direction: 'ascending' }] }, other]);
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new WorkbookApiError('rejected', 400)) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => expect(result.current.commands.deleteSheet('o').ok).toBe(true));
+  await waitFor(() => expect(result.current.workbook.documents.o).toBeDefined());
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(sorted.content.rows);
+  expect(result.current.canUndo).toBe(false);
+});

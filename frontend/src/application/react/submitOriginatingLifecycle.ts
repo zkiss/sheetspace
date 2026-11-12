@@ -4,6 +4,14 @@ import type { FormulaCalculation } from '@calculation/formulaCalculation';
 import type { ContentHistory } from '@application/core/contentHistory';
 import type { LifecyclePublication, TransitionFailure } from './workbookControllerTypes';
 import { submitSortedOrigin } from './submitSortedOrigin';
+import type { WorkbookOperationResult } from '@application/core/userActions';
+
+export function submitSortedDeletion(before: Workbook, result: WorkbookOperationResult, submit: (candidate: Workbook) => { ok: true; value: Workbook } | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' }): WorkbookOperationResult | undefined {
+  if (!result.ok || !result.value.changed || !(sheetsInOrder(before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) return undefined;
+  const submitted = submit(result.value.nextWorkbook);
+  if (!submitted.ok) return submitted;
+  return { ok: true, value: { ...result.value, nextWorkbook: submitted.value, calculationImpact: { kind: 'structure' } } };
+}
 
 export function submitOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(options: {
   before: Workbook;

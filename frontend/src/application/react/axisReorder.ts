@@ -5,6 +5,24 @@ import type { ReorderAxis, ReorderResult } from '@workbook/mutations/reorderAxis
 import type { ReorderCommandResult } from './workbookControllerTypes';
 import type { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { applyAxisPermutation } from '@workbook/mutations/reorderAxis';
+import { sheetsInOrder } from '@workbook/read/queries';
+import type { TransitionFailure } from './workbookControllerTypes';
+
+export function reorderOrigin(options: {
+  before: Workbook;
+  sheetId: string;
+  axis: ReorderAxis;
+  transform: (source: Workbook) => ReorderResult;
+  reorder: (sheetId: string, axis: ReorderAxis, transform: (source: Workbook) => ReorderResult) => ReorderCommandResult;
+  submit: (candidate: Workbook) => { ok: true; value: Workbook } | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
+}): ReorderCommandResult {
+  const result = options.transform(options.before);
+  if (result.status !== 'changed') return result;
+  if (!(sheetsInOrder(options.before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.workbook).some((sheet) => sheet.sorting?.length))) return options.reorder(options.sheetId, options.axis, options.transform);
+  const submitted = options.submit(result.workbook);
+  if (!submitted.ok) return { status: 'rejected', workbook: options.before, reason: submitted.reason };
+  return { ...result, workbook: submitted.value };
+}
 
 type Options = {
   current: { current: Workbook };
