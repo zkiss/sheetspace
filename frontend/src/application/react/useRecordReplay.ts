@@ -42,5 +42,5 @@ export function useRecordReplay(options: {
       ? options.run(() => Promise.resolve().then(() => options.replayLocal(transaction, direction)))
       : executePersisted(operation)));
   }
-  return { state, replay, confirmRetained: () => run(() => owner.current!.confirmRetained(executePersisted)) };
+  return { state, blocked: () => pending.current || owner.current!.unresolved, replay, confirmRetained: () => run(() => owner.current!.confirmRetained(executePersisted)) };
 }

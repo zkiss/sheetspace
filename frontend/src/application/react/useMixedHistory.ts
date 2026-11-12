@@ -35,6 +35,7 @@ export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 
   function replay(direction: 'undo' | 'redo') {
     const transaction = direction === 'undo' ? options.history.peekUndo() : options.history.peekRedo();
     if (!transaction) return;
+    if ((transaction.kind === 'semantic' || transaction.kind === 'model-record') && options.hasPending()) return;
     if (transaction.kind === 'semantic') return options.replaySemantic(transaction, direction);
     if (transaction.kind === 'model-record') return options.replayRecord(transaction, direction);
     if (transaction.kind === 'extraction') return extraction.replay(transaction, direction);

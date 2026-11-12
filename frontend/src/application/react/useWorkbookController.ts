@@ -201,9 +201,13 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!lifecycle.hasPending() && !admissionFence.held) return undefined;
+    if (!mutationBlocked()) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
+  }
+
+  function mutationBlocked() {
+    return lifecycle.hasPending() || admissionFence.held || recordReplay.blocked();
   }
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
@@ -220,7 +224,7 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication, axisOwner?: string): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
-    if (admissionFence.held || recordReplay.state.unresolved) {
+    if (mutationBlocked()) {
       setMutationFailure('pending-model-transition');
       const result = { ok: false, reason: 'pending-model-transition' } as const;
       return { result, completion: Promise.resolve(result) };
@@ -366,7 +370,7 @@ export function useWorkbookController({
   });
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
-    enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || admissionFence.held, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
+    enqueue: savedAutosave.enqueue, hasPending: mutationBlocked, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
@@ -482,12 +486,12 @@ export function useWorkbookController({
       renameColumn: (sheetId, columnId, name) => applyOriginatingLifecycle((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
-      appendColumn: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
-      appendRow: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendColumn: (sheetId) => { if (!mutationBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendRow: (sheetId) => { if (!mutationBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       deleteRow: (sheetId, rowId, publication) => applyOriginatingLifecycle((source) => deleteRow(source, sheetId, rowId), publication),
       deleteColumn: (sheetId, columnId, publication) => applyOriginatingLifecycle((source) => deleteColumn(source, sheetId, columnId), publication),
       changeSheetZOrder,
-      createSheet: (...args) => admissionFence.held ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
+      createSheet: (...args) => mutationBlocked() ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       moveCells,
@@ -495,7 +499,7 @@ export function useWorkbookController({
       pasteStoredCells: pasteCells,
       moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
-      retryFailedSaves: () => { if (admissionFence.held) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
+      retryFailedSaves: () => { if (mutationBlocked()) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
       resizeSheetFrame,
       setSheetVisualScale,
       undo: () => recordReplay.state.unresolved ? recordReplay.confirmRetained() : mixedHistory.replay('undo'),
@@ -513,7 +517,7 @@ export function useWorkbookController({
     extractionReplayFailure: mixedHistory.extractionFailure,
     mutationFailure,
     formulaResults,
-    retryStartupLoad: () => { if (admissionFence.held) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
+    retryStartupLoad: () => { if (mutationBlocked()) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
     creatingFrames,
     creatingAxes: axisCreation.creatingAxes,
     saveStatus: creationFailed || savedAutosave.saveStatus === 'failed'
