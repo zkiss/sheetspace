@@ -142,6 +142,30 @@ describe('persisted model record deletion', () => {
     expect(endpointContents(result.current.workbook)).toEqual(endpointContents(initial));
   });
 
+  it('confirms a committed replay after its response is lost without applying it twice', async () => {
+    const { api, initial, rowId, loseNextReplayResponse } = deletionFixture();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await act(async () => { expect((await result.current.commands.deleteRow('sheet', rowId).completion).ok).toBe(true); });
+    const deleted = result.current.workbook;
+    loseNextReplayResponse();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    expect(result.current.workbook).toEqual(deleted);
+    const committed = await api.loadWorkbook();
+    expect(endpointContents(committed)).toEqual(endpointContents(initial));
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(api.replayRecordDeletion.mock.calls[1]).toEqual(api.replayRecordDeletion.mock.calls[0]);
+    expect(await api.replayRecordDeletion.mock.results[1]!.value).toMatchObject({ alreadyCommitted: true });
+    expect(result.current.workbook).toEqual(committed);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.canRedo).toBe(false));
+    expect(api.replayRecordDeletion.mock.calls[2]![3].operationId).not.toBe(api.replayRecordDeletion.mock.calls[0]![3].operationId);
+    expect(endpointContents(result.current.workbook)).toEqual(endpointContents(deleted));
+  });
+
   it('does not publish a deletion or create history when capture conflicts', async () => {
     const { api, initial, rowId } = deletionFixture();
     api.deleteRecord.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));

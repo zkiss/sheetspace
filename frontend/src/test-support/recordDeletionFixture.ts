@@ -19,8 +19,10 @@ export function deletionFixture(sorting = false) {
   let current: Workbook = initial;
   let revision = 0;
   let loseResponse = false;
+  let loseReplayResponse = false;
   const authorities = new Map<string, { sheetId: string; rowId: string; before: Workbook; after: Workbook }>();
   const captures = new Map<string, { request: Parameters<WorkbookApi['deleteRecord']>[2]; deletionId: string; sheetId: string; rowId: string }>();
+  const replays = new Map<string, { sheetId: string; rowId: string; deletionId: string; request: Parameters<WorkbookApi['replayRecordDeletion']>[3] }>();
   const api = persistedWorkbookClient(initial);
   const adopt = (endpoint: Workbook) => {
     revision++;
@@ -54,15 +56,23 @@ export function deletionFixture(sorting = false) {
     return { operationId: request.operationId, rowId, deletionId, alreadyCommitted: false, workbook: current };
   });
   api.replayRecordDeletion = vi.fn<WorkbookApi['replayRecordDeletion']>(async (sheetId, rowId, deletionId, request) => {
+    const receipt = replays.get(request.operationId);
+    if (receipt) {
+      expect({ sheetId, rowId, deletionId, request }).toEqual(receipt);
+      return { operationId: request.operationId, rowId, deletionId, alreadyCommitted: true, workbook: current };
+    }
     const authority = authorities.get(deletionId);
     if (!authority) throw new Error('unknown deletion authority');
     expect({ sheetId, rowId }).toEqual({ sheetId: authority.sheetId, rowId: authority.rowId });
     expect(request.before).toEqual(current);
     expect(endpointContents(current)).toEqual(endpointContents(request.direction === 'undo' ? authority.after : authority.before));
     adopt(request.direction === 'undo' ? authority.before : authority.after);
+    replays.set(request.operationId, structuredClone({ sheetId, rowId, deletionId, request }));
+    if (loseReplayResponse) { loseReplayResponse = false; throw new Error('response lost after replay committed'); }
     return { operationId: request.operationId, rowId, deletionId, alreadyCommitted: false, workbook: current };
   });
-  return { api, initial, rowId: target.content.rows[0]!, loseNextResponse: () => { loseResponse = true; } };
+  return { api, initial, rowId: target.content.rows[0]!, loseNextResponse: () => { loseResponse = true; },
+    loseNextReplayResponse: () => { loseReplayResponse = true; } };
 }
 
 export function endpointContents(workbook: Workbook) {
