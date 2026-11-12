@@ -19,7 +19,7 @@ describe('mixed history feedback', () => {
       current, history, setWorkbook: vi.fn(), enqueue, hasPending: () => pending,
       admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(),
       setContentHistoryFeedback: vi.fn(), setCellFeedback: vi.fn(), publishHistory: vi.fn(),
-      formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(),
+      formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(), replayRecord: vi.fn(),
       submit: () => { throw new Error('unexpected submission'); },
     }));
 
@@ -51,7 +51,7 @@ describe('mixed history feedback', () => {
       current, history, setWorkbook: vi.fn(), enqueue: vi.fn(), hasPending: () => pending,
       admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(),
       setContentHistoryFeedback: vi.fn(), setCellFeedback: vi.fn(), publishHistory: vi.fn(),
-      formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(),
+      formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(), replayRecord: vi.fn(),
       submit: () => { throw new Error('unexpected submission'); },
     }));
     act(() => result.current.reorder('s', 'row', (source) => shiftAxis(source, 's', 'row', [sheet.content.rows[0]!], 1)));

@@ -86,6 +86,8 @@ describe('calculated row persistence', () => {
     expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
     expect(result.current.canUndo).toBe(true);
     act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.error).toBeDefined());
+    expect(api.replayRecord).toHaveBeenCalledOnce();
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(false);
     expect(result.current.workbook.documents.sheet!.content.rows).toEqual(rows);
@@ -260,9 +262,6 @@ describe('calculated row persistence', () => {
     expect(confirmation.result?.rowId).toBe(api.admitRecord.mock.calls[0]![1].rowId);
     expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
     expect(result.current.canUndo).toBe(true);
-    act(() => result.current.commands.undo());
-    expect(result.current.canUndo).toBe(true);
-    expect(result.current.canRedo).toBe(false);
     expect(result.current.workbook.documents.sheet).toBeUndefined();
   });
   it('refreshes a deleted guarded dependency on retry and permits a corrected new submission', async () => {

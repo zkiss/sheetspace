@@ -13,8 +13,15 @@ type ReplayState = {
   request?: RecordReplayRequest;
   pending: boolean;
   retired: boolean;
+  dispatched: boolean;
+  outcome?: 'reconciled-rejection' | 'success';
 };
 const states = new WeakMap<ReplayOperation, ReplayState>();
+
+export function recordReplayDisposition(operation: ReplayOperation): 'not-dispatched' | 'unresolved' | 'reconciled-rejection' | 'success' {
+  const state = states.get(operation);
+  return state?.outcome ?? (state?.dispatched ? 'unresolved' : 'not-dispatched');
+}
 
 type ReplayCoordinator = {
   beginRecordReplay(): () => void;
@@ -38,7 +45,7 @@ export async function replayEntryRecord(options: {
   const { operation, coordinator } = options;
   let state = states.get(operation);
   if (!state) {
-    state = { identity: structuredClone(operation), pending: false, retired: false };
+    state = { identity: structuredClone(operation), pending: false, retired: false, dispatched: false };
     states.set(operation, state);
   }
   if (state.pending) throw new Error('Record replay is already pending.');
@@ -66,10 +73,12 @@ export async function replayEntryRecord(options: {
       }
       const request = state.request;
       const path = state.identity;
+      state.dispatched = true;
       const result = await options.replay(path.sheetId, path.rowId, structuredClone(request)).catch((error: unknown) => {
         if (options.recover) return options.recover(error, async () => {
           adopt(await options.loadWorkbook());
           state.retired = true;
+          state.outcome = 'reconciled-rejection';
         });
         throw error;
       });
@@ -78,6 +87,7 @@ export async function replayEntryRecord(options: {
       }
       adopt(result.workbook);
       state.retired = true;
+      state.outcome = 'success';
       return result;
     });
   } finally {

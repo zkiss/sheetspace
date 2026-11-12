@@ -4,6 +4,7 @@ import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { recoverRecordAdmission } from '@infrastructure/persistence/recoverRecordAdmission';
+import { useRecordReplay } from './useRecordReplay';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { useLifecycleSettlement } from './useLifecycleSettlement';
@@ -347,6 +348,20 @@ export function useWorkbookController({
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
+  const recordReplay = useRecordReplay({
+    history: contentHistory, coordinator: persistenceCoordinator,
+    publishHistory: () => setHistoryRevision((revision) => revision + 1),
+    run: (execute) => admissionFence.run({
+      hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || isStartupLoading(),
+      snapshot: savedAutosave.currentOutboxSnapshot, waitFor: savedAutosave.waitFor, execute,
+    }),
+    replayOptions: {
+      coordinator: persistenceCoordinator, currentWorkbook: () => optimisticWorkbook.current,
+      loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook,
+      replay: resolvedApiClient.replayRecord ?? workbookApi.replayRecord,
+      reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
+    },
+  });
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
     enqueue: savedAutosave.enqueue, hasPending: () => lifecycle.hasPending() || admissionFence.held, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
@@ -354,6 +369,7 @@ export function useWorkbookController({
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
     publishHistory: () => setHistoryRevision((revision) => revision + 1),
+    replayRecord: recordReplay.replay,
   });
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
@@ -491,6 +507,7 @@ export function useWorkbookController({
     canRedo: !lifecycle.hasPending() && contentHistory.canRedo,
     contentHistoryFeedback: lifecycle.hasPending() ? undefined : contentHistoryFeedback,
     orderReplayFailure: mixedHistory.orderFailure,
+    recordReplay: recordReplay.state,
     extractionReplayFailure: mixedHistory.extractionFailure,
     mutationFailure,
     formulaResults,
