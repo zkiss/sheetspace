@@ -16,12 +16,9 @@ import { gatherAxis, shiftAxis } from '@workbook/mutations/reorderAxis';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
 import {
-  applyBackendWorkbookReconciliation,
-  applyWorkbookOperation, applyStoredCellWrites,
+  applyBackendWorkbookReconciliation, applyWorkbookOperation, applyStoredCellWrites,
   prepareStoredPasteCellWrites, prepareStoredMoveCellWrites,
-  type AppliedWorkbookOperation, type WorkbookOperationResult, type CellWriteResult,
-  
-  type WorkbookOperation,
+  type AppliedWorkbookOperation, type WorkbookOperationResult, type CellWriteResult, type WorkbookOperation,
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { createSortingHistory } from './sortingHistory';
