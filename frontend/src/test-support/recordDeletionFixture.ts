@@ -46,7 +46,7 @@ export function deletionFixture(sorting = false) {
       expect([...order].sort()).toEqual([...document.content.rows].sort());
       after = { ...after, documents: { ...after.documents, [id]: { ...document, content: { ...document.content, rows: [...order] } } } };
     }
-    const deletionId = crypto.randomUUID();
+    const deletionId = request.operationId;
     authorities.set(deletionId, { sheetId, rowId, before, after });
     captures.set(request.operationId, { sheetId, rowId, request: structuredClone(request), deletionId });
     adopt(after);

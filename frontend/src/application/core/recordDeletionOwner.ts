@@ -81,7 +81,7 @@ export class RecordDeletionOwner {
         });
         if (typeof result?.operationId !== 'string' || result.operationId.toLowerCase() !== state.identity.operationId.toLowerCase() ||
           typeof result.rowId !== 'string' || result.rowId.toLowerCase() !== state.identity.rowId.toLowerCase() ||
-          typeof result.deletionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.deletionId) ||
+          typeof result.deletionId !== 'string' || result.deletionId.toLowerCase() !== state.identity.operationId.toLowerCase() ||
           typeof result.alreadyCommitted !== 'boolean' ||
           (!result.alreadyCommitted && (!result.workbook?.documents?.[state.identity.sheetId] ||
             result.workbook.documents[state.identity.sheetId].content.rows.includes(state.identity.rowId)))) {
