@@ -1,4 +1,4 @@
-import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
+import type { WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -47,7 +47,7 @@ import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/work
 import { calculationRequest, mergeCalculationImpacts, type CalculationRequest, type SetWorkbook } from '@calculation/workbookCalculation';
 
 export type { WorkbookCommands, ModelCommandResult, DataModelCommandSubmission, RenameColumnResult, RenameColumnSubmission, PasteCellsResult, MoveCellsResult, ContentHistoryCellSnapshot, ContentHistoryFeedback, WorkbookController } from './workbookControllerTypes';
-import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
+import type { WorkbookController, WorkbookControllerState, TransitionFailure, RenameSheetResult, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
 
 export function useWorkbookController({
   apiClient,
@@ -285,7 +285,7 @@ export function useWorkbookController({
     return result;
   }
 
-  function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' } {
+  function renameSheetCommand(sheetId: string, name: string): RenameSheetResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const localSheetId = sheetId;

@@ -13,27 +13,12 @@ import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import { Workspace } from './Workspace';
+import { validationMessage } from './sheetValidationMessage';
 
 type AppProps = {
   apiClient?: Partial<WorkbookApi>;
   initialWorkbook?: Workbook;
 };
-
-function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet' | 'pending-model-transition') {
-  if (reason === 'empty') {
-    return 'Sheet name is required.';
-  }
-
-  if (reason === 'unknown-sheet') {
-    return 'The target sheet could not be found.';
-  }
-
-  if (reason === 'pending-model-transition') {
-    return 'Wait for the data model change to finish.';
-  }
-
-  return 'A sheet with that name already exists.';
-}
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);

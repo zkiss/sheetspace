@@ -47,7 +47,7 @@ export type WorkbookCommands = {
   pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveStoredCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
+  renameSheet: (sheetId: string, name: string) => RenameSheetResult;
   retryFailedSaves: () => void;
   undo: () => void;
   redo: () => void;
@@ -56,6 +56,8 @@ export type WorkbookCommands = {
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
+
+export type RenameSheetResult = MutationResult<Workbook> | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
 
 export type SortingResult = { ok: true; value: Workbook; changed: boolean } | TransitionFailure | { ok: false; reason: 'invalid-sorting' | 'sorting-history-too-large' };
 export type SortingSubmission = Readonly<{ result: SortingResult; completion: Promise<SortingResult> }>;
