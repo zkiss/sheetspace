@@ -80,13 +80,16 @@ it.each(['undo', 'redo'] as const)('fences edits and cursor during ambiguous %s 
   expect(result.current.workbook.documents.s!.content.rows).toEqual(direction === 'undo' ? sheet.content.rows : [...sheet.content.rows].reverse());
   expect(result.current.workbook.documents.s!.sorting).toEqual(direction === 'undo' ? undefined : criteria);
   expect(result.current.workbook.documents.s!.frame.position).toEqual({ x: 41, y: 42 });
+  const savesBeforeEdit = save.mock.calls.length;
   act(() => result.current.commands.updateCellContent('s', 'A1', '99'));
-  await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(direction === 'undo' ? api.writeCells : save).toHaveBeenCalledTimes(direction === 'undo' ? 1 : savesBeforeEdit + 1));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
   act(() => result.current.commands.undo());
-  await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(direction === 'undo' ? api.writeCells : save).toHaveBeenCalledTimes(direction === 'undo' ? 2 : savesBeforeEdit + 2));
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
   expect(result.current.workbook.documents.s!.content.rows).toEqual(direction === 'undo' ? sheet.content.rows : [...sheet.content.rows].reverse());
   act(() => result.current.commands.redo());
-  await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(direction === 'undo' ? api.writeCells : save).toHaveBeenCalledTimes(direction === 'undo' ? 3 : savesBeforeEdit + 3));
   expect(result.current.workbook.documents.s!.frame.position).toEqual({ x: 41, y: 42 });
 });
 

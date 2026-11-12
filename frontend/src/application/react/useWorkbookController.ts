@@ -25,6 +25,7 @@ import {
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { createSortingHistory } from './sortingHistory';
+import { submitSortedOrigin } from './submitSortedOrigin';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
@@ -43,12 +44,7 @@ import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
-import {
-  calculationRequest,
-  mergeCalculationImpacts,
-  type CalculationRequest,
-  type SetWorkbook,
-} from '@calculation/workbookCalculation';
+import { calculationRequest, mergeCalculationImpacts, type CalculationRequest, type SetWorkbook } from '@calculation/workbookCalculation';
 
 export type { WorkbookCommands, ModelCommandResult, DataModelCommandSubmission, RenameColumnResult, RenameColumnSubmission, PasteCellsResult, MoveCellsResult, ContentHistoryCellSnapshot, ContentHistoryFeedback, WorkbookController } from './workbookControllerTypes';
 import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
@@ -173,9 +169,7 @@ export function useWorkbookController({
     appliedCalculation.current = pendingCalculation;
   }, [calculated, pendingCalculation]);
   const formulaResults = calculated.results;
-  type WorkbookOperationInput = WorkbookOperation extends infer Operation
-    ? Operation extends unknown ? Omit<Operation, 'operationId'> : never
-    : never;
+  type WorkbookOperationInput = WorkbookOperation extends infer Operation ? Operation extends unknown ? Omit<Operation, 'operationId'> : never : never;
 
   function applyResult(result: WorkbookOperationResult): AppliedWorkbookOperation | undefined {
     if (!result.ok) return undefined;
@@ -191,6 +185,13 @@ export function useWorkbookController({
     if (result.ok && result.value.affected.sheetIds.some((id) => admissionLocks.current.has(id))) {
       setMutationFailure('pending-model-transition');
       return { ok: false, reason: 'pending-model-transition' };
+    }
+    if (operation.kind === 'write-cells' && result.ok && result.value.changed && (sheetsInOrder(optimisticWorkbook.current).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) {
+      if (recordReplay.state.unresolved) { setMutationFailure('pending-model-transition'); return { ok: false, reason: 'pending-model-transition' }; }
+      const submitted = submitSortedOrigin({ before: optimisticWorkbook.current, candidate: result.value.nextWorkbook, impact: result.value.calculationImpact, calculation: committedCalculation.current!, history: contentHistory, submit: (candidate, success) => applyModelLifecycleTransition(() => ({ ok: true as const, value: candidate }), success, true), publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+      if (!submitted.ok) return submitted;
+      setMutationFailure(undefined);
+      return { ok: true, value: { ...result.value, nextWorkbook: submitted.value, calculationImpact: { kind: 'structure' } } };
     }
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);

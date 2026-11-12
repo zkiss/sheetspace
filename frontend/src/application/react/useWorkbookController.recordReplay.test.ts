@@ -9,7 +9,7 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkbookController } from './useWorkbookController';
 import { WorkbookApiError, workbookApi } from '@infrastructure/persistence/workbookApi';
 
-function fixture(loseFirstReplay = false) {
+function fixture(loseFirstReplay = false, sorting = true) {
   const model: DataModel = { id: 'model', name: 'Model', columns: [
     { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
     { id: 'output', name: 'Output', kind: 'calculated', type: 'float', formula: '=SUM(@A[1])' },
@@ -21,12 +21,13 @@ function fixture(loseFirstReplay = false) {
   const target = bound.value.documents.sheet!;
   const dependent = bound.value.documents.other!;
   const initial: Workbook = { ...bound.value, documents: { ...bound.value.documents,
-    sheet: { ...target, sorting: [{ columnId: target.modelColumnBindings!.output!, direction: 'ascending' }] },
-    other: { ...dependent, sorting: [{ columnId: dependent.content.columns[0]!, direction: 'ascending' }], content: { ...dependent.content, rows: [...dependent.content.rows].reverse(), cells: { ...dependent.content.cells, [cellIdentityKey({ rowId: dependent.content.rows[0]!, columnId: dependent.content.columns[0]! })]: prepareUserFormula('=@Sheet!A[#2]', bound.value, 'other') } } },
+    sheet: { ...target, sorting: sorting ? [{ columnId: target.modelColumnBindings!.output!, direction: 'ascending' }] : undefined },
+    other: { ...dependent, sorting: sorting ? [{ columnId: dependent.content.columns[0]!, direction: 'ascending' }] : undefined, content: { ...dependent.content, rows: [...dependent.content.rows].reverse(), cells: { ...dependent.content.cells, [cellIdentityKey({ rowId: dependent.content.rows[0]!, columnId: dependent.content.columns[0]! })]: prepareUserFormula('=@Sheet!A[#2]', bound.value, 'other') } } },
   } };
   const api = persistedWorkbookClient(initial);
   const admit = api.admitRecord.getMockImplementation()!;
   let current = initial;
+  api.saveModelLifecycle.mockImplementation(async (_before, after) => { current = after; return current; });
   let admitted: Workbook;
   let revision = 1;
   const receipts = new Map<string, { sheetId: string; rowId: string; request: Parameters<typeof api.replayRecord>[2]; workbook: Workbook }>();
@@ -206,7 +207,7 @@ describe('persisted record replay integration', () => {
   });
 
   it('confirms a retained receipt before an intervening history entry', async () => {
-    const { api, initial } = fixture(true);
+    const { api, initial } = fixture(true, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     act(() => result.current.commands.undo());
@@ -226,8 +227,20 @@ describe('persisted record replay integration', () => {
     expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
   });
 
+  it('fences sorted aggregate edits until an ambiguous record receipt is confirmed', async () => {
+    const { api, initial } = fixture(true);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => expect(result.current.commands.updateCellContent('other', 'A1', '42')).toEqual({ ok: false, reason: 'pending-model-transition' }));
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+  });
+
   it('confirms a lost redo after an edit invalidates redo without restoring the old cursor', async () => {
-    const { api, initial, loseNext } = fixture();
+    const { api, initial, loseNext } = fixture(false, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     await replay(result, 'undo', initial.documents.sheet!.content.rows);
