@@ -28,21 +28,27 @@ function fixture(loseFirstReplay = false) {
   let current = initial;
   let admitted: Workbook;
   let revision = 1;
-  const receipts = new Map<string, Workbook>();
+  const receipts = new Map<string, { sheetId: string; rowId: string; request: Parameters<typeof api.replayRecord>[2]; workbook: Workbook }>();
+  let admittedIdentity: { sheetId: string; rowId: string };
   api.loadWorkbook.mockImplementation(async () => current);
   api.admitRecord.mockImplementation(async (...args) => {
     const response = await admit(...args);
+    admittedIdentity = { sheetId: args[0], rowId: args[1].rowId };
     admitted = response.workbook;
     current = admitted;
     return { ...response, workbook: current };
   });
-  api.replayRecord.mockImplementation(async (_sheetId, rowId, request) => {
+  api.replayRecord.mockImplementation(async (sheetId, rowId, request) => {
+    expect({ sheetId, rowId }).toEqual(admittedIdentity);
     const receipt = receipts.get(request.operationId);
-    if (receipt) return { operationId: request.operationId, rowId, alreadyCommitted: true, workbook: receipt };
+    if (receipt) {
+      expect({ sheetId, rowId, request }).toEqual({ sheetId: receipt.sheetId, rowId: receipt.rowId, request: receipt.request });
+      return { operationId: request.operationId, rowId, alreadyCommitted: true, workbook: receipt.workbook };
+    }
     const endpoint = request.direction === 'undo' ? initial : admitted;
     revision++;
     current = { ...endpoint, documents: Object.fromEntries(Object.entries(endpoint.documents).map(([id, document]) => [id, { ...document, revision }])) };
-    receipts.set(request.operationId, current);
+    receipts.set(request.operationId, { sheetId, rowId, request: structuredClone(request), workbook: current });
     if (loseFirstReplay) {
       loseFirstReplay = false;
       throw new Error('connection lost after commit');
@@ -57,9 +63,9 @@ async function submit(result: { current: ReturnType<typeof useWorkbookController
   await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
 }
 
-async function replay(result: { current: ReturnType<typeof useWorkbookController> }, direction: 'undo' | 'redo', expected: number) {
+async function replay(result: { current: ReturnType<typeof useWorkbookController> }, direction: 'undo' | 'redo', expected: string[]) {
   act(() => result.current.commands[direction]());
-  await waitFor(() => expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(expected));
+  await waitFor(() => expect(result.current.workbook.documents.sheet!.content.rows).toEqual(expected));
 }
 
 describe('persisted record replay integration', () => {
@@ -88,17 +94,24 @@ describe('persisted record replay integration', () => {
       cellIdentityKey({ rowId, columnId: input }), cellIdentityKey({ rowId, columnId: output }),
     ].sort());
 
-    await replay(result, 'undo', 1);
+    await replay(result, 'undo', initial.documents.sheet!.content.rows);
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(true);
     expect(result.current.workbook.documents.other!.content.rows).toEqual(initial.documents.other!.content.rows);
-    await replay(result, 'redo', 2);
+    await replay(result, 'redo', admitted.documents.sheet!.content.rows);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
     expect(result.current.workbook.documents.sheet!.content.cells).toEqual(admittedCells);
     expect(result.current.workbook.documents.sheet!.content.rows).toEqual(admitted.documents.sheet!.content.rows);
     expect(result.current.workbook.documents.other!.content.rows).toEqual(admitted.documents.other!.content.rows);
-    await replay(result, 'undo', 1);
+    await replay(result, 'undo', initial.documents.sheet!.content.rows);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
     expect(result.current.workbook.documents.other!.content.rows).toEqual(initial.documents.other!.content.rows);
     const requests = api.replayRecord.mock.calls.map((call) => call[2]);
+    expect(api.replayRecord.mock.calls.map(([sheetId, replayRowId]) => [sheetId, replayRowId])).toEqual([
+      ['sheet', rowId], ['sheet', rowId], ['sheet', rowId],
+    ]);
     expect(requests.map((request) => request.direction)).toEqual(['undo', 'redo', 'undo']);
     expect(new Set(requests.map((request) => request.operationId)).size).toBe(3);
     expect(api.admitRecord).toHaveBeenCalledOnce();
@@ -110,16 +123,19 @@ describe('persisted record replay integration', () => {
     const { api, initial } = fixture(true);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
+    const admittedRows = result.current.workbook.documents.sheet!.content.rows;
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.error).toBeDefined());
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(false);
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
-    await replay(result, 'undo', 1);
+    await replay(result, 'undo', initial.documents.sheet!.content.rows);
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
     await expect(api.replayRecord.mock.results[1]!.value).resolves.toMatchObject({ alreadyCommitted: true });
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(true);
-    await replay(result, 'redo', 2);
+    await replay(result, 'redo', admittedRows);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
   });
 });
