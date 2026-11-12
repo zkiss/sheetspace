@@ -8,6 +8,8 @@ import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
+import { FormulaCalculation } from '@calculation/formulaCalculation';
+import { calculationProjection } from '@workbook/read/calculationProjection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
@@ -51,22 +53,27 @@ function requestFor(workbook: Workbook, sourceSheetId: string, address: string):
 
 describe('extraction admission', () => {
   it('replays extraction with induced model-bound dependent ordering', async () => {
-    const bound = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 2, columnCount: 2, cells: { A1: '3', A2: '1' } });
-    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '3' } });
+    const bound = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 2, columnCount: 2, cells: { A1: '0', A2: '1' } });
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '0' } });
     let workbook = boundWorkbook('=@A[1]*2', [bound, source]);
     const document = workbook.documents.bound!;
     const key = cellIdentityKey(cellIdentityAt(document.content, 'A1')!);
-    workbook = { ...workbook, documents: { ...workbook.documents, bound: { ...document, sorting: [{ columnId: document.content.columns[0]!, direction: 'ascending' }], content: { ...document.content, cells: { ...document.content.cells, [key]: prepareUserFormula('=@Source!A[1]', workbook, 'bound') } } } } };
+    workbook = { ...workbook, documents: { ...workbook.documents, bound: { ...document, sorting: [{ columnId: document.content.columns[0]!, direction: 'ascending' }], content: { ...document.content, cells: { ...document.content.cells, [key]: prepareUserFormula('=@Source!A[#1]', workbook, 'bound') } } } } };
     const request = requestFor(workbook, 'source', 'A1');
+    const calculate = (value: Workbook) => new FormulaCalculation().updateStored(calculationProjection(value), value, { kind: 'structure' });
+    expect(calculate(workbook).bound!.A1).toMatchObject({ kind: 'number', value: 0 });
     const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     await act(async () => { await result.current.commands.extractSelection(request).completion; });
+    expect(cellRawContent(result.current.workbook.documents.source!, 'A1')).toBeUndefined();
     expect(result.current.workbook.documents.bound!.content.rows).toEqual([...document.content.rows].reverse());
+    expect(calculate(result.current.workbook).bound!.A2).toMatchObject({ kind: 'blank' });
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.canRedo).toBe(true));
     expect(result.current.workbook.documents.bound!.content.rows).toEqual(document.content.rows);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(cellRawContent(result.current.workbook.documents.source!, 'A1')).toBe('0');
     act(() => result.current.commands.redo());
     await waitFor(() => expect(result.current.canRedo).toBe(false));
     expect(result.current.workbook.documents.bound!.content.rows).toEqual([...document.content.rows].reverse());
@@ -124,24 +131,32 @@ describe('extraction admission', () => {
     expect(result.current.workbook.documents.other!.content.rows).toEqual(other.content.rows);
   });
 
-  it('keeps extraction chronological with adjacent cell edits', async () => {
-    const { sheet, request } = fixture();
+  it('replays an ordinary edit adjacent to extraction that removes the last sort criterion', async () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
     const sorted = { ...sheet, sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }] };
+    const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'columns', start: sheet.content.columns[0]!, end: sheet.content.columns[0]! }, ...target, targetRows: [target.targetRows[0]!, '00000000-0000-0000-0000-000000000004'] };
     const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sorted]), apiClient: api }));
-    act(() => { result.current.commands.updateCellContent('s', 'A1', '7'); });
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
     await act(async () => { await result.current.commands.extractSelection(request).completion; });
-    act(() => result.current.commands.undo());
-    await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined());
-    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('7');
-    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    expect(result.current.workbook.documents.s!.sorting).toEqual([]);
+    act(() => { result.current.commands.updateCellContent('s', 'A1', '7'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(api.writeCells).toHaveBeenCalledTimes(1);
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined());
-    act(() => result.current.commands.redo());
-    await waitFor(() => expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('7'));
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined());
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+    expect(result.current.workbook.documents.s!.sorting).toEqual(sorted.sorting);
     act(() => result.current.commands.redo());
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('7'));
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
   });
 
   it('rejects pending axis and sheet creations without consuming history', async () => {
