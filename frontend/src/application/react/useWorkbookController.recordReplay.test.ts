@@ -7,6 +7,7 @@ import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
+import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 
 function fixture(loseFirstReplay = false) {
   const model: DataModel = { id: 'model', name: 'Model', columns: [
@@ -31,6 +32,19 @@ function fixture(loseFirstReplay = false) {
   const receipts = new Map<string, { sheetId: string; rowId: string; request: Parameters<typeof api.replayRecord>[2]; workbook: Workbook }>();
   let admittedIdentity: { sheetId: string; rowId: string };
   api.loadWorkbook.mockImplementation(async () => current);
+  api.writeCells.mockImplementation(async (expected, cells) => {
+    for (const cell of cells) {
+      const sheet = current.documents[cell.sheetId]!;
+      const nextCells = { ...sheet.content.cells, [cellIdentityKey(cell)]: cell.raw };
+      current = { ...current, documents: { ...current.documents, [cell.sheetId]: { ...sheet, content: { ...sheet.content, cells: nextCells } } } };
+    }
+    return { sheets: expected.map(({ sheetId }: { sheetId: string }) => ({ sheetId, revision: current.documents[sheetId]!.revision })) };
+  });
+  api.deleteSheet.mockImplementation(async (sheetId) => {
+    const { [sheetId]: removed, ...documents } = current.documents;
+    void removed;
+    current = { ...current, manifest: { ...current.manifest, sheetIds: current.manifest.sheetIds.filter((id) => id !== sheetId) }, documents };
+  });
   api.admitRecord.mockImplementation(async (...args) => {
     const response = await admit(...args);
     admittedIdentity = { sheetId: args[0], rowId: args[1].rowId };
@@ -55,7 +69,7 @@ function fixture(loseFirstReplay = false) {
     }
     return { operationId: request.operationId, rowId, alreadyCommitted: false, workbook: current };
   });
-  return { api, initial, setCurrent: (workbook: Workbook) => { current = workbook; } };
+  return { api, initial, loseNext: () => { loseFirstReplay = true; } };
 }
 
 async function submit(result: { current: ReturnType<typeof useWorkbookController> }) {
@@ -172,7 +186,7 @@ describe('persisted record replay integration', () => {
   });
 
   it('confirms a retained receipt before an intervening history entry', async () => {
-    const { api, initial, setCurrent } = fixture(true);
+    const { api, initial } = fixture(true);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
     act(() => result.current.commands.undo());
@@ -180,13 +194,73 @@ describe('persisted record replay integration', () => {
     act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
     await waitFor(() => expect(api.writeCells).toHaveBeenCalled());
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    const laterContent = result.current.workbook.documents.other!.content;
-    setCurrent(result.current.workbook);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
     expect(result.current.recordReplay.error).toMatch(/history position changed/i);
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
     expect(result.current.canUndo).toBe(true);
-    expect(result.current.workbook.documents.other!.content).toEqual(laterContent);
+    const other = result.current.workbook.documents.other!;
+    const savedCell = api.writeCells.mock.calls.flatMap(([, cells]) => cells).find((cell) => cell.raw === '42')!;
+    expect(other.content.cells[cellIdentityKey(savedCell)]).toBe('42');
+    expect(other.content.rows).toEqual(initial.documents.other!.content.rows);
+    expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
+  });
+
+  it('confirms a lost redo after an edit invalidates redo without restoring the old cursor', async () => {
+    const { api, initial, loseNext } = fixture();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    await replay(result, 'undo', initial.documents.sheet!.content.rows);
+    loseNext();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.canRedo).toBe(false);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(result.current.recordReplay.error).toMatch(/history position changed/i);
+    expect(api.replayRecord.mock.calls[2]).toEqual(api.replayRecord.mock.calls[1]);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.canUndo).toBe(true);
+  });
+
+  it('confirms a receipt after the target sheet is deleted without resurrecting it', async () => {
+    const { api, initial } = fixture(true);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => { result.current.commands.deleteSheet('sheet'); });
+    await waitFor(() => expect(api.deleteSheet).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet).toBeUndefined();
+  });
+
+  it('retains an uncommitted request through failed reconciliation and retires it after refresh', async () => {
+    const { api, initial } = fixture();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    api.replayRecord.mockRejectedValueOnce(new Error('connection lost before commit'));
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    const conflict = new WorkbookApiError('Revision conflict', 409, 'sheet-revision-conflict');
+    api.replayRecord.mockRejectedValueOnce(conflict).mockRejectedValueOnce(conflict);
+    api.loadWorkbook.mockRejectedValueOnce(new Error('offline'));
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.error).toMatch(/could not be reloaded/i));
+    expect(result.current.recordReplay.unresolved).toBe(true);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(result.current.recordReplay.error).toMatch(/Revision conflict/);
+    expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
+    expect(api.replayRecord.mock.calls[2]).toEqual(api.replayRecord.mock.calls[0]);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
   });
 });

@@ -46,7 +46,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -216,6 +216,10 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         workbook={workbook}
       />
       {mutationFailure ? <p className="form-error" role="alert">Wait for the data model change to finish. Your change was not applied.</p> : null}
+      {recordReplay.error ? <p className="form-error" role="alert">Undo or redo could not be completed: {recordReplay.error}</p> : null}
+      {recordReplay.unresolved ? <div role="status">The previous undo or redo needs confirmation before another history action.
+        <button type="button" disabled={recordReplay.pending} onClick={commands.undo}>Confirm previous undo or redo</button>
+      </div> : null}
 
       {dataModelsOpen ? (
         <DataModelDialog
