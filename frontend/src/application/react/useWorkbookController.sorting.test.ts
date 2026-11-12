@@ -255,11 +255,32 @@ it('rejects sorted axis moves and sheet deletion while an unrelated axis creatio
   const before = result.current.commands.currentWorkbook();
   act(() => {
     expect(result.current.commands.shiftAxis('s', 'column', [sorted.content.columns[0]!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' });
-    expect(result.current.commands.deleteSheet('s')).toEqual({ ok: false, reason: 'pending-axis-creation' });
   });
+  expect(result.current.mutationFailure).toBe('pending-axis-creation');
+  act(() => expect(result.current.commands.deleteSheet('s')).toEqual({ ok: false, reason: 'pending-axis-creation' }));
+  expect(result.current.mutationFailure).toBe('pending-axis-creation');
   expect(result.current.commands.currentWorkbook()).toBe(before);
   expect(api.saveModelLifecycle).not.toHaveBeenCalled();
   expect(api.writeAxisOrder).not.toHaveBeenCalled();
+});
+
+it.each(['reorder', 'delete'] as const)('clears stale transition feedback after an accepted sorted %s', async (action) => {
+  const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2 });
+  const other = sheetDocument({ id: 'o', name: 'O' });
+  const workbook = workbookWithSheets([{ ...sheet, sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' }] }, other]);
+  const save = deferred<Workbook>();
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValueOnce(save.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  let pending: ReturnType<typeof result.current.commands.configureSorting>;
+  act(() => { pending = result.current.commands.configureSorting('s', [{ columnId: sheet.content.columns[1]!, direction: 'ascending' }]); });
+  act(() => expect(result.current.commands.deleteSheet('o')).toEqual({ ok: false, reason: 'pending-model-transition' }));
+  expect(result.current.mutationFailure).toBe('pending-model-transition');
+  await act(async () => { save.resolve(pending!.result.ok ? pending!.result.value : workbook); await pending!.completion; });
+  act(() => {
+    if (action === 'reorder') expect(result.current.commands.shiftAxis('s', 'column', [sheet.content.columns[0]!], 1).status).toBe('changed');
+    else expect(result.current.commands.deleteSheet('o').ok).toBe(true);
+  });
+  expect(result.current.mutationFailure).toBeUndefined();
 });
 
 it('drains an older sheet write before an aggregate sorted deletion', async () => {

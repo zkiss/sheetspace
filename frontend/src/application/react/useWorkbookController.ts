@@ -26,7 +26,7 @@ import {
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { createSortingHistory } from './sortingHistory';
 import { submitSortedOrigin } from './submitSortedOrigin';
-import { submitOriginatingLifecycle, submitSortedDeletion } from './submitOriginatingLifecycle';
+import { reportOriginatingFailure, submitOriginatingLifecycle, submitSortedDeletion } from './submitOriginatingLifecycle';
 import { reorderOrigin } from './axisReorder';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
@@ -261,7 +261,8 @@ export function useWorkbookController({
   }
 
   function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void, isNoop?: (final: Workbook) => boolean) {
-    return submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, isNoop, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+    const submission = submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, isNoop, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+    reportOriginatingFailure(submission.result, setMutationFailure); return submission;
   }
 
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {

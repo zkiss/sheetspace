@@ -97,7 +97,7 @@ export type WorkbookController = {
   extractionReplayFailure: ExtractionReplayFailure | undefined;
   orderReplayFailure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined;
   recordReplay: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
-  mutationFailure: 'pending-model-transition' | undefined;
+  mutationFailure: 'pending-model-transition' | 'pending-axis-creation' | 'pending-sheet-creation' | 'blocked-persistence-prerequisite' | 'sorting-history-too-large' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];

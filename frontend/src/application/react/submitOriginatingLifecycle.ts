@@ -5,6 +5,12 @@ import type { ContentHistory } from '@application/core/contentHistory';
 import type { LifecyclePublication, TransitionFailure } from './workbookControllerTypes';
 import { submitSortedOrigin } from './submitSortedOrigin';
 import type { WorkbookOperationResult } from '@application/core/userActions';
+import type { WorkbookController } from './workbookControllerTypes';
+
+export function reportOriginatingFailure(result: { ok: boolean }, report: (failure: WorkbookController['mutationFailure']) => void) {
+  if (result.ok) report(undefined);
+  else if ('reason' in result && (result.reason === 'pending-model-transition' || result.reason === 'pending-axis-creation' || result.reason === 'pending-sheet-creation' || result.reason === 'blocked-persistence-prerequisite' || result.reason === 'sorting-history-too-large')) report(result.reason);
+}
 
 export function submitSortedDeletion(before: Workbook, result: WorkbookOperationResult, submit: (candidate: Workbook) => { ok: true; value: Workbook } | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' }): WorkbookOperationResult | undefined {
   if (!result.ok || !result.value.changed || !(sheetsInOrder(before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) return undefined;
