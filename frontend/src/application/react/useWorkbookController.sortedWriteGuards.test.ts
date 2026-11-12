@@ -15,14 +15,14 @@ function fixture() {
 
 it('blocks sorted writes while an unrelated sheet has an unsettled creation', () => {
   const { a, workbook } = fixture();
-  const axis = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
-  const api = autosaveClient({ appendRow: () => axis.promise });
+  const axis = deferred<Workbook>();
+  const api = autosaveClient({ saveModelLifecycle: vi.fn(() => axis.promise) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.appendRow('b'));
   const before = result.current.commands.currentWorkbook();
-  act(() => expect(result.current.commands.writeCells([{ sheetId: 'a', rowId: a.content.rows[0]!, columnId: a.content.columns[0]!, raw: '5' }])).toEqual({ ok: false, reason: 'pending-axis-creation' }));
+  act(() => expect(result.current.commands.writeCells([{ sheetId: 'a', rowId: a.content.rows[0]!, columnId: a.content.columns[0]!, raw: '5' }])).toEqual({ ok: false, reason: 'pending-model-transition' }));
   expect(result.current.commands.currentWorkbook()).toBe(before);
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
 });
 
 it('blocks sorted writes that would reorder a sheet with an unfinished entry', () => {

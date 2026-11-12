@@ -39,7 +39,7 @@ import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/mo
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
 import { WorkbookMutationBarrier } from '@application/core/workbookMutationBarrier';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
-import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
+import { useGridAxisCreationOperations } from './useGridAxisCreationOperations'; import { createSortedAxis } from './sortedAxisCreation';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
@@ -134,8 +134,7 @@ export function useWorkbookController({
   const resetHistory = () => { contentHistory.clear(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); };
   const lifecycle = useLifecycleSettlement({ subscribeOutbox: savedAutosave.subscribeOutbox, revision: savedAutosave.revision, autosaveEnabled, current: optimisticWorkbook, setWorkbook, autosave: savedAutosave, resetHistory });
   const { createSheet, creatingFrames, hasPendingCreations, saveStatus: creationSaveStatus } = useSheetCreationOperations({
-    autosaveEnabled,
-    beforeCreate: lifecycle.wait,
+    autosaveEnabled, beforeCreate: lifecycle.wait,
     currentWorkbook: () => optimisticWorkbook.current,
     resolvedApiClient,
     setWorkbook,
@@ -220,7 +219,7 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication, axisOwner?: string): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
     if (admissionFence.held) {
       setMutationFailure('pending-model-transition');
       const result = { ok: false, reason: 'pending-model-transition' } as const;
@@ -237,7 +236,7 @@ export function useWorkbookController({
       setMutationFailure('pending-model-transition');
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
-    if (axisCreation.hasUnsettled()) {
+    if (axisOwner ? !axisCreation.admitsOwner(axisOwner) : axisCreation.hasUnsettled()) {
       const rejected = { ok: false, reason: 'pending-axis-creation' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
@@ -300,6 +299,7 @@ export function useWorkbookController({
   const axisCreation = useGridAxisCreationOperations({
     autosaveEnabled,
     beforeCreate: lifecycle.wait,
+    createSorted: (entry) => createSortedAxis({ entry, before: optimisticWorkbook.current, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: (transform, success, protect, publication) => applyModelLifecycleTransition(transform, success, protect, publication, entry.operationId), publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } }),
     waitForAxisOrders: savedAutosave.waitForAxisOrders,
     hasPendingRecreation: savedAutosave.hasPendingRecreation,
     currentWorkbook: () => optimisticWorkbook.current,

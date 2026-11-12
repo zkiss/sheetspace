@@ -248,19 +248,16 @@ it('rejects sorted axis moves and sheet deletion while an unrelated axis creatio
   const sorted = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2 });
   const other = sheetDocument({ id: 'o', name: 'O' });
   const workbook = workbookWithSheets([{ ...sorted, sorting: [{ columnId: sorted.content.columns[0]!, direction: 'ascending' }] }, other]);
-  const creation = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
-  const api = autosaveClient({ appendRow: () => creation.promise });
+  const creation = deferred<Workbook>();
+  const api = autosaveClient({ saveModelLifecycle: () => creation.promise });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
-  act(() => result.current.commands.appendRow('o'));
-  const before = result.current.commands.currentWorkbook();
   act(() => {
+    result.current.commands.appendRow('o');
     expect(result.current.commands.shiftAxis('s', 'column', [sorted.content.columns[0]!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' });
+    expect(result.current.commands.deleteSheet('s')).toEqual({ ok: false, reason: 'pending-model-transition' });
   });
-  expect(result.current.mutationFailure).toBe('pending-axis-creation');
-  act(() => expect(result.current.commands.deleteSheet('s')).toEqual({ ok: false, reason: 'pending-axis-creation' }));
-  expect(result.current.mutationFailure).toBe('pending-axis-creation');
-  expect(result.current.commands.currentWorkbook()).toBe(before);
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(result.current.mutationFailure).toBe('pending-model-transition');
+  expect(result.current.commands.currentWorkbook().documents.s).toBeDefined();
   expect(api.writeAxisOrder).not.toHaveBeenCalled();
 });
 
@@ -309,5 +306,70 @@ it('rolls back a rejected sorted deletion without recording history', async () =
   act(() => expect(result.current.commands.deleteSheet('o').ok).toBe(true));
   await waitFor(() => expect(result.current.workbook.documents.o).toBeDefined());
   expect(result.current.workbook.documents.s!.content.rows).toEqual(sorted.content.rows);
+  expect(result.current.canUndo).toBe(false);
+});
+
+it('atomically appends a blank sorted row and replays its stable identity', async () => {
+  const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+  const sheet = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'descending' as const }] };
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => result.current.commands.appendRow('s'));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  const rows = result.current.workbook.documents.s!.content.rows;
+  expect(rows.slice(1)).toEqual(sheet.content.rows);
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.appendRow).not.toHaveBeenCalled();
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+  act(() => result.current.commands.redo());
+  await waitFor(() => expect(result.current.canRedo).toBe(false));
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(rows);
+});
+
+it('aggregates column creation when sorting is active only on another sheet', async () => {
+  const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
+  const b = sheetDocument({ id: 'b', name: 'B', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+  const workbook = workbookWithSheets([a, { ...b, sorting: [{ columnId: b.content.columns[0]!, direction: 'ascending' }] }]);
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => result.current.commands.appendColumn('a'));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(result.current.workbook.documents.a!.content.columns).toHaveLength(2);
+  expect(result.current.workbook.documents.b!.content.rows).toEqual([...b.content.rows].reverse());
+  expect(api.appendColumn).not.toHaveBeenCalled();
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+});
+
+it('serializes queued axis creations behind an aggregate and admits its queued successor', async () => {
+  const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
+  const b = sheetDocument({ id: 'b', name: 'B', rowCount: 1, columnCount: 1 });
+  const workbook = workbookWithSheets([{ ...a, sorting: [{ columnId: a.content.columns[0]!, direction: 'ascending' }] }, b]);
+  const first = deferred<Workbook>();
+  const save = vi.fn().mockReturnValueOnce(first.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after);
+  const api = autosaveClient({ saveModelLifecycle: save });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => { result.current.commands.appendRow('a'); result.current.commands.appendColumn('b'); });
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(result.current.creatingAxes.b?.columns).toHaveLength(1);
+  const after = save.mock.calls[0]![1] as Workbook;
+  await act(async () => { first.resolve(after); });
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(result.current.creatingAxes).toEqual({}));
+  expect(result.current.workbook.documents.a!.content.rows).toHaveLength(2);
+  expect(result.current.workbook.documents.b!.content.columns).toHaveLength(2);
+});
+
+it('rolls back both the appended axis and induced ordering on definite rejection', async () => {
+  const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
+  const b = sheetDocument({ id: 'b', name: 'B', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+  const workbook = workbookWithSheets([a, { ...b, sorting: [{ columnId: b.content.columns[0]!, direction: 'ascending' }] }]);
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new WorkbookApiError('rejected', 400)) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => result.current.commands.appendRow('a'));
+  await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+  expect(result.current.workbook.documents.a!.content.rows).toEqual(a.content.rows);
+  expect(result.current.workbook.documents.b!.content.rows).toEqual(b.content.rows);
   expect(result.current.canUndo).toBe(false);
 });

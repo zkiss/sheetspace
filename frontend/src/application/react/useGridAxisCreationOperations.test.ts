@@ -219,3 +219,23 @@ describe('useGridAxisCreationOperations', () => {
     expect(appendRow).toHaveBeenCalledOnce();
   });
 });
+
+it('holds workbook-wide ownership until the earlier backend append reconciles', async () => {
+  const a = positionedSheet('a', 'A', { x: 0, y: 0 });
+  const b = positionedSheet('b', 'B', { x: 0, y: 0 });
+  const workbook = workbookWithSheets([a, b]);
+  const first = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  const appendRow = vi.fn().mockReturnValue(first.promise);
+  const createSorted = vi.fn(({ sheetId }: { sheetId: string }) => sheetId === 'b');
+  const reconcile = vi.fn();
+  const coordinator = new WorkbookPersistenceCoordinator();
+  const { result } = renderHook(() => useGridAxisCreationOperations({ autosaveEnabled: true, currentWorkbook: () => workbook, persistenceCoordinator: coordinator, reconcile, createSorted, resolvedApiClient: { appendRow }, setWorkbook: () => {} }));
+  act(() => { result.current.appendRow('a'); result.current.appendRow('b'); });
+  expect(appendRow).toHaveBeenCalledTimes(1);
+  expect(createSorted).toHaveBeenCalledTimes(1);
+  expect(result.current.creatingAxes.b?.rows).toHaveLength(1);
+  await act(async () => { first.resolve({ sheetId: 'a', revision: 1, rowCount: 21, rowId: 'first' }); });
+  await waitFor(() => expect(createSorted).toHaveBeenCalledTimes(2));
+  expect(reconcile).toHaveBeenCalledWith({ kind: 'append-row', sheetId: 'a', rowId: 'first' });
+  expect(appendRow).toHaveBeenCalledTimes(1);
+});
