@@ -434,6 +434,10 @@ export function useWorkbookController({
         publishEntries();
         try {
           const settled = await result;
+          if (autosaveEnabled && settled.result) {
+            contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId });
+            setHistoryRevision((revision) => revision + 1);
+          }
           if (settled.result || !entrySessions.get(sheetId, model).retryRequired) {
             admissionLocks.current.delete(sheetId);
             if (!optimisticWorkbook.current.documents[sheetId]) entrySessions.remove(sheetId);

@@ -63,6 +63,7 @@ describe('calculated row persistence', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toBe(sheet.content.rows[0]);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+    expect(result.current.canUndo).toBe(false);
   });
 
   it('persists a sorted model admission atomically and reloads its physical order', async () => {
@@ -80,6 +81,11 @@ describe('calculated row persistence', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toBe(sheet.content.rows[0]);
     expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.canUndo).toBe(true);
+    act(() => result.current.commands.undo());
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.workbook.documents.sheet!.content.rows).toEqual(rows);
     expect(api.writeCells).not.toHaveBeenCalled();
     expect((await api.loadWorkbook()).documents.sheet!.content.rows).toEqual(rows);
     unmount();
@@ -127,12 +133,14 @@ describe('calculated row persistence', () => {
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    expect(result.current.canUndo).toBe(false);
     act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
 
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
     expect(api.admitRecord).toHaveBeenCalledTimes(2);
     expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.canUndo).toBe(true);
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
@@ -221,6 +229,10 @@ describe('calculated row persistence', () => {
     await act(async () => { confirmation = await result.current.commands.submitEntryDraft('sheet'); });
     expect(api.admitRecord.mock.calls[2]).toEqual(api.admitRecord.mock.calls[0]);
     expect(confirmation.result?.rowId).toBe(api.admitRecord.mock.calls[0]![1].rowId);
+    expect(result.current.canUndo).toBe(true);
+    act(() => result.current.commands.undo());
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
     expect(result.current.workbook.documents.sheet).toBeUndefined();
   });
   it('refreshes a deleted guarded dependency on retry and permits a corrected new submission', async () => {

@@ -8,6 +8,25 @@ const write = (beforeRaw: string | null, afterRaw: string | null): CellPersisten
 });
 
 describe('ContentHistory', () => {
+  it('guards stack transfers by stable copied identity', () => {
+    const history = new ContentHistory();
+    history.recordModelRecord({ sheetId: 'sheet', rowId: 'row' });
+    const id = history.peekUndo()!.identity;
+    expect(history.peekUndo()!.identity).toBe(id);
+    history.recordOrder({ sheetId: 'sheet', axis: 'row', before: ['a'], after: ['b'] });
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    expect(history.peekUndo()!.kind).toBe('axis-order');
+    history.commitUndo();
+    expect(history.commitGuarded('undo', id)).toBe(true);
+    expect(history.peekRedo()!.identity).toBe(id);
+    expect(history.commitGuarded('redo', id)).toBe(true);
+    history.record([write(null, 'edit')], affected);
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    history.clear();
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    expect(history.commitGuarded('redo', id)).toBe(false);
+  });
+
   it('retains immutable record replay identities across undo and redo', () => {
     const history = new ContentHistory();
     const record = { sheetId: 'sheet', rowId: 'row' };

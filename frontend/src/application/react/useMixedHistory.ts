@@ -33,6 +33,7 @@ export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 
   function replay(direction: 'undo' | 'redo') {
     const transaction = direction === 'undo' ? options.history.peekUndo() : options.history.peekRedo();
     if (!transaction) return;
+    if (transaction.kind === 'model-record') return;
     if (transaction.kind === 'extraction') return extraction.replay(transaction, direction);
     if (transaction.kind === 'axis-order' && transaction.order) return axis.replay(transaction.order, direction);
     if (options.hasPending()) return;
