@@ -1,10 +1,13 @@
-import type { WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
+import type { StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { recoverRecordAdmission } from '@infrastructure/persistence/recoverRecordAdmission';
 import { useRecordReplay } from './useRecordReplay';
+import { useRecordDeletion } from './useRecordDeletion';
+import { submitRecordDeletion } from './submitRecordDeletion';
+import { modelTransitionRejection } from './modelTransitionRejection';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { useLifecycleSettlement } from './useLifecycleSettlement';
@@ -205,7 +208,7 @@ export function useWorkbookController({
     return { ok: false, reason: 'pending-model-transition' };
   }
 
-  const replayFenceBlocked = () => admissionFence.held || recordReplay.blocked();
+  const replayFenceBlocked = () => admissionFence.held || recordReplay.blocked() || recordDeletion.blocked();
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
     const before = optimisticWorkbook.current;
@@ -229,32 +232,19 @@ export function useWorkbookController({
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
-    if (Object.keys(before.documents).some((id) =>
-      (admissionLocks.current.has(id) && before.documents[id] !== result.value.documents[id]) ||
-      (protectEntryContents && entrySessions.hasUnfinished(id) && JSON.stringify({ ...before.documents[id], revision: 0 }) !== JSON.stringify({ ...result.value.documents[id], revision: 0 })) ||
-      entrySessions.protectsTransition(before, result.value, id))) {
-      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
-      setMutationFailure('pending-model-transition');
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
-    if (axisOwner ? !axisCreation.admitsOwner(axisOwner) : axisCreation.hasUnsettled()) {
-      const rejected = { ok: false, reason: 'pending-axis-creation' } as const;
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
-    if (hasPendingCreations()) {
-      const rejected = { ok: false, reason: 'pending-sheet-creation' } as const;
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
-    if (lifecycle.hasPending()) {
-      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
-    if (savedAutosave.hasFailedPrerequisiteForModelTransition()) {
-      const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
+    const rejected = transitionRejection(before, result.value, protectEntryContents, axisOwner);
+    if (rejected) return { result: rejected, completion: Promise.resolve(rejected) };
     return { result, completion: lifecycle.submit(before, result, onSuccess && (() => onSuccess(before, result.value)), publication) as Promise<T | TransitionFailure> };
 
+  }
+
+  function transitionRejection(before: Workbook, after: Workbook, protectEntryContents: boolean, axisOwner?: string) {
+    const rejection = modelTransitionRejection({ before, after, protectEntryContents, admissionLocks: admissionLocks.current, entrySessions,
+      axisPending: axisOwner ? !axisCreation.admitsOwner(axisOwner) : axisCreation.hasUnsettled(),
+      sheetPending: hasPendingCreations(), lifecyclePending: lifecycle.hasPending(), failedPrerequisite: savedAutosave.hasFailedPrerequisiteForModelTransition(),
+    });
+    if (rejection?.reason === 'pending-model-transition') setMutationFailure(rejection.reason);
+    return rejection;
   }
 
   function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void, isNoop?: (final: Workbook) => boolean) {
@@ -375,25 +365,32 @@ export function useWorkbookController({
     replayRecord: recordReplay.replay, replaySemantic: (transaction, direction) => sortingHistory.replay(transaction, direction),
   });
 
+  const recordDeletion = useRecordDeletion({
+    capture: {
+      coordinator: persistenceCoordinator, currentWorkbook: () => optimisticWorkbook.current,
+      loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook, calculator: committedCalculation.current!,
+      deleteRecord: resolvedApiClient.deleteRecord ?? workbookApi.deleteRecord,
+      reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
+    },
+    run: (execute) => admissionFence.run({
+      hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || isStartupLoading(),
+      snapshot: savedAutosave.currentOutboxSnapshot, waitFor: savedAutosave.waitFor, execute,
+    }),
+    otherOwnerBlocked: () => admissionFence.held || recordReplay.blocked() || lifecycle.hasPending(),
+    confirmed: (sheetId, rowId, deletionId) => {
+      contentHistory.recordModelRecord({ sheetId, rowId, deletionId });
+      mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1);
+    },
+  });
+
+  const deleteRowCommand: WorkbookController['commands']['deleteRow'] = (sheetId, rowId, publication) => submitRecordDeletion({
+    sheetId, rowId, publication, before: optimisticWorkbook.current, enabled: autosaveEnabled, capture: recordDeletion,
+    local: (id, row, publish) => applyOriginatingLifecycle((source) => deleteRow(source, id, row), publish),
+    blocked: () => replayFenceBlocked() || lifecycle.hasPending() || isStartupLoading(), calculator: committedCalculation.current!,
+    hasUnfinishedEntries: () => Object.keys(optimisticWorkbook.current.documents).some((id) => entrySessions.hasUnfinished(id)), validate: transitionRejection,
+  });
+
   const sortingHistory = createSortingHistory({ submit: (transform, success) => applyModelLifecycleTransition(transform, success, true), history: contentHistory, calculation: committedCalculation.current!, publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
-
-  function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
-    return applyAction({ kind: 'move-sheet-frame', sheetId, position });
-  }
-
-  function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
-    return applyAction({ kind: 'resize-sheet-frame', sheetId, position, size: frameSize });
-  }
-
-  function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
-    return applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
-  }
-
-  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection): WorkbookOperationResult {
-    return applyAction({
-      kind: 'change-sheet-z-order', sheetId, direction,
-    });
-  }
 
   const creationFailed = creationSaveStatus === 'failed' || axisCreation.saveStatus === 'failed';
   const creationSaving = creationSaveStatus === 'saving' || axisCreation.saveStatus === 'saving';
@@ -485,32 +482,34 @@ export function useWorkbookController({
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: (sheetId) => { if (!replayFenceBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
       appendRow: (sheetId) => { if (!replayFenceBlocked() && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
-      deleteRow: (sheetId, rowId, publication) => applyOriginatingLifecycle((source) => deleteRow(source, sheetId, rowId), publication),
+      deleteRow: deleteRowCommand,
+      confirmRecordDeletion: recordDeletion.confirmRetained,
       deleteColumn: (sheetId, columnId, publication) => applyOriginatingLifecycle((source) => deleteColumn(source, sheetId, columnId), publication),
-      changeSheetZOrder,
+      changeSheetZOrder: (sheetId, direction) => applyAction({ kind: 'change-sheet-z-order', sheetId, direction }),
       createSheet: (...args) => replayFenceBlocked() ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
-      moveSheetFrame,
+      moveSheetFrame: (sheetId, position) => applyAction({ kind: 'move-sheet-frame', sheetId, position }),
       moveCells,
       pasteCells,
       pasteStoredCells: pasteCells,
       moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
       retryFailedSaves: () => { if (replayFenceBlocked()) setMutationFailure('pending-model-transition'); else savedAutosave.retryFailedSaves(); },
-      resizeSheetFrame,
-      setSheetVisualScale,
-      undo: () => recordReplay.state.unresolved ? recordReplay.confirmRetained() : mixedHistory.replay('undo'),
-      redo: () => recordReplay.state.unresolved ? recordReplay.confirmRetained() : mixedHistory.replay('redo'),
+      resizeSheetFrame: (sheetId, position, size) => applyAction({ kind: 'resize-sheet-frame', sheetId, position, size }),
+      setSheetVisualScale: (sheetId, visualScale) => applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale }),
+      undo: () => { if (!recordDeletion.blocked()) { if (recordReplay.state.unresolved) recordReplay.confirmRetained(); else mixedHistory.replay('undo'); } },
+      redo: () => { if (!recordDeletion.blocked()) { if (recordReplay.state.unresolved) recordReplay.confirmRetained(); else mixedHistory.replay('redo'); } },
       updateCellContent,
       writeCells,
       writeStoredCells: (writes) => storedWriteResult(applyAction({ kind: 'write-cells', writes }, true, true)),
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
-    canUndo: !lifecycle.hasPending() && (recordReplay.state.unresolved || contentHistory.canUndo),
-    canRedo: !lifecycle.hasPending() && contentHistory.canRedo,
+    canUndo: !recordDeletion.blocked() && !lifecycle.hasPending() && (recordReplay.state.unresolved || contentHistory.canUndo),
+    canRedo: !recordDeletion.blocked() && !lifecycle.hasPending() && contentHistory.canRedo,
     contentHistoryFeedback: lifecycle.hasPending() ? undefined : contentHistoryFeedback,
     orderReplayFailure: mixedHistory.orderFailure,
     recordReplay: recordReplay.state,
+    recordDeletion: recordDeletion.state,
     extractionReplayFailure: mixedHistory.extractionFailure,
     mutationFailure,
     formulaResults,

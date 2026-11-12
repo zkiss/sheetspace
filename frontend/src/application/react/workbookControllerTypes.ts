@@ -49,6 +49,7 @@ export type WorkbookCommands = {
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => RenameSheetResult;
   retryFailedSaves: () => void;
+  confirmRecordDeletion: () => void;
   undo: () => void;
   redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
@@ -97,6 +98,7 @@ export type WorkbookController = {
   extractionReplayFailure: ExtractionReplayFailure | undefined;
   orderReplayFailure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined;
   recordReplay: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
+  recordDeletion: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
   mutationFailure: 'pending-model-transition' | 'pending-axis-creation' | 'pending-sheet-creation' | 'blocked-persistence-prerequisite' | 'sorting-history-too-large' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;

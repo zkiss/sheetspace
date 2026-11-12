@@ -5,6 +5,7 @@ import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/
 import { deferred, persistedWorkbookClient } from '@test-support/apiClients';
 import type { Workbook } from '@workbook/core/model';
 import { App } from './App';
+import { deleteRow } from '@application/core/deleteRow';
 
 async function deleteAxis(user: ReturnType<typeof userEvent.setup>, axis: 'row' | 'column') {
   fireEvent.keyDown(document.activeElement!, { ctrlKey: true, shiftKey: true, key: 'p' });
@@ -30,7 +31,13 @@ describe('structural deletion selection', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
     const workbook = workbookWithLegacyFormulaFixtures([bound ? { ...sheet, modelId: 'model', modelColumnBindings: { input: sheet.content.columns[0]! } } : sheet]);
     if (bound) workbook.dataModels = { model: { id: 'model', name: 'Model', columns: [{ id: 'input', name: 'Input', kind: 'manual', type: 'float' }] } };
-    render(<App initialWorkbook={workbook} apiClient={persistedWorkbookClient(workbook)} />);
+    const api = persistedWorkbookClient(workbook);
+    api.deleteRecord.mockImplementation(async (sheetId: string, rowId: string, request: { operationId: string }) => {
+      const deleted = deleteRow(workbook, sheetId, rowId);
+      if (!deleted.ok) throw new Error(deleted.reason);
+      return { operationId: request.operationId, rowId, deletionId: crypto.randomUUID(), alreadyCommitted: false, workbook: deleted.value };
+    });
+    render(<App initialWorkbook={workbook} apiClient={api} />);
     await user.click(screen.getByRole('cell', { name: 'Sheet A1 empty cell' }));
     await deleteAxis(user, 'row');
     await waitFor(() => expect(document.querySelector(bound ? '.model-entry-cell' : '.sheet-grid')).toHaveFocus());

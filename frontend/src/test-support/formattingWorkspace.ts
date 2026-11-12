@@ -9,6 +9,7 @@ import type { Workspace } from '@app/Workspace';
 /** Non-mutating commands isolate action-time reads from a post-write refresh. */
 export function formattingCommands(): WorkbookCommands {
   return {
+    confirmRecordDeletion: vi.fn(),
     currentWorkbook: () => workbookWithSheets([]),
     configureSorting: vi.fn(),
     gatherAxis: vi.fn(), shiftAxis: vi.fn(),
