@@ -13,6 +13,8 @@ export function extractionFeedback(result: unknown): string | undefined {
       return 'The selection is no longer available. Select saved cells, rows, or columns and try again.';
     case 'extraction-history-too-large':
       return 'This extraction is too large to undo. Select a smaller range and try again. No cells were changed.';
+    case 'sorting-history-too-large':
+      return 'This extraction is too large to undo while sorting is active. Select a smaller range or clear sorting and try again. No cells were changed.';
     default:
       return `The extraction was not applied${reason ? `: ${reason}` : ''}.`;
   }
