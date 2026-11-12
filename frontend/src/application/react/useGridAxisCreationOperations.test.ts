@@ -278,7 +278,7 @@ it.each(['deletion', 'missing'] as const)('does not dispatch an owner waiting wh
   expect(appendRow).not.toHaveBeenCalled();
 });
 
-it('rejects a foreign failed predecessor but retires an already queued same-sheet failure', async () => {
+it('rejects queued aggregate owners while a foreign failure remains unresolved', async () => {
   const a = positionedSheet('a', 'A', { x: 0, y: 0 });
   const b = positionedSheet('b', 'B', { x: 0, y: 0 });
   const workbook = workbookWithSheets([a, b]);
