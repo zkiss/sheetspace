@@ -32,7 +32,7 @@ import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
 import { appendModelEntry, materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { settleSorting } from '@application/core/settleSorting';
-import { admitLocalRecord, replayLocalRecord, type LocalRecordDelta } from '@application/core/localRecordReplay';
+import { admitLocalRecord, replayLocalRecord } from '@application/core/localRecordReplay';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
@@ -417,12 +417,12 @@ export function useWorkbookController({
         if (rejectPendingModelTransition()) return {};
         const model = entrySessions.retryModel(sheetId) ?? entryModel(sheetId);
         if (!model || entrySessions.get(sheetId, model).pending) return {};
-        let localRecord: LocalRecordDelta | undefined;
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
           admissionLocks.current.add(sheetId);
           if (!autosaveEnabled) {
             const admitted = admitLocalRecord(optimisticWorkbook.current, sheetId, model.id, submission.rowId, submission.values, committedCalculation.current!);
-            localRecord = admitted.delta; setWorkbook(admitted.workbook, { kind: 'structure' });
+            setWorkbook(admitted.workbook, { kind: 'structure' }); contentHistory.recordModelRecord({ sheetId, rowId: submission.rowId }, admitted.delta);
+            setHistoryRevision((revision) => revision + 1);
             return { rowId: submission.rowId, sheet: admitted.workbook.documents[sheetId]! };
           }
           try {
@@ -452,7 +452,7 @@ export function useWorkbookController({
         publishEntries();
         try {
           const settled = await result;
-          if (settled.result) { if (localRecord) contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId }, localRecord); else contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId });
+          if (settled.result && autosaveEnabled) { contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId });
             setHistoryRevision((revision) => revision + 1);
           }
           if (settled.result || !entrySessions.get(sheetId, model).retryRequired) {

@@ -33,3 +33,29 @@ it('replays local admissions through controller history without any API call', a
   for (const request of requests) expect(request).not.toHaveBeenCalled();
   vi.restoreAllMocks();
 });
+
+it('records local admission before an intervening edit even when submission is not awaited', async () => {
+  const model: DataModel = { id: 'model', name: 'Model', columns: [
+    { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
+  ] };
+  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+  const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '2' } });
+  const initial = { ...workbookWithSheets([sheet, other]), dataModels: { model } };
+  const bound = bindSheetToModel(initial, 'sheet', 'model', () => 'unused');
+  if (!bound.ok) throw new Error(bound.reason);
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: bound.value }));
+  act(() => result.current.commands.changeEntryField('sheet', 'input', '1'));
+  let submission!: ReturnType<typeof result.current.commands.submitEntryDraft>;
+  act(() => {
+    submission = result.current.commands.submitEntryDraft('sheet');
+    expect(result.current.commands.updateCellContent('other', 'A1', '7')).toMatchObject({ ok: true });
+  });
+  await act(async () => { await submission; });
+  const admittedRows = structuredClone(result.current.workbook.documents.sheet!.content.rows);
+  expect(admittedRows).toHaveLength(bound.value.documents.sheet!.content.rows.length + 1);
+  act(() => result.current.commands.undo());
+  expect(result.current.workbook.documents.other!.content).toEqual(bound.value.documents.other!.content);
+  expect(result.current.workbook.documents.sheet!.content.rows).toEqual(admittedRows);
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.workbook.documents.sheet!.content.rows).toEqual(bound.value.documents.sheet!.content.rows));
+});
