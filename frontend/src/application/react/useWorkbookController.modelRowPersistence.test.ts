@@ -50,7 +50,6 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord).toHaveBeenCalledTimes(1);
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
   });
-
   it('sorts a committed model entry by its calculated value without including the draft', async () => {
     const original = boundWorkbook();
     const sheet = original.documents.sheet!;
@@ -66,7 +65,6 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
     expect(result.current.canUndo).toBe(false);
   });
-
   it('persists a sorted model admission atomically and reloads its physical order', async () => {
     const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const original = boundWorkbook();
@@ -100,7 +98,6 @@ describe('calculated row persistence', () => {
     expect(reloaded.current.workbook.documents.sheet!.content.rows).toEqual(rows);
     expect(api.admitRecord).toHaveBeenCalledTimes(1);
   });
-
   it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
     const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const workbook = boundWorkbook();
@@ -118,7 +115,6 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('not a number');
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
   });
-
   it('does not dispatch incomplete, erroneous or type-incompatible formulas', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
@@ -129,7 +125,6 @@ describe('calculated row persistence', () => {
     }
     expect(api.admitRecord).not.toHaveBeenCalled();
   });
-
   it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
     const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const workbook = boundWorkbook();
@@ -187,7 +182,6 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord.mock.calls[1]![1].rowId).not.toBe(api.admitRecord.mock.calls[0]![1].rowId);
     expect(api.admitRecord.mock.calls[1]![1].values).toEqual({ input: '8' });
   });
-
   it('reloads a revision conflict before allowing a fresh submission', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
@@ -204,7 +198,6 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord.mock.calls[1]![1].rowId).not.toBe(api.admitRecord.mock.calls[0]![1].rowId);
     expect(api.admitRecord.mock.calls[1]![1].revision).toBe(7);
   });
-
   it('keeps the original retry locked if conflict recovery cannot reload the sheet', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
@@ -237,7 +230,6 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
     expect(result.current.workbook.documents.sheet).toBeUndefined();
   });
-
   it('confirms a frozen receipt after another admission refresh removes its target', async () => {
     const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const bound = boundWorkbook();
@@ -261,7 +253,8 @@ describe('calculated row persistence', () => {
     expect(api.admitRecord.mock.calls[2]).toEqual(api.admitRecord.mock.calls[0]);
     expect(confirmation.result?.rowId).toBe(api.admitRecord.mock.calls[0]![1].rowId);
     expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
-    expect(result.current.canUndo).toBe(true);
+    act(() => result.current.commands.undo()); await waitFor(() => expect(result.current.recordReplay.error).toBeDefined());
+    expect(api.replayRecord).not.toHaveBeenCalled(); expect([result.current.canUndo, result.current.canRedo]).toEqual([true, false]);
     expect(result.current.workbook.documents.sheet).toBeUndefined();
   });
   it('refreshes a deleted guarded dependency on retry and permits a corrected new submission', async () => {
