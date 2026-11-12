@@ -95,3 +95,41 @@ it('replays the recorded write permutation without re-sorting positional keys', 
   await waitFor(() => expect(result.current.canRedo).toBe(false));
   expect(result.current.workbook.documents.s!.content).toEqual(after);
 });
+
+it('settles synchronous batched writes using the latest optimistic calculated keys and replays exactly', () => {
+  const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 3, cells: { A1: '1', A2: '2' } });
+  let workbook = workbookWithSheets([{ ...sheet, sorting: [{ columnId: sheet.content.columns[1]!, direction: 'ascending' }] }]);
+  for (const [cell, formula] of [['B1', '=@A[1]'], ['B2', '=@A[2]']]) {
+    const document = workbook.documents.s!;
+    const id = cellIdentityKey(cellIdentityAt(document.content, cell!)!);
+    workbook = { ...workbook, documents: { ...workbook.documents, s: { ...document, content: { ...document.content, cells: { ...document.content.cells, [id]: prepareUserFormula(formula!, workbook, 's') } } } } };
+  }
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+  act(() => {
+    expect(result.current.commands.writeCells([{ sheetId: 's', rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]!, raw: '5' }]).ok).toBe(true);
+    expect(result.current.commands.writeCells([{ sheetId: 's', rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[2]!, raw: '9' }]).ok).toBe(true);
+  });
+  const after = structuredClone(result.current.workbook.documents.s!.content);
+  expect(after.rows).toEqual([...sheet.content.rows].reverse());
+  act(() => result.current.commands.undo());
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(after.rows);
+  act(() => result.current.commands.undo());
+  expect(result.current.workbook.documents.s!.content).toEqual(workbook.documents.s!.content);
+  act(() => result.current.commands.redo());
+  act(() => result.current.commands.redo());
+  expect(result.current.workbook.documents.s!.content).toEqual(after);
+});
+
+it('routes sorted paste through one aggregate history and persistence transaction', async () => {
+  const { a, workbook } = fixture();
+  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+  act(() => expect(result.current.commands.pasteCells('a', 'A1', { ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 1, rows: [['5']] } } })).toEqual({ ok: true, changed: true }));
+  await waitFor(() => expect(result.current.canUndo).toBe(true));
+  expect(result.current.workbook.documents.a!.content.rows).toEqual([...a.content.rows].reverse());
+  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.writeCells).not.toHaveBeenCalled();
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.canRedo).toBe(true));
+  expect(result.current.workbook.documents.a!.content).toEqual(workbook.documents.a!.content);
+});

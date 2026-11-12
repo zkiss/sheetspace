@@ -1,5 +1,6 @@
 import type { Workbook } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
+import { calculationProjection } from '@workbook/read/calculationProjection';
 import type { FormulaCalculation } from '@calculation/formulaCalculation';
 import type { ContentHistory } from '@application/core/contentHistory';
 import { settleSorting } from '@application/core/settleSorting';
@@ -16,7 +17,9 @@ export function submitSortedOrigin(options: {
   submit: (candidate: Workbook, success: (before: Workbook, after: Workbook) => void) => { result: { ok: true; value: Workbook } | TransitionFailure };
   publish: () => void;
 }): Result {
-  const final = settleSorting(options.candidate, options.calculation, options.impact).workbook;
+  const baseline = options.calculation.fork();
+  baseline.updateStored(calculationProjection(options.before), options.before, { kind: 'structure' });
+  const final = settleSorting(options.candidate, baseline, options.impact).workbook;
   if (!options.history.canRecordSemantic(options.before, final)) return { ok: false, reason: 'sorting-history-too-large' };
   return options.submit(final, (before, after) => {
     options.history.recordSemantic(before, after);
