@@ -37,7 +37,7 @@ import { canvasPresentation, interpolatePresentation, restoredViewport, type She
 import { displayedExtractionFramePosition, extractionOverlayPresentation } from './extractionGeometry';
 import type { ExtractionHandoffResult } from './useExtractionHandoff';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
-import { isOwnedPortalTarget, eventTargetElement, isNativeContentTarget } from '@workspace/workspaceEventPolicy';
+import { isOwnedPortalTarget, eventTargetElement, isNativeContentTarget, isSheetMenuTarget } from '@workspace/workspaceEventPolicy';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
@@ -367,7 +367,7 @@ export function Workspace({
     const surface = workspaceController.workspaceSurfaceRef.current;
     if (!surface || !modeActive || !interactionsEnabled) return;
     const wheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      if (isSheetMenuTarget(event.target) || (!event.ctrlKey && !event.metaKey)) return;
       event.preventDefault();
       event.stopPropagation();
       const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, surface.clientHeight);
@@ -375,6 +375,7 @@ export function Workspace({
     };
     let gestureScale: number | undefined;
     const gesture = (event: Event) => {
+      if (isSheetMenuTarget(event.target)) return;
       const input = event as Event & { scale: number };
       if (event.type === 'gestureend') {
         if (gestureScale !== undefined) { event.preventDefault(); event.stopPropagation(); }

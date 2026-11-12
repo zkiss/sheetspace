@@ -81,3 +81,21 @@ it('keeps keyboard focus on the column selector when its value changes', async (
   await user.tab();
   expect(screen.getByLabelText('Direction 1')).toHaveFocus();
 });
+
+it.each([
+  ['sorting-history-too-large', 'too large to undo'],
+  ['invalid-sorting', 'Cancel and reopen'],
+  ['blocked-persistence-prerequisite', 'earlier save failure'],
+  ['pending-axis-creation', 'pending row or column'],
+] as const)('explains %s whether rejected immediately or during settlement', async (reason, message) => {
+  const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 1 });
+  const failure = { ok: false as const, reason };
+  const apply = vi.fn().mockReturnValueOnce({ result: failure, completion: Promise.resolve(failure) })
+    .mockReturnValueOnce({ result: { ok: true }, completion: Promise.resolve(failure) });
+  render(<SheetSortingControls sheet={sheet} onApply={apply} />);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Sorting…' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply sorting' }));
+  expect(screen.getByRole('alert')).toHaveTextContent(message);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply sorting' }));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(message));
+});

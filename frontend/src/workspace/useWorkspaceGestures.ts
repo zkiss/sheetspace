@@ -2,7 +2,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
-import { isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget } from './workspaceEventPolicy';
+import { isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget, isSheetMenuTarget } from './workspaceEventPolicy';
 
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
@@ -119,7 +119,7 @@ export function useWorkspaceGestures(
       if (pan) consume(event);
     }
     function wheel(event: WheelEvent) {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
       if (!event.ctrlKey && !event.metaKey) {
         // Ordinary scrolling belongs to native sheet/control scrollports. Keep
         // background input inert, including with Space held and at sheet edges.
@@ -137,7 +137,7 @@ export function useWorkspaceGestures(
       );
     }
     function gesture(event: Event) {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
       if (event.type !== 'gesturestart' && gestureScale === null) return;

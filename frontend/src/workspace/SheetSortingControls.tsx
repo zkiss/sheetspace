@@ -7,6 +7,19 @@ type DraftCriterion = SortCriterion & { key: number };
 type SortingResult = { ok: true } | { ok: false; reason: string };
 export type SortingSubmission = { result: SortingResult; completion: Promise<SortingResult> };
 
+function sortingFailure(reason: string): string {
+  switch (reason) {
+    case 'sorting-history-too-large': return 'Sorting is too large to undo. Reduce the sheet size or sorting changes and try again.';
+    case 'invalid-sorting': return 'Sorting columns have changed. Cancel and reopen sorting to choose available columns.';
+    case 'pending-model-transition': return 'Sorting could not be applied. Wait for the pending workbook change and try again.';
+    case 'pending-axis-creation': return 'Sorting could not be applied. Wait for the pending row or column and try again.';
+    case 'pending-sheet-creation': return 'Sorting could not be applied. Wait for the pending sheet and try again.';
+    case 'blocked-persistence-prerequisite': return 'Sorting is blocked by an earlier save failure. Retry the failed save first.';
+    case 'persistence-failed': return 'Sorting could not be saved. Retry the failed save and try again.';
+    default: return 'Sorting could not be applied. Refresh the workbook and try again.';
+  }
+}
+
 export function SheetSortingControls({ sheet, labels, onApply }: {
   sheet: SheetDocument;
   labels?: ReadonlyMap<string, string>;
@@ -38,12 +51,12 @@ export function SheetSortingControls({ sheet, labels, onApply }: {
   };
   const apply = () => {
     const submission = onApply(sheet.id, criteria.map(({ columnId, direction }) => ({ columnId, direction })));
-    if (!submission.result.ok) { setFeedback('Sorting could not be applied. Wait for pending changes and try again.'); return; }
+    if (!submission.result.ok) { setFeedback(sortingFailure(submission.result.reason)); return; }
     setPending(true); setFeedback('');
     void submission.completion.then((result) => {
       setPending(false);
       if (result.ok) close();
-      else setFeedback('Sorting could not be saved. Try again.');
+      else setFeedback(sortingFailure(result.reason));
     });
   };
   return <div className="sheet-sorting" onKeyDown={(event) => { if (event.key === 'Escape' && draft && !pending) { event.stopPropagation(); close(); } }}>
