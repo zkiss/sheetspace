@@ -1,15 +1,16 @@
 import type { Workbook } from '@workbook/core/model';
-import type { RecordReplayRequest, RecordReplayResult } from './recordReplay';
+import type { RecordDeletionResult, RecordReplayRequest, RecordReplayResult } from './recordReplay';
 
 export type ReplayOperation = {
   sheetId: string;
   rowId: string;
   operationId: string;
   direction: 'undo' | 'redo';
+  deletionId?: string;
 };
 
 type ReplayState = {
-  identity: Pick<ReplayOperation, 'sheetId' | 'rowId' | 'operationId' | 'direction'>;
+  identity: ReplayOperation;
   request?: RecordReplayRequest;
   pending: boolean;
   retired: boolean;
@@ -39,6 +40,7 @@ export async function replayEntryRecord(options: {
   currentWorkbook: () => Workbook;
   loadWorkbook: () => Promise<Workbook>;
   replay: (sheetId: string, rowId: string, request: RecordReplayRequest) => Promise<RecordReplayResult>;
+  replayDeletion?: (sheetId: string, rowId: string, deletionId: string, request: RecordReplayRequest) => Promise<RecordDeletionResult>;
   reconcile: (workbook: Workbook) => void;
   recover?: (error: unknown, refresh: () => Promise<void>) => Promise<never>;
 }) {
@@ -73,8 +75,11 @@ export async function replayEntryRecord(options: {
       }
       const request = state.request;
       const path = state.identity;
+      if (path.deletionId && !options.replayDeletion) throw new Error('Deletion replay is unavailable.');
       state.dispatched = true;
-      const result = await options.replay(path.sheetId, path.rowId, structuredClone(request)).catch((error: unknown) => {
+      const result = await (path.deletionId
+        ? options.replayDeletion!(path.sheetId, path.rowId, path.deletionId, structuredClone(request))
+        : options.replay(path.sheetId, path.rowId, structuredClone(request))).catch((error: unknown) => {
         if (options.recover) return options.recover(error, async () => {
           adopt(await options.loadWorkbook());
           state.retired = true;
@@ -82,7 +87,7 @@ export async function replayEntryRecord(options: {
         });
         throw error;
       });
-      if (result.operationId.toLowerCase() !== request.operationId.toLowerCase() || result.rowId.toLowerCase() !== path.rowId.toLowerCase() || typeof result.alreadyCommitted !== 'boolean') {
+      if (result.operationId.toLowerCase() !== request.operationId.toLowerCase() || result.rowId.toLowerCase() !== path.rowId.toLowerCase() || typeof result.alreadyCommitted !== 'boolean' || (path.deletionId && (!('deletionId' in result) || typeof result.deletionId !== 'string' || result.deletionId.toLowerCase() !== path.deletionId.toLowerCase()))) {
         throw new Error('The replay response did not match the operation. Retry to confirm it.');
       }
       adopt(result.workbook);

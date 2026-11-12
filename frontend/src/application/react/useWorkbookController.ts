@@ -360,7 +360,7 @@ export function useWorkbookController({
     replayOptions: {
       coordinator: persistenceCoordinator, currentWorkbook: () => optimisticWorkbook.current,
       loadWorkbook: resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook,
-      replay: resolvedApiClient.replayRecord ?? workbookApi.replayRecord,
+      replay: resolvedApiClient.replayRecord ?? workbookApi.replayRecord, replayDeletion: resolvedApiClient.replayRecordDeletion ?? workbookApi.replayRecordDeletion,
       reconcile: (next) => setWorkbook(next, { kind: 'structure' }),
     },
   });

@@ -14,7 +14,7 @@ export type ContentTransaction = {
   bytes: number;
   snapshots?: { before: Workbook; after: Workbook };
   order?: { sheetId: string; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] };
-  record?: { sheetId: string; rowId: string };
+  record?: { sheetId: string; rowId: string; deletionId?: string };
   localRecord?: LocalRecordDelta;
 };
 

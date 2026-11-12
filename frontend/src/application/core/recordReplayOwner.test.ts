@@ -22,6 +22,46 @@ function setup() {
   return { history, owner, barrier, replay, execute };
 }
 
+it('retains deletion authority and retries the same deletion replay without using admission replay', async () => {
+  const history = new ContentHistory();
+  history.recordModelRecord({ sheetId: 's', rowId: 'r', deletionId: 'deletion-1' });
+  const owner = new RecordReplayOwner(history);
+  const workbook = workbookWithSheets([]);
+  const coordinator = new WorkbookPersistenceCoordinator();
+  const replay = vi.fn();
+  const replayDeletion = vi.fn(async (_sheet: string, rowId: string, deletionId: string, request: { operationId: string }) =>
+    ({ operationId: request.operationId, rowId, deletionId, alreadyCommitted: true, workbook }));
+  replayDeletion.mockRejectedValueOnce(new Error('lost'));
+  const execute = (operation: Parameters<typeof replayEntryRecord>[0]['operation']) => replayEntryRecord({
+    operation, coordinator, waitForPredecessors: async () => {}, currentWorkbook: () => workbook,
+    loadWorkbook: async () => workbook, replay, replayDeletion, reconcile: () => {},
+  });
+  await expect(owner.replay(history.peekUndo()!, 'undo', execute)).rejects.toThrow('lost');
+  expect(owner.unresolved).toBe(true);
+  await owner.confirmRetained(execute);
+  expect(replayDeletion.mock.calls[1]).toEqual(replayDeletion.mock.calls[0]);
+  expect(replayDeletion.mock.calls[1]![2]).toBe('deletion-1');
+  expect(replay).not.toHaveBeenCalled();
+  expect(history.peekRedo()?.record?.deletionId).toBe('deletion-1');
+});
+
+it('does not publish a receipt for a different deletion authority', async () => {
+  const history = new ContentHistory();
+  history.recordModelRecord({ sheetId: 's', rowId: 'r', deletionId: 'deletion-1' });
+  const owner = new RecordReplayOwner(history);
+  const workbook = workbookWithSheets([]);
+  const reconcile = vi.fn();
+  const operation = (value: Parameters<typeof replayEntryRecord>[0]['operation']) => replayEntryRecord({
+    operation: value, coordinator: new WorkbookPersistenceCoordinator(), waitForPredecessors: async () => {},
+    currentWorkbook: () => workbook, loadWorkbook: async () => workbook, replay: vi.fn(), reconcile,
+    replayDeletion: async (_sheet, rowId, _deletion, request) => ({ operationId: request.operationId, rowId, deletionId: 'other', alreadyCommitted: false, workbook }),
+  });
+  await expect(owner.replay(history.peekUndo()!, 'undo', operation)).rejects.toThrow('did not match');
+  expect(owner.unresolved).toBe(true);
+  expect(history.canUndo).toBe(true);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+});
+
 it('retries ambiguous dispatch with the same request and allocates a new cycle after success', async () => {
   const { history, owner, barrier, replay, execute } = setup();
   replay.mockRejectedValueOnce(new Error('lost'));
