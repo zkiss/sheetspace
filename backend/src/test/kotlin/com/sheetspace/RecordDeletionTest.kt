@@ -137,13 +137,24 @@ class RecordDeletionTest {
         val scenario = AtomicAdmissionScenario(store)
         scenario.admit()
         val before = store.loadWorkbookBundle()
-        val request = RecordDeletionRequest(UUID.randomUUID().toString(), WorkbookReadTransportAdapter.bundle(before))
+        val other = before.findSheet(scenario.other.id)!!
+        val request = RecordDeletionRequest(UUID.randomUUID().toString(), WorkbookReadTransportAdapter.bundle(before), listOf(
+            RecordRowOrder(other.id.value, other.tabularContent.rows.reversed().map { it.value }),
+        ))
         listOf("record_deletions", "record_replays").forEach { table ->
             admissionSql(store, "CREATE TRIGGER fail_capture BEFORE INSERT ON $table BEGIN SELECT RAISE(ABORT, 'failed'); END")
             assertFailsWith<SQLException> { scenario.app.deleteRecord(scenario.target.id.value, scenario.row.value, request) }
             admissionSql(store, "DROP TRIGGER fail_capture")
             assertEquals(before, store.loadWorkbookBundle())
             assertEquals(0, replayReceipts(store))
+            DriverManager.getConnection(store.jdbcUrl).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("SELECT COUNT(*) FROM record_deletions").use { rows ->
+                        assertTrue(rows.next())
+                        assertEquals(0, rows.getInt(1))
+                    }
+                }
+            }
         }
     }
 }
