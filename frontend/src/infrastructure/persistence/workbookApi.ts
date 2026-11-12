@@ -7,7 +7,7 @@ import { validSorting } from '@workbook/core/sorting';
 import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import type { RecordAdmissionRequest, RecordAdmissionResult } from '@application/core/recordAdmission';
-import type { RecordReplayRequest, RecordReplayResult } from '@application/core/recordReplay';
+import type { RecordDeletionRequest, RecordDeletionResult, RecordReplayRequest, RecordReplayResult } from '@application/core/recordReplay';
 
 type ApiErrorBody = {
   error?: string;
@@ -166,6 +166,16 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  deleteRecord(sheetId: string, rowId: string, request: RecordDeletionRequest): Promise<RecordDeletionResult> {
+    return requestJson<Omit<RecordDeletionResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/deletions`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
+  replayRecordDeletion(sheetId: string, rowId: string, deletionId: string, request: RecordReplayRequest): Promise<RecordDeletionResult> {
+    return requestJson<Omit<RecordDeletionResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/deletions/${encodePathSegment(deletionId)}/replay`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
   replayRecord(sheetId: string, rowId: string, request: RecordReplayRequest): Promise<RecordReplayResult> {
     return requestJson<Omit<RecordReplayResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/replay`, {
       method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),

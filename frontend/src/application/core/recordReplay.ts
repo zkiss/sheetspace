@@ -12,3 +12,11 @@ export type RecordReplayResult = {
   alreadyCommitted: boolean;
   workbook: Workbook;
 };
+
+export type RecordDeletionRequest = {
+  operationId: string;
+  before: Workbook;
+  rowOrders: readonly { sheetId: string; order: readonly string[] }[];
+};
+
+export type RecordDeletionResult = RecordReplayResult & { deletionId: string };
