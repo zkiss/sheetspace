@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { RecordReplayOwner } from '@application/core/recordReplayOwner';
 import { replayEntryRecord } from '@application/core/replayEntryRecord';
 import { recoverRecordReplay } from '@infrastructure/persistence/recoverRecordReplay';
+import { recordReplayErrorMessage } from '@infrastructure/persistence/recordReplayError';
 import type { ContentHistory, ContentTransaction } from '@application/core/contentHistory';
 
 type ReplayOptions = Parameters<typeof replayEntryRecord>[0];
@@ -32,7 +33,7 @@ export function useRecordReplay(options: {
       options.publishHistory();
     }, (error: unknown) => {
       pending.current = false;
-      setState({ pending: false, unresolved: owner.current!.unresolved, error: error instanceof Error ? error.message : 'Record replay failed.' });
+      setState({ pending: false, unresolved: owner.current!.unresolved, error: recordReplayErrorMessage(error) });
       options.publishHistory();
     });
   }

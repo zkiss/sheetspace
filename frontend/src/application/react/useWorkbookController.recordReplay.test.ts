@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
@@ -7,7 +7,7 @@ import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
-import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
+import { WorkbookApiError, workbookApi } from '@infrastructure/persistence/workbookApi';
 
 function fixture(loseFirstReplay = false) {
   const model: DataModel = { id: 'model', name: 'Model', columns: [
@@ -113,6 +113,26 @@ function assertNoSubstituteWrites(api: ReturnType<typeof persistedWorkbookClient
 }
 
 describe('persisted record replay integration', () => {
+  it.each([
+    [404, { error: 'sheet-not-found', sheetId: 'other' }, /sheet-not-found \(sheet other\)/],
+    [404, { error: 'sheet-not-found', sheetId: 'sheet' }, /sheet-not-found \(sheet sheet\)/],
+    [409, { error: 'sheet-revision-conflict', sheetId: 'other', expectedRevision: 1, actualRevision: 2 }, /sheet other, expected revision 1, actual revision 2/],
+    [409, { error: 'model-lifecycle-conflict', scope: 'workbook' }, /model-lifecycle-conflict \(scope workbook\)/],
+  ])('publishes contextual HTTP replay failure %s %j', async (status, body, message) => {
+    const { api, initial } = fixture();
+    api.replayRecord.mockImplementation(workbookApi.replayRecord);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status, json: async () => body }));
+    try {
+      const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+      await submit(result);
+      act(() => result.current.commands.undo());
+      await waitFor(() => expect(result.current.recordReplay.error).toMatch(message));
+      expect(result.current.recordReplay.unresolved).toBe(false);
+      expect(result.current.canUndo).toBe(true);
+      unmount();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('adopts exact authoritative endpoints through an admission and three history moves', async () => {
     const { api, initial } = fixture();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
@@ -249,11 +269,12 @@ describe('persisted record replay integration', () => {
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
     act(() => { result.current.commands.updateCellContent('other', 'A1', '42'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    const conflict = new WorkbookApiError('Revision conflict', 409, 'sheet-revision-conflict');
+    const conflict = new WorkbookApiError('Revision conflict', 409, 'sheet-revision-conflict', { sheetId: 'other', expectedRevision: 1, actualRevision: 2 });
     api.replayRecord.mockRejectedValueOnce(conflict).mockRejectedValueOnce(conflict);
     api.loadWorkbook.mockRejectedValueOnce(new Error('offline'));
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.error).toMatch(/could not be reloaded/i));
+    expect(result.current.recordReplay.error).toMatch(/sheet other, expected revision 1, actual revision 2/);
     expect(result.current.recordReplay.unresolved).toBe(true);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
