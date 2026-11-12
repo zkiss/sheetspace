@@ -5,6 +5,7 @@ import { useWorkbookController } from './useWorkbookController';
 import { deletionFixture, endpointContents } from '@test-support/recordDeletionFixture';
 import { deferred } from '@test-support/apiClients';
 import type { Workbook } from '@workbook/core/model';
+import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 
 describe('persisted model record deletion', () => {
   it.each([false, true])('captures and replays authoritative endpoints with sorting %s', async (sorting) => {
@@ -112,6 +113,50 @@ describe('persisted model record deletion', () => {
     expect(result.current.recordDeletion.unresolved).toBe(false);
     expect(result.current.workbook.documents.sheet).toEqual(initial.documents.sheet);
     act(() => expect(result.current.commands.deleteRow('sheet', rowId).result).toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' }));
+  });
+
+  it('retains a failed deletion replay and fences conflicting commands until the same replay is confirmed', async () => {
+    const { api, initial, rowId } = deletionFixture();
+    const replay = api.replayRecordDeletion.getMockImplementation()!;
+    api.replayRecordDeletion.mockRejectedValueOnce(new Error('response lost'));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await act(async () => { expect((await result.current.commands.deleteRow('sheet', rowId).completion).ok).toBe(true); });
+    const deleted = result.current.workbook;
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    expect(result.current.workbook).toEqual(deleted);
+    expect(result.current.canRedo).toBe(false);
+    const firstRequest = structuredClone(api.replayRecordDeletion.mock.calls[0]);
+    act(() => {
+      expect(result.current.commands.updateCellContent('other', 'A1', '5').ok).toBe(false);
+      expect(result.current.commands.configureSorting('sheet', []).result.ok).toBe(false);
+      expect(result.current.commands.deleteRow('sheet', initial.documents.sheet!.content.rows[1]!).result.ok).toBe(false);
+      result.current.commands.redo();
+    });
+    expect(api.replayRecordDeletion).toHaveBeenCalledOnce();
+    api.replayRecordDeletion.mockImplementation(replay);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(api.replayRecordDeletion.mock.calls[1]).toEqual(firstRequest);
+    expect(result.current.canRedo).toBe(true);
+    expect(endpointContents(result.current.workbook)).toEqual(endpointContents(initial));
+  });
+
+  it('does not publish a deletion or create history when capture conflicts', async () => {
+    const { api, initial, rowId } = deletionFixture();
+    api.deleteRecord.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
+    const publication = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await act(async () => {
+      expect((await result.current.commands.deleteRow('sheet', rowId, publication).completion).ok).toBe(false);
+    });
+    expect(publication).not.toHaveBeenCalled();
+    expect(result.current.workbook).toEqual(initial);
+    expect(await api.loadWorkbook()).toEqual(initial);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.recordDeletion.unresolved).toBe(false);
+    expect(api.replayRecordDeletion).not.toHaveBeenCalled();
   });
 
   it('holds the admission fence before authoritative preparation finishes and releases after failure', async () => {
