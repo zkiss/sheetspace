@@ -27,8 +27,12 @@ class RecordDeletionReplayTest {
         val undone = replay(deleted.deletionId, undoRequest)
         assertFalse(undone.alreadyCommitted)
         assertTrue(sameWorkbookContent(before, undone.workbook.toLifecycleWorkbook()))
+        val afterUndo = store.loadWorkbookBundle()
+        val afterDelete = deleted.workbook.toLifecycleWorkbook()
+        assertReplayRevisions(afterDelete, afterUndo, scenario)
         val redo = replay(deleted.deletionId, request("redo"))
         assertTrue(sameWorkbookContent(deleted.workbook.toLifecycleWorkbook(), redo.workbook.toLifecycleWorkbook()))
+        assertReplayRevisions(afterUndo, store.loadWorkbookBundle(), scenario)
         assertEquals(redo.workbook, replay(deleted.deletionId, undoRequest).workbook)
         assertTrue(replay(deleted.deletionId, undoRequest).alreadyCommitted)
         replay(deleted.deletionId, request("undo"))
@@ -36,6 +40,14 @@ class RecordDeletionReplayTest {
         assertTrue(second.deletionId != deleted.deletionId)
         assertEquals(second.workbook, scenario.app.deleteRecord(scenario.target.id.value, scenario.row.value, capture).workbook)
         assertEquals(5, replayReceipts(store))
+    }
+
+    private fun assertReplayRevisions(before: WorkbookState, after: WorkbookState, scenario: AtomicAdmissionScenario) {
+        assertEquals(before.manifest.revision, after.manifest.revision)
+        listOf(scenario.target.id, scenario.other.id).forEach { id ->
+            assertEquals(before.findSheet(id)!!.revision + 1, after.findSheet(id)!!.revision)
+        }
+        assertEquals(before.findSheet(scenario.untouched.id)!!.revision, after.findSheet(scenario.untouched.id)!!.revision)
     }
 
     @Test
