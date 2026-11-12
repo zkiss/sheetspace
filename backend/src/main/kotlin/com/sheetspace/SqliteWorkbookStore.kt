@@ -46,6 +46,10 @@ class SqliteWorkbookStore internal constructor(
         }
     }
 
+    override fun replayDeletion(replay: PreparedDeletionReplay): StoredRecordAdmission = synchronized(updateLock) {
+        database.transaction { conn -> SqliteRecordHistory(conn, reader(conn)).replayDeletion(replay) }
+    }
+
     override fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission = synchronized(updateLock) {
         database.transaction { conn -> SqliteRecordHistory(conn, reader(conn)).replay(replay) }
     }

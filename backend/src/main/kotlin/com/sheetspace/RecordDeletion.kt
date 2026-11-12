@@ -48,3 +48,23 @@ internal fun deleteRecord(current: WorkbookState, request: PreparedRecordDeletio
     validateLifecycleWorkbook(ordered)
     return RecordAdmissionStages(deleted, ordered)
 }
+
+@Serializable
+data class RecordDeletionReplayResult(val operationId: String, val deletionId: String, val rowId: String, val alreadyCommitted: Boolean, val workbook: WorkbookBundleResponse)
+
+data class PreparedDeletionReplay internal constructor(val operationId: String, val deletionId: String, val sheetId: SheetId, val rowId: RowId, val direction: String, val before: WorkbookState, val fingerprint: String)
+
+internal fun prepareDeletionReplay(sheetId: String, rowId: String, deletionId: String, request: RecordReplayRequest): PreparedDeletionReplay {
+    if (request.direction !in setOf("undo", "redo")) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+    val sheet = recordIdentity(sheetId)
+    val row = recordIdentity(rowId)
+    val deletion = recordIdentity(deletionId)
+    val operation = recordIdentity(request.operationId)
+    val before = normalizeRecordGuard(request.before)
+    val fingerprint = recordFingerprint(JsonObject(mapOf(
+        "kind" to JsonPrimitive("deletion-replay"), "sheetId" to JsonPrimitive(sheet), "rowId" to JsonPrimitive(row),
+        "deletionId" to JsonPrimitive(deletion), "direction" to JsonPrimitive(request.direction),
+        "before" to Json.encodeToJsonElement(WorkbookReadTransportAdapter.bundle(before)),
+    )))
+    return PreparedDeletionReplay(operation, deletion, SheetId(sheet), RowId(row), request.direction, before, fingerprint)
+}

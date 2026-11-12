@@ -54,17 +54,34 @@ internal class SqliteRecordHistory(private val connection: Connection, private v
                 decode(result.getString(1)) to decode(result.getString(2))
             }
         }
+        return restore(request.operationId, request.fingerprint, request.direction, request.before, endpoints)
+    }
+
+    fun replayDeletion(request: PreparedDeletionReplay): StoredRecordAdmission {
+        receipt(request.operationId, request.fingerprint)?.let { return it }
+        val endpoints = connection.prepareStatement("SELECT before_workbook, after_workbook FROM record_deletions WHERE deletion_id = ? AND sheet_id = ? AND row_id = ?").use { statement ->
+            statement.setBytes(1, request.deletionId.toUuidBytes())
+            statement.setBytes(2, request.sheetId.value.toUuidBytes())
+            statement.setBytes(3, request.rowId.value.toUuidBytes())
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw invalidReplay()
+                decode(result.getString(1)) to decode(result.getString(2))
+            }
+        }
+        return restore(request.operationId, request.fingerprint, request.direction, request.before, endpoints)
+    }
+
+    private fun restore(operationId: String, fingerprint: String, direction: String, before: WorkbookState, endpoints: Pair<WorkbookState, WorkbookState>): StoredRecordAdmission {
         val current = reader.loadWorkbookBundle()
-        guardRecordWorkbook(current, request.before)
-        val (source, target) = if (request.direction == "undo") endpoints.second to endpoints.first else endpoints
+        guardRecordWorkbook(current, before)
+        val (source, target) = if (direction == "undo") endpoints.second to endpoints.first else endpoints
         if (!sameWorkbookContent(current, source)) throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)
         val restored = target.copy(
             manifest = target.manifest.copy(revision = current.manifest.revision),
             documents = target.documents.mapValues { (id, sheet) -> sheet.copy(revision = current.documents.getValue(id).revision) },
         )
-        // Only immutable endpoints captured after valid admission authorize non-derivable calculated instances.
         SqliteWorkbookWriter(connection, reader).persistChanges(current, restored)
-        insertReceipt(request.operationId, request.fingerprint)
+        insertReceipt(operationId, fingerprint)
         return StoredRecordAdmission(reader.loadWorkbookBundle(), false)
     }
 

@@ -9,6 +9,7 @@ class InMemoryWorkbookStore(
     override fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission =
         error("Use SQLite for durable record history tests")
 
+    override fun replayDeletion(replay: PreparedDeletionReplay): StoredRecordAdmission = error("Use SQLite for durable record history tests")
     override fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission = error("Use SQLite for durable record history tests")
 
     override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission = synchronized(this) {

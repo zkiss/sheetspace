@@ -99,6 +99,7 @@ interface WorkbookApplication {
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
+    fun replayDeletion(sheetId: String, rowId: String, deletionId: String, request: RecordReplayRequest): RecordDeletionReplayResult
     fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult
     fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder> = emptyList()): RecordAdmissionResult
 
@@ -326,6 +327,12 @@ class DefaultWorkbookApplication(
         val prepared = prepareRecordDeletion(sheetId, rowId, request)
         val result = store.deleteRecord(prepared) { deleteRecord(it, prepared) }
         return RecordDeletionResult(prepared.operationId, prepared.operationId, prepared.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
+
+    override fun replayDeletion(sheetId: String, rowId: String, deletionId: String, request: RecordReplayRequest): RecordDeletionReplayResult {
+        val replay = prepareDeletionReplay(sheetId, rowId, deletionId, request)
+        val result = store.replayDeletion(replay)
+        return RecordDeletionReplayResult(replay.operationId, replay.deletionId, replay.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
     }
 
     override fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult {
