@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { formattingSelection } from '@test-support/formattingProjection';
@@ -37,4 +37,36 @@ it('routes the model sheet menu to its own sorting command and isolates its gest
   await waitFor(() => expect(open).toHaveFocus());
   fireEvent.contextMenu(screen.getByRole('article', { name: 'Sheet First' }));
   expect(within(screen.getByRole('menu', { name: 'First sheet menu' })).getByLabelText('Active sorting')).toHaveTextContent('Sorting off');
+});
+
+it('isolates open drafts and pending completions when switching sheet menus', async () => {
+  const first = smallSheetDocument({ id: 'first', name: 'First' });
+  const base = smallSheetDocument({ id: 'second', name: 'Second' });
+  const second = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'descending' as const }] };
+  const props = formattingWorkspaceProps(first, formattingSelection(first, 'cells'));
+  props.workbook = workbookWithSheets([first, second]);
+  const result = { ok: true as const, value: props.workbook, changed: true };
+  let finish!: (value: typeof result) => void;
+  vi.mocked(props.commands.configureSorting).mockReturnValue({ result, completion: new Promise((resolve) => { finish = resolve; }) });
+  render(<Workspace {...props} />);
+
+  fireEvent.contextMenu(screen.getByRole('article', { name: 'Sheet First' }));
+  let menu = screen.getByRole('menu', { name: 'First sheet menu' });
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Sorting…' }));
+  fireEvent.click(within(menu).getByRole('button', { name: 'Add criterion' }));
+  fireEvent.contextMenu(screen.getByRole('article', { name: 'Sheet Second' }));
+  menu = screen.getByRole('menu', { name: 'Second sheet menu' });
+  expect(within(menu).queryByRole('button', { name: 'Apply sorting' })).not.toBeInTheDocument();
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Sorting…' }));
+  expect(within(menu).getByLabelText('Direction 1')).toHaveValue('descending');
+  fireEvent.click(within(menu).getByRole('button', { name: 'Apply sorting' }));
+  expect(props.commands.configureSorting).toHaveBeenLastCalledWith('second', second.sorting);
+
+  fireEvent.contextMenu(screen.getByRole('article', { name: 'Sheet First' }));
+  menu = screen.getByRole('menu', { name: 'First sheet menu' });
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Sorting…' }));
+  fireEvent.click(within(menu).getByRole('button', { name: 'Add criterion' }));
+  await act(async () => { finish(result); });
+  expect(within(menu).getByRole('button', { name: 'Apply sorting' })).toBeEnabled();
+  expect(within(menu).getByLabelText('Column 1')).toBeInTheDocument();
 });
