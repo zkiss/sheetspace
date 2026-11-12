@@ -52,8 +52,8 @@ describe('persisted model record deletion', () => {
     expect(api.writeAxisOrder).not.toHaveBeenCalled();
   });
 
-  it('retains lost capture, fences old commands, and publishes exactly once after explicit confirmation', async () => {
-    const { api, initial, rowId, loseNextResponse } = deletionFixture();
+  it.each([false, true])('retains lost capture and fences ordinary/semantic writes with sorting %s', async (sorting) => {
+    const { api, initial, rowId, loseNextResponse } = deletionFixture(sorting);
     loseNextResponse();
     const publication = vi.fn();
     const replacementPublication = vi.fn();
@@ -80,6 +80,8 @@ describe('persisted model record deletion', () => {
     });
     expect(api.deleteRecord).toHaveBeenCalledOnce();
     expect(api.replayRecordDeletion).not.toHaveBeenCalled();
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.writeCells).not.toHaveBeenCalled();
     act(() => old.confirmRecordDeletion());
     await waitFor(() => expect(result.current.recordDeletion.unresolved).toBe(false));
     expect(api.deleteRecord.mock.calls[1]).toEqual(api.deleteRecord.mock.calls[0]);
@@ -115,8 +117,8 @@ describe('persisted model record deletion', () => {
     act(() => expect(result.current.commands.deleteRow('sheet', rowId).result).toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' }));
   });
 
-  it('retains a failed deletion replay and fences conflicting commands until the same replay is confirmed', async () => {
-    const { api, initial, rowId } = deletionFixture();
+  it.each([false, true])('retains failed replay and fences ordinary/semantic writes with sorting %s', async (sorting) => {
+    const { api, initial, rowId } = deletionFixture(sorting);
     const replay = api.replayRecordDeletion.getMockImplementation()!;
     api.replayRecordDeletion.mockRejectedValueOnce(new Error('response lost'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
@@ -134,6 +136,8 @@ describe('persisted model record deletion', () => {
       result.current.commands.redo();
     });
     expect(api.replayRecordDeletion).toHaveBeenCalledOnce();
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.writeCells).not.toHaveBeenCalled();
     api.replayRecordDeletion.mockImplementation(replay);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
@@ -160,8 +164,17 @@ describe('persisted model record deletion', () => {
     expect(result.current.workbook).toEqual(committed);
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(true);
+    loseNextReplayResponse();
     act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    expect(result.current.workbook).toEqual(committed);
+    const committedRedo = await api.loadWorkbook();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
     await waitFor(() => expect(result.current.canRedo).toBe(false));
+    expect(api.replayRecordDeletion.mock.calls[3]).toEqual(api.replayRecordDeletion.mock.calls[2]);
+    expect(await api.replayRecordDeletion.mock.results[3]!.value).toMatchObject({ alreadyCommitted: true });
+    expect(result.current.workbook).toEqual(committedRedo);
     expect(api.replayRecordDeletion.mock.calls[2]![3].operationId).not.toBe(api.replayRecordDeletion.mock.calls[0]![3].operationId);
     expect(endpointContents(result.current.workbook)).toEqual(endpointContents(deleted));
   });
