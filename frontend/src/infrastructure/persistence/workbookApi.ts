@@ -3,10 +3,18 @@ import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { DEFAULT_SHEET_FRAME_SIZE, isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type AxisSizeWrite, type DataModel, type ModelColumnType, type FormatWrite, type SheetDocument, type SheetFrameSize, type SheetPresentation, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
+import { validSorting } from '@workbook/core/sorting';
+import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
+import type { RecordAdmissionRequest, RecordAdmissionResult } from '@application/core/recordAdmission';
+import type { RecordDeletionRequest, RecordDeletionResult, RecordReplayRequest, RecordReplayResult } from '@application/core/recordReplay';
 
 type ApiErrorBody = {
   error?: string;
+  sheetId?: string;
+  expectedRevision?: number;
+  actualRevision?: number;
+  scope?: string;
 };
 
 export type WorkbookManifestResponse = {
@@ -42,6 +50,7 @@ export type SheetDocumentResponse = {
   modelColumnBindings?: Record<string, string>;
   columnNames?: Record<string, string>;
   modelFormulaBindings?: ModelFormulaBindings;
+  sorting?: readonly SortCriterion[];
 };
 
 export type WorkbookBundleResponse = {
@@ -98,6 +107,7 @@ export class WorkbookApiError extends Error {
     message: string,
     readonly status?: number,
     readonly code?: string,
+    readonly context?: Omit<ApiErrorBody, 'error'>,
   ) {
     super(message);
     this.name = 'WorkbookApiError';
@@ -123,7 +133,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const errorBody = payload as ApiErrorBody | undefined;
     const code = typeof errorBody?.error === 'string' ? errorBody.error : undefined;
-    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code);
+    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code, errorBody);
   }
 
   return payload as T;
@@ -147,7 +157,7 @@ async function requestVoid(url: string, init?: RequestInit): Promise<void> {
     }
     const errorBody = payload as ApiErrorBody | undefined;
     const code = typeof errorBody?.error === 'string' ? errorBody.error : undefined;
-    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code);
+    throw new WorkbookApiError(code ?? `Workbook request failed with status ${response.status}.`, response.status, code, errorBody);
   }
 }
 
@@ -156,6 +166,33 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  deleteRecord(sheetId: string, rowId: string, request: RecordDeletionRequest): Promise<RecordDeletionResult> {
+    return requestJson<Omit<RecordDeletionResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/deletions`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
+  replayRecordDeletion(sheetId: string, rowId: string, deletionId: string, request: RecordReplayRequest): Promise<RecordDeletionResult> {
+    return requestJson<Omit<RecordDeletionResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/deletions/${encodePathSegment(deletionId)}/replay`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
+  replayRecord(sheetId: string, rowId: string, request: RecordReplayRequest): Promise<RecordReplayResult> {
+    return requestJson<Omit<RecordReplayResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/replay`, {
+      method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
+  admitRecord(sheetId: string, request: RecordAdmissionRequest): Promise<RecordAdmissionResult> {
+    return requestJson<{ rowId: string; alreadyCommitted: boolean; workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId: request.rowId, values: request.values, before: encodeWorkbookBundle(request.before), rowOrders: request.rowOrders }),
+      headers: revisionHeaders({ revision: request.revision }),
+    }).then((result) => ({ ...result, workbook: decodeWorkbookBundle(result.workbook) }));
+  },
+  writeSorting(sheetId: string, sorting: readonly SortCriterion[], order: readonly string[], revision: number): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/sorting`, {
+      method: 'PUT', body: JSON.stringify({ sorting, order }), headers: revisionHeaders({ revision }),
+    }).then(decodeSheetDocument);
+  },
   writeAxisOrder(sheetId: string, axis: 'row' | 'column', order: readonly string[], revision: number): Promise<SheetDocument> {
     return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/axis-order`, {
       method: 'PUT', body: JSON.stringify({ axis, order }), headers: revisionHeaders({ revision }),
@@ -276,12 +313,6 @@ export const workbookApi = {
     });
   },
 
-  admitRecord(sheetId: string, rowId: string, values: Readonly<Record<string, string>>, revision: number): Promise<{ rowId: string; sheet: SheetDocument }> {
-    return requestJson<{ rowId: string; sheet: SheetDocumentResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
-      method: 'POST', body: JSON.stringify({ rowId, values }), headers: revisionHeaders({ revision }),
-    }).then((result) => ({ rowId: result.rowId, sheet: decodeSheetDocument(result.sheet) }));
-  },
-
   appendColumn(sheetId: string, options: RevisionedMutationOptions = {}): Promise<ColumnAppendResponse> {
     return requestJson<ColumnAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/columns`, {
       method: 'POST',
@@ -365,6 +396,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
   const rowIndices = uniqueIndices(document.content.rows, 'row');
   const columnIndices = uniqueIndices(document.content.columns, 'column');
   const cells: Record<string, string> = {};
+  if (document.sorting !== undefined && (!Array.isArray(document.sorting) || document.sorting.some((criterion) => !criterion || typeof criterion !== 'object') || !validSorting(document.content.columns, document.sorting))) invalidReadContract('invalid sorting criteria');
 
   if (document.columnNames !== undefined && (!document.columnNames || Array.isArray(document.columnNames)
       || typeof document.columnNames !== 'object'
@@ -456,6 +488,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
+    ...(document.sorting === undefined || document.sorting.length === 0 ? {} : { sorting: document.sorting.map((criterion) => ({ ...criterion })) }),
     ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
     ...(document.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...document.modelColumnBindings } }),
     ...(document.columnNames === undefined || Object.keys(document.columnNames).length === 0 ? {} : { columnNames: { ...document.columnNames } }),

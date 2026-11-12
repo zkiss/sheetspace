@@ -92,3 +92,25 @@ describe('lifecycle HTTP mapping', () => {
     expect(results.sheet.A1?.display).toBe('#REF!');
   });
 });
+
+describe('sorting persistence mapping', () => {
+  it('round trips independent sorting and row identities with their cell contents', () => {
+    const first = sheetDocument({ id: 'first', name: 'First', rowCount: 2, columnCount: 2, cells: { A1: '=1+2', B2: '7' } });
+    const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 2, columnCount: 1 });
+    const sorted = { ...first, sorting: [{ columnId: first.content.columns[1], direction: 'descending' as const }], content: { ...first.content, rows: [...first.content.rows].reverse() } };
+    const other = { ...second, sorting: [{ columnId: second.content.columns[0], direction: 'ascending' as const }] };
+    const loaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(workbookWithSheets([sorted, other])))));
+    expect(loaded.documents.first.sorting).toEqual(sorted.sorting);
+    expect(loaded.documents.second.sorting).toEqual(other.sorting);
+    expect(loaded.documents.first.content).toEqual(sorted.content);
+  });
+
+  it('rejects unknown, duplicate and invalid sorting criteria', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const bundle = encodeWorkbookBundle(workbookWithSheets([sheet]));
+    const columnId = sheet.content.columns[0];
+    for (const sorting of [[{ columnId: 'missing', direction: 'ascending' }], [{ columnId, direction: 'sideways' }], [{ columnId, direction: 'ascending' }, { columnId, direction: 'descending' }]]) {
+      expect(() => decodeWorkbookBundle({ ...bundle, documents: [{ ...bundle.documents[0], sorting } as typeof bundle.documents[0]] })).toThrow('invalid sorting criteria');
+    }
+  });
+});

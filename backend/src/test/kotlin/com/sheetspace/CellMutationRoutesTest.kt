@@ -184,7 +184,7 @@ class CellMutationRoutesTest {
             }
 
             assertEquals(HttpStatusCode.Conflict, staleUpdate.status)
-            assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
+            assertEquals(ErrorResponse("sheet-revision-conflict", sheetId, initial.revision, initial.revision + 1), staleUpdate.decodeBody<ErrorResponse>())
             assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
         }
 }

@@ -14,7 +14,8 @@ CREATE TABLE sheet_documents (
     revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     model_id BLOB REFERENCES data_models(id),
     model_formula_bindings TEXT,
-    column_names TEXT NOT NULL DEFAULT '{}'
+    column_names TEXT NOT NULL DEFAULT '{}',
+    sorting TEXT NOT NULL DEFAULT '[]'
 );
 
 
@@ -63,8 +64,14 @@ CREATE TABLE record_admissions (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,
     fingerprint TEXT NOT NULL,
-    PRIMARY KEY (sheet_id, row_id),
-    FOREIGN KEY (sheet_id, row_id) REFERENCES sheet_rows(sheet_id, row_id) ON DELETE CASCADE
+    before_workbook TEXT NOT NULL,
+    after_workbook TEXT NOT NULL,
+    PRIMARY KEY (sheet_id, row_id)
+);
+
+CREATE TABLE record_replays (
+    operation_id BLOB PRIMARY KEY CHECK (typeof(operation_id) = 'blob' AND length(operation_id) = 16),
+    fingerprint TEXT NOT NULL
 );
 
 CREATE TABLE sheet_columns (
@@ -84,6 +91,14 @@ CREATE TABLE sheet_model_column_bindings (
     UNIQUE (sheet_id, column_id),
     FOREIGN KEY (sheet_id) REFERENCES sheet_documents(id) ON DELETE CASCADE,
     FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
+);
+
+CREATE TABLE record_deletions (
+    deletion_id BLOB PRIMARY KEY NOT NULL,
+    sheet_id BLOB NOT NULL,
+    row_id BLOB NOT NULL,
+    before_workbook TEXT NOT NULL,
+    after_workbook TEXT NOT NULL
 );
 
 CREATE TABLE cells (

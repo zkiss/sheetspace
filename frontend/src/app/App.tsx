@@ -13,27 +13,12 @@ import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import { Workspace } from './Workspace';
+import { validationMessage } from './sheetValidationMessage';
 
 type AppProps = {
   apiClient?: Partial<WorkbookApi>;
   initialWorkbook?: Workbook;
 };
-
-function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet' | 'pending-model-transition') {
-  if (reason === 'empty') {
-    return 'Sheet name is required.';
-  }
-
-  if (reason === 'unknown-sheet') {
-    return 'The target sheet could not be found.';
-  }
-
-  if (reason === 'pending-model-transition') {
-    return 'Wait for the data model change to finish.';
-  }
-
-  return 'A sheet with that name already exists.';
-}
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
@@ -46,7 +31,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, recordDeletion, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -215,7 +200,24 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         saveStatus={saveStatus}
         workbook={workbook}
       />
-      {mutationFailure ? <p className="form-error" role="alert">Wait for the data model change to finish. Your change was not applied.</p> : null}
+      {mutationFailure ? <p className="form-error" role="alert">{({
+        'pending-model-transition': 'Wait for the data model change to finish.',
+        'pending-axis-creation': 'Wait for row or column creation to finish.',
+        'pending-sheet-creation': 'Wait for sheet creation to finish.',
+        'blocked-persistence-prerequisite': 'Retry earlier failed saves first.',
+        'sorting-history-too-large': 'This change is too large to undo.',
+      })[mutationFailure]} Your change was not applied.</p> : null}
+      {recordReplay.error ? <p className="form-error" role="alert">Undo or redo could not be completed: {recordReplay.error}</p> : null}
+      {recordReplay.unresolved ? <div role="status">The previous undo or redo needs confirmation before another history action.
+        <button type="button" disabled={recordReplay.pending} onClick={commands.undo}>Confirm previous undo or redo</button>
+      </div> : null}
+      {recordDeletion.error ? <p className="form-error" role="alert">Deletion could not be completed: {recordDeletion.error}</p> : null}
+      {recordDeletion.pending || recordDeletion.unresolved ? <div role="status">
+        {recordDeletion.pending ? 'Confirming deletion. ' : null}
+        {recordDeletion.unresolved ? <>The previous deletion needs confirmation before further conflicting changes.
+          <button type="button" disabled={recordDeletion.pending} onClick={commands.confirmRecordDeletion}>Confirm previous deletion</button>
+        </> : null}
+      </div> : null}
 
       {dataModelsOpen ? (
         <DataModelDialog

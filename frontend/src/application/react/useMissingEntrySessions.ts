@@ -4,6 +4,7 @@ import type { WorkbookPersistenceCoordinator } from '@infrastructure/persistence
 
 export function useMissingEntrySessions(coordinator: WorkbookPersistenceCoordinator, sessions: ModelEntrySessions, locks: MutableRefObject<Set<string>>) {
   useEffect(() => coordinator.subscribeToMissingSheets((sheetId) => {
+    if (sessions.retryModel(sheetId)) return;
     sessions.remove(sheetId);
     locks.current.delete(sheetId);
   }), [coordinator, sessions, locks]);

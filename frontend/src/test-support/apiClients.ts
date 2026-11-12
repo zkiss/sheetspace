@@ -42,6 +42,7 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
     saveDataModel: vi.fn(),
     setSheetModel: vi.fn(),
+    writeSorting: vi.fn(),
     writeAxisOrder: vi.fn(),
     saveModelLifecycle: vi.fn(),
     ...overrides,
@@ -63,6 +64,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   };
 
   return {
+    writeSorting: vi.fn(),
     writeAxisOrder: vi.fn(),
     saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
       persistedWorkbook = structuredClone(after);
@@ -151,7 +153,25 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
-    admitRecord: vi.fn(),
+    replayRecord: vi.fn().mockRejectedValue(new Error('Record replay is not implemented by this test client.')),
+    deleteRecord: vi.fn().mockRejectedValue(new Error('Record deletion is not implemented by this test client.')),
+    replayRecordDeletion: vi.fn().mockRejectedValue(new Error('Record deletion replay is not implemented by this test client.')),
+    admitRecord: vi.fn().mockImplementation(async (sheetId: string, request: Parameters<WorkbookApi['admitRecord']>[1]) => {
+      const { rowId, values } = request;
+      updateSheet(sheetId, (sheet) => {
+        const cells = { ...sheet.content.cells };
+        for (const [propertyId, value] of Object.entries(values)) {
+          const columnId = sheet.modelColumnBindings?.[propertyId];
+          if (columnId && value !== '') cells[cellIdentityKey({ rowId, columnId })] = value;
+        }
+        return { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId], cells } };
+      });
+      updateSheet(sheetId, (sheet) => materializeCalculatedRow(persistedWorkbook, sheet, rowId));
+      for (const { sheetId: id, order } of request.rowOrders) {
+        updateSheet(id, (sheet) => ({ ...sheet, content: { ...sheet.content, rows: [...order] } }));
+      }
+      return { rowId, alreadyCommitted: false, workbook: persistedWorkbook };
+    }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
       const current = findSheetById(persistedWorkbook, sheetId)!;
       const rowId = `${sheetId}:row:${current.content.rows.length + 1}`;

@@ -1,7 +1,5 @@
 package com.sheetspace
 
-import java.security.MessageDigest
-
 data class CreateSheetCommand(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
@@ -65,13 +63,17 @@ enum class WorkbookApplicationError {
     BOUND_SHEET_STRUCTURE,
     INVALID_MODEL_RECORD,
     INVALID_AXIS_ORDER,
+    INVALID_SORTING,
 }
 
 class WorkbookApplicationException(
     val error: WorkbookApplicationError,
+    val sheetId: String? = null,
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun deleteRecord(sheetId: String, rowId: String, request: RecordDeletionRequest): RecordDeletionResult
+    fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument
     fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument
     fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
     fun loadManifest(): WorkbookManifest
@@ -97,7 +99,9 @@ interface WorkbookApplication {
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
-    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult
+    fun replayDeletion(sheetId: String, rowId: String, deletionId: String, request: RecordReplayRequest): RecordDeletionReplayResult
+    fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult
+    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder> = emptyList()): RecordAdmissionResult
 
     fun saveDataModel(model: DataModel): DataModel
 
@@ -108,6 +112,20 @@ class DefaultWorkbookApplication(
     private val store: WorkbookStore,
     private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
 ) : WorkbookApplication {
+    override fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument =
+        updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
+            val content = sheet.tabularContent
+            val columns = content.columns.map(ColumnId::value).toSet()
+            if (sorting.map { it.columnId }.distinct().size != sorting.size ||
+                sorting.any { it.columnId !in columns || it.direction !in setOf("ascending", "descending") }
+            ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SORTING)
+            val rows = content.rows.map(RowId::value)
+            if (order.size != rows.size || order.toSet() != rows.toSet()) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_AXIS_ORDER)
+            }
+            if (sorting == sheet.sorting && order == rows) return@updateExistingSheet workbook
+            workbook.replaceSheet(sheet.copy(sorting = sorting, content = TabularContent(order.map(::RowId), content.columns, content.cellContents)))
+        }
     override fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument =
         updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
             val content = sheet.tabularContent
@@ -305,14 +323,35 @@ class DefaultWorkbookApplication(
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
     }
 
-    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult {
+    override fun deleteRecord(sheetId: String, rowId: String, request: RecordDeletionRequest): RecordDeletionResult {
+        val prepared = prepareRecordDeletion(sheetId, rowId, request)
+        val result = store.deleteRecord(prepared) { deleteRecord(it, prepared) }
+        return RecordDeletionResult(prepared.operationId, prepared.operationId, prepared.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
+
+    override fun replayDeletion(sheetId: String, rowId: String, deletionId: String, request: RecordReplayRequest): RecordDeletionReplayResult {
+        val replay = prepareDeletionReplay(sheetId, rowId, deletionId, request)
+        val result = store.replayDeletion(replay)
+        return RecordDeletionReplayResult(replay.operationId, replay.deletionId, replay.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
+
+    override fun replayRecord(sheetId: String, rowId: String, request: RecordReplayRequest): RecordReplayResult {
+        val replay = prepareRecordReplay(sheetId, rowId, request)
+        val result = store.replayRecord(replay)
+        return RecordReplayResult(replay.operationId, replay.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
+
+    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>, before: WorkbookBundleResponse, rowOrders: List<RecordRowOrder>): RecordAdmissionResult {
         if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
-        val id = SheetId(sheetId)
-        val row = RowId(rowId.toUuidBytesOrNull()!!.toUuidString())
-        val fingerprint = recordFingerprint(expectedRevision, values)
-        val updated = store.admitRecord(id, row, fingerprint) { workbook ->
-            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND, sheetId)
+        val id = SheetId(recordIdentity(sheetId))
+        val row = RowId(recordIdentity(rowId))
+        val prepared = prepareRecordAdmission(expectedRevision, values, before, rowOrders)
+        val updated = store.admitRecord(id, row, prepared.fingerprint) { workbook ->
+            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND, id.value)
+            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(id.value, expectedRevision, sheet.revision)
+            guardRecordWorkbook(workbook, prepared.before)
+            val values = prepared.values
             val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             val manual = model.columns.filterIsInstance<ManualModelColumn>()
             if (values.keys != manual.map { it.id }.toSet() || model.columns.any { sheet.modelColumnBindings[it.id] !in sheet.tabularContent.columns } ||
@@ -321,16 +360,16 @@ class DefaultWorkbookApplication(
             }
             val contents = sheet.tabularContent.cellContents
             if (row in sheet.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(sheetId, expectedRevision, sheet.revision)
             val writes = manual.mapNotNull { property ->
                 values.getValue(property.id).takeIf(String::isNotEmpty)?.let { CellCoordinate(row, sheet.modelColumnBindings.getValue(property.id)) to it }
             }.toMap()
             val content = TabularContent(sheet.tabularContent.rows + row, sheet.tabularContent.columns, contents + writes)
             val appended = sheet.copy(content = content)
             val provisional = workbook.replaceSheet(appended)
-            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+            val materialized = provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+            RecordAdmissionStages(materialized, applyRecordOrders(materialized, prepared.orders))
         }
-        return RowAppendResult(updated.documents.getValue(id), row)
+        return RecordAdmissionResult(row, updated.alreadyCommitted, updated.workbook)
     }
 
     override fun saveDataModel(model: DataModel): DataModel {
@@ -407,14 +446,6 @@ class DefaultWorkbookApplication(
         }
         return updated.documents.getValue(id)
     }
-}
-
-private fun recordFingerprint(revision: Long, values: Map<String, String>): String {
-    val payload = buildString {
-        append(revision).append(':')
-        values.toSortedMap().forEach { (key, value) -> append(key.length).append(':').append(key).append(value.length).append(':').append(value) }
-    }
-    return MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
 private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =

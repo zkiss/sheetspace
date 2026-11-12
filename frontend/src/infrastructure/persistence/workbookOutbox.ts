@@ -218,6 +218,7 @@ function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent
 function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceIntent {
   switch (intent.kind) {
     case 'model-lifecycle': return structuredClone(intent);
+    case 'write-sorting': return structuredClone(intent);
     case 'write-axis-order': return { ...intent, before: [...intent.before], after: [...intent.after] };
     case 'write-axis-sizes': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
     case 'write-number-formats': return { ...intent, writes: intent.writes.map((write) => ({ ...write, properties: { ...write.properties, ...(write.properties.numberFormat ? { numberFormat: { ...write.properties.numberFormat } } : {}) } })) };

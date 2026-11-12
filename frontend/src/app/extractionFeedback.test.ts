@@ -14,6 +14,12 @@ describe('extraction feedback', () => {
     expect(extractionFeedback({ ok: false, reason })).toContain(explanation);
   });
 
+  it('explains how to resolve sorted extraction undo capacity rejection', () => {
+    expect(extractionFeedback({ ok: false, reason: 'sorting-history-too-large' })).toBe(
+      'This extraction is too large to undo while sorting is active. Select a smaller range or clear sorting and try again. No cells were changed.',
+    );
+  });
+
   it('ignores successful and absent results', () => {
     expect(extractionFeedback({ ok: true })).toBeUndefined();
     expect(extractionFeedback(undefined)).toBeUndefined();

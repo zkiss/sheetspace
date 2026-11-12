@@ -1,10 +1,9 @@
 import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
-import type { AxisSizeWrite } from '@workbook/core/model';
 import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { boundColumnType } from '@workbook/core/modelColumnTypes';
 import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaValue';
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
-import type { AppearanceWrite, CellAppearance } from '@workbook/core/model';
+import type { AppearanceWrite, AxisSizeWrite, CellAppearance, SortCriterion } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
@@ -49,6 +48,7 @@ export type BackendWorkbookReconciliation =
   | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId };
 
 export type WorkbookPersistenceIntent =
+  | { kind: 'write-sorting'; sheetId: SheetId; before: { sorting: readonly SortCriterion[]; rows: readonly RowId[] }; after: { sorting: readonly SortCriterion[]; rows: readonly RowId[] } }
   | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
   | { kind: 'write-axis-order'; sheetId: SheetId; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
@@ -85,7 +85,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-cell-type' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write' | 'pending-model-transition';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-cell-type' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write' | 'pending-model-transition' | 'pending-axis-creation' | 'pending-sheet-creation' | 'blocked-persistence-prerequisite' | 'persistence-failed' | 'sorting-history-too-large';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** A rejected write leaves the workbook untouched and reports a stable reason. */
 export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reason: WorkbookOperationFailureReason };

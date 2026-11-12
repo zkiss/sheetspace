@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   clampSheetVisualScale,
   MAX_SHEET_VISUAL_SCALE,
@@ -6,6 +6,8 @@ import {
   SheetDocument,
   SheetZOrderDirection,
 } from '@workbook/core/model';
+import { SheetSortingControls, type SortingSubmission } from './SheetSortingControls';
+import type { SortCriterion } from '@workbook/core/model';
 import type { PendingSheetMenu } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import '@workspace/SheetContextMenu.css';
@@ -13,6 +15,7 @@ import '@workspace/SheetContextMenu.css';
 export function SheetContextMenu({
   menu,
   modelControls,
+  sorting,
   extraction,
   onAppendColumn,
   onAppendRow,
@@ -24,6 +27,7 @@ export function SheetContextMenu({
 }: {
   menu: PendingSheetMenu;
   modelControls?: ReactNode;
+  sorting?: { labels?: ReadonlyMap<string, string>; apply: (sheetId: string, criteria: readonly SortCriterion[]) => SortingSubmission };
   extraction?: { run: () => void; unavailable?: string };
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
@@ -33,6 +37,21 @@ export function SheetContextMenu({
   onSetScale: (sheetId: string, visualScale: number) => void;
   sheet: SheetDocument;
 }) {
+  const overlay = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = overlay.current;
+    if (!element) return;
+    const position = () => {
+      const bounds = element.getBoundingClientRect();
+      element.style.left = `${Math.max(0, Math.min(menu.x, window.innerWidth - bounds.width))}px`;
+      element.style.top = `${Math.max(0, Math.min(menu.y, window.innerHeight - bounds.height))}px`;
+    };
+    position();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(element);
+    window.addEventListener('resize', position);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', position); };
+  }, [menu.x, menu.y]);
   const [scale, setScale] = useState(String(sheet.frame.visualScale * 100));
   useEffect(() => setScale(String(sheet.frame.visualScale * 100)), [sheet.id, sheet.frame.visualScale]);
   const commitScale = () => {
@@ -41,6 +60,7 @@ export function SheetContextMenu({
   };
   return (
     <div
+      ref={overlay}
       aria-label={`${sheet.name} sheet menu`}
       className="sheet-context-menu"
       onPointerDown={(event) => event.stopPropagation()}
@@ -71,6 +91,7 @@ export function SheetContextMenu({
         </label>
         <button onClick={commitScale} type="button">Set scale</button>
       </div>
+      {sorting && <SheetSortingControls sheet={sheet} labels={sorting.labels} onApply={sorting.apply} />}
       {modelControls}
       <button type="button" role="menuitem" onClick={() => onChangeZOrder(sheet.id, 'top')}>
         Bring to front

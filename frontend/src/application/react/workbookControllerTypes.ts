@@ -20,10 +20,11 @@ export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'o
 
 export type WorkbookCommands = {
   currentWorkbook: () => Workbook;
+  configureSorting: (sheetId: string, criteria: readonly import('@workbook/core/model').SortCriterion[]) => SortingSubmission;
   gatherAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], gap: number) => ReorderCommandResult;
   shiftAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], direction: -1 | 1) => ReorderCommandResult;
   extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest, publication?: LifecyclePublication) => ExtractionSubmission;
-  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
+  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: import('@application/core/modelEntrySession').EntryConfirmation }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
   dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
@@ -39,15 +40,16 @@ export type WorkbookCommands = {
   deleteRow: (sheetId: string, rowId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure> }>;
   deleteColumn: (sheetId: string, columnId: string, publication?: LifecyclePublication) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteColumn').deleteColumn> | TransitionFailure> }>;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
-  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
+  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult | { ok: false; reason: 'pending-model-transition' };
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveStoredCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
+  renameSheet: (sheetId: string, name: string) => RenameSheetResult;
   retryFailedSaves: () => void;
+  confirmRecordDeletion: () => void;
   undo: () => void;
   redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
@@ -56,12 +58,17 @@ export type WorkbookCommands = {
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
 
+export type RenameSheetResult = MutationResult<Workbook> | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
+
+export type SortingResult = { ok: true; value: Workbook; changed: boolean } | TransitionFailure | { ok: false; reason: 'invalid-sorting' | 'sorting-history-too-large' };
+export type SortingSubmission = Readonly<{ result: SortingResult; completion: Promise<SortingResult> }>;
+
 export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
-export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' | 'pending-axis-creation' | 'order-history-too-large' };
+export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: TransitionFailure['reason'] | 'order-history-too-large' | 'sorting-history-too-large' };
 export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
 
-export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
+export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' | 'sorting-history-too-large' };
 export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
 export type TransitionFailure = Exclude<ModelCommandResult, ModelMutationResult>;
 export type RenameColumnResult = ReturnType<typeof renameColumn> | TransitionFailure;
@@ -90,7 +97,9 @@ export type WorkbookController = {
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
   extractionReplayFailure: ExtractionReplayFailure | undefined;
   orderReplayFailure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined;
-  mutationFailure: 'pending-model-transition' | undefined;
+  recordReplay: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
+  recordDeletion: Readonly<{ pending: boolean; unresolved: boolean; error?: string }>;
+  mutationFailure: 'pending-model-transition' | 'pending-axis-creation' | 'pending-sheet-creation' | 'blocked-persistence-prerequisite' | 'sorting-history-too-large' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];

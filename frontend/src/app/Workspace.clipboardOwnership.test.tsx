@@ -34,6 +34,48 @@ function setup() {
 }
 
 describe('registered clipboard alternatives and native grid ownership', () => {
+  it.each([
+    ['pending-model-transition', 'pending workbook change'],
+    ['pending-axis-creation', 'pending row or column'],
+    ['pending-sheet-creation', 'pending sheet'],
+    ['blocked-persistence-prerequisite', 'earlier save failure'],
+    ['persistence-failed', 'could not be saved'],
+    ['sorting-history-too-large', 'too large to undo'],
+  ] as const)('explains %s when a paste or clear is rejected', (reason, message) => {
+    const { props, cell } = setup();
+    vi.mocked(props.commands.pasteStoredCells).mockReturnValue({ ok: false, reason });
+    vi.mocked(props.onClearCell).mockReturnValue({ ok: false, reason });
+
+    fireEvent.paste(cell, { clipboardData: clipboardData({ 'text/plain': 'value' }) });
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+    fireEvent.keyDown(cell, { key: 'Delete' });
+    expect(props.onClearCell).toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+  });
+
+  it('explains a rejected move and retains the cut for retry', () => {
+    const { props, cell } = setup();
+    vi.mocked(props.commands.moveStoredCells).mockReturnValue({ ok: false, reason: 'pending-axis-creation' });
+    const data = clipboardData();
+    fireEvent.cut(cell, { clipboardData: data });
+    fireEvent.paste(cell, { clipboardData: data });
+    expect(props.commands.moveStoredCells).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert')).toHaveTextContent('pending row or column');
+    expect(cell).toHaveAttribute('data-pending-cut', 'true');
+  });
+
+  it('explains a rejected edit commit', () => {
+    const sheet = smallSheetDocument({ id: 'edit', name: 'Edit', rowCount: 4, columnCount: 4 });
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
+    props.editingCell = { target: props.activeCell!, draft: 'changed', sessionId: 1 };
+    vi.mocked(props.onCommitEditAndNavigate).mockReturnValue({ ok: false, reason: 'sorting-history-too-large' });
+    render(<Workspace {...props} />);
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(props.onCommitEditAndNavigate).toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('too large to undo');
+  });
+
   it.each(['copy', 'cut', 'paste', 'cancel'] as const)('abandons a deferred alternative paste after native %s', async (route) => {
     for (const outcome of ['resolve', 'reject'] as const) {
     vi.spyOn(systemClipboard, 'canRead').mockReturnValue(true);

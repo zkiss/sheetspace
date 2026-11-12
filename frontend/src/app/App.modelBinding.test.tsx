@@ -58,13 +58,6 @@ describe('App model binding workflow', () => {
     const { workbook } = inputsWorkbook();
     const initial = { ...workbook, dataModels: { invoice: declaredModel } };
     const apiClient = persistedWorkbookClient(initial);
-    let admitted = 0;
-    apiClient.admitRecord.mockImplementation(async (_sheetId, rowId) => {
-      const bound = apiClient.saveModelLifecycle.mock.calls[0]![1].documents.inputs!;
-      admitted += 1;
-      return { rowId, sheet: { ...bound, revision: bound.revision + admitted,
-        content: { ...bound.content, rows: Array.from({ length: admitted }, (_, index) => `row-${index}`) } } };
-    });
     render(<App initialWorkbook={initial} apiClient={apiClient} />);
     fireEvent.click(cellAt('A1'));
     fireEvent.change(modelSelect(), { target: { value: 'invoice' } });

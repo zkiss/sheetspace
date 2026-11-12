@@ -2,11 +2,14 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellRawContent } from '@workbook/read/queries';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
+import { FormulaCalculation } from '@calculation/formulaCalculation';
+import { calculationProjection } from '@workbook/read/calculationProjection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
@@ -49,6 +52,113 @@ function requestFor(workbook: Workbook, sourceSheetId: string, address: string):
 }
 
 describe('extraction admission', () => {
+  it('replays extraction with induced model-bound dependent ordering', async () => {
+    const bound = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 2, columnCount: 2, cells: { A1: '0', A2: '1' } });
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '0' } });
+    let workbook = boundWorkbook('=@A[1]*2', [bound, source]);
+    const document = workbook.documents.bound!;
+    const key = cellIdentityKey(cellIdentityAt(document.content, 'A1')!);
+    workbook = { ...workbook, documents: { ...workbook.documents, bound: { ...document, sorting: [{ columnId: document.content.columns[0]!, direction: 'ascending' }], content: { ...document.content, cells: { ...document.content.cells, [key]: prepareUserFormula('=@Source!A[#1]', workbook, 'bound') } } } } };
+    const request = requestFor(workbook, 'source', 'A1');
+    const calculate = (value: Workbook) => new FormulaCalculation().updateStored(calculationProjection(value), value, { kind: 'structure' });
+    expect(calculate(workbook).bound!.A1).toMatchObject({ kind: 'number', value: 0 });
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    await act(async () => { await result.current.commands.extractSelection(request).completion; });
+    expect(cellRawContent(result.current.workbook.documents.source!, 'A1')).toBeUndefined();
+    expect(result.current.workbook.documents.bound!.content.rows).toEqual([...document.content.rows].reverse());
+    expect(calculate(result.current.workbook).bound!.A2).toMatchObject({ kind: 'blank' });
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    expect(result.current.workbook.documents.bound!.content.rows).toEqual(document.content.rows);
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(cellRawContent(result.current.workbook.documents.source!, 'A1')).toBe('0');
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.canRedo).toBe(false));
+    expect(result.current.workbook.documents.bound!.content.rows).toEqual([...document.content.rows].reverse());
+  });
+  it('settles extraction and active orders together and replays the recorded order', async () => {
+    const { sheet, request } = fixture();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+    const sorted = { ...other, sorting: [{ columnId: other.content.columns[0]!, direction: 'ascending' as const }] };
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, sorted]), apiClient: api }));
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    expect(submission.result.ok && submission.result.workbook.documents.other!.content.rows).toEqual([...other.content.rows].reverse());
+    await act(async () => { await submission.completion; });
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    expect(result.current.workbook.documents.other!.content.rows).toEqual(other.content.rows);
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.canRedo).toBe(false));
+    expect(result.current.workbook.documents.other!.content.rows).toEqual([...other.content.rows].reverse());
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+  });
+
+  it('rolls back extraction and sorted orders together on definite failure', async () => {
+    const { sheet, request } = fixture();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+    const sorted = { ...other, sorting: [{ columnId: other.content.columns[0]!, direction: 'ascending' as const }] };
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict')) });
+    const publication = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, sorted]), apiClient: api }));
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request, publication); });
+    await act(async () => expect(await submission.completion).toEqual({ ok: false, reason: 'persistence-failed' }));
+    expect(result.current.workbook.documents.other!.content.rows).toEqual(other.content.rows);
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(publication.mock.calls.map((call) => call[2])).toEqual(['optimistic', 'rollback']);
+    expect(result.current.canUndo).toBe(false);
+  });
+
+  it('rejects an oversized final sorted extraction without publication or persistence', async () => {
+    const { sheet, request } = fixture();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
+    const sorted = { ...other, name: 'x'.repeat(9 * 1024 * 1024), sorting: [{ columnId: other.content.columns[0]!, direction: 'ascending' as const }] };
+    const api = autosaveClient();
+    const publication = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, sorted]), apiClient: api }));
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request, publication); });
+    expect(submission.result).toEqual({ ok: false, reason: 'sorting-history-too-large' });
+    expect(await submission.completion).toEqual(submission.result);
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(publication).not.toHaveBeenCalled();
+    expect(result.current.workbook.documents.other!.content.rows).toEqual(other.content.rows);
+  });
+
+  it('replays an ordinary edit adjacent to extraction that removes the last sort criterion', async () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
+    const sorted = { ...sheet, sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }] };
+    const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'columns', start: sheet.content.columns[0]!, end: sheet.content.columns[0]! }, ...target, targetRows: [target.targetRows[0]!, '00000000-0000-0000-0000-000000000004'] };
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sorted]), apiClient: api }));
+    await act(async () => { await result.current.commands.extractSelection(request).completion; });
+    expect(result.current.workbook.documents.s!.sorting).toEqual([]);
+    act(() => { result.current.commands.updateCellContent('s', 'A1', '7'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(api.writeCells).toHaveBeenCalledTimes(1);
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined());
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined());
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+    expect(result.current.workbook.documents.s!.sorting).toEqual(sorted.sorting);
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('7'));
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(sheet.content.rows);
+  });
+
   it('rejects pending axis and sheet creations without consuming history', async () => {
     const { sheet, request } = fixture();
     const axis = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
@@ -229,10 +339,11 @@ describe('extraction protected rejection', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '3' } });
     const workbook = boundWorkbook('=@A[1]*2', [bound, source]);
     const request = requestFor(workbook, 'source', 'A1');
-    const admission = deferred<{ rowId: string; sheet: SheetDocument }>();
+    const admission = deferred<{ rowId: string; alreadyCommitted: boolean; workbook: Workbook }>();
     let admitRowId = '';
     const api = autosaveClient({
-      admitRecord: vi.fn().mockImplementation((_sheetId: string, rowId: string) => { admitRowId = rowId; return admission.promise; }),
+      loadWorkbook: vi.fn().mockImplementation(async () => result.current.workbook),
+      admitRecord: vi.fn().mockImplementation((_sheetId: string, request: { rowId: string }) => { admitRowId = request.rowId; return admission.promise; }),
       saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -260,7 +371,7 @@ describe('extraction protected rejection', () => {
 
     const admitted = result.current.workbook.documents.bound!;
     await act(async () => {
-      admission.resolve({ rowId: admitRowId, sheet: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } });
+      admission.resolve({ rowId: admitRowId, alreadyCommitted: false, workbook: { ...result.current.workbook, documents: { ...result.current.workbook.documents, bound: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } } } });
       await submission;
     });
     let retry!: ReturnType<typeof result.current.commands.extractSelection>;
@@ -273,15 +384,16 @@ describe('extraction protected rejection', () => {
     expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.bound!, 'A1')!, result.current.workbook, 'bound').text).toBe('=@Target!A[1]');
   });
 
-  it('allows extraction while an admission is in flight on a sheet the extraction does not change', async () => {
+  it('fences extraction on unrelated sheets until full-workbook admission settles', async () => {
     const bound = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 1, columnCount: 2, cells: { A1: '1' } });
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '3' } });
     const workbook = boundWorkbook('=@A[1]*2', [bound, source]);
     const request = requestFor(workbook, 'source', 'A1');
-    const admission = deferred<{ rowId: string; sheet: SheetDocument }>();
+    const admission = deferred<{ rowId: string; alreadyCommitted: boolean; workbook: Workbook }>();
     let admitRowId = '';
     const api = autosaveClient({
-      admitRecord: vi.fn().mockImplementation((_sheetId: string, rowId: string) => { admitRowId = rowId; return admission.promise; }),
+      loadWorkbook: vi.fn().mockResolvedValue(workbook),
+      admitRecord: vi.fn().mockImplementation((_sheetId: string, request: { rowId: string }) => { admitRowId = request.rowId; return admission.promise; }),
       saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -293,15 +405,16 @@ describe('extraction protected rejection', () => {
 
     let attempt!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { attempt = result.current.commands.extractSelection(request); });
-    expect(attempt.result.ok).toBe(true);
-    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+    expect(attempt.result).toMatchObject({ ok: false, reason: 'pending-model-transition' });
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
     expect(api.saveModelLifecycle).not.toHaveBeenCalled();
 
     const admitted = result.current.workbook.documents.bound!;
     await act(async () => {
-      admission.resolve({ rowId: admitRowId, sheet: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } });
+      admission.resolve({ rowId: admitRowId, alreadyCommitted: false, workbook: { ...workbook, documents: { ...workbook.documents, bound: { ...admitted, revision: admitted.revision + 1, content: { ...admitted.content, rows: [...admitted.content.rows, admitRowId] } } } } });
       await submission;
     });
+    act(() => { attempt = result.current.commands.extractSelection(request); });
     await act(async () => { await attempt.completion; });
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();

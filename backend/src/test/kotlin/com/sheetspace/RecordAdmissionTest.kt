@@ -21,13 +21,14 @@ class RecordAdmissionTest {
     fun `admission persists a complete record and safely retries the same identity`() = withSqliteStore { store ->
         store.saveWorkbook(workbook())
         val app = DefaultWorkbookApplication(store)
+        val before = WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle())
         val row = RowId.generate().value
-        val first = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
-        val retry = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+        val first = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"), before)
+        val retry = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"), before)
         assertEquals(first.sheet, retry.sheet)
         assertEquals("42", retry.sheet.tabularContent.cells["A1"])
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "43")) }
-        val second = app.admitRecord(sheetId.value, first.sheet.revision, RowId.generate().value, mapOf(propertyId to ""))
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "43"), before) }
+        val second = app.admitRecord(sheetId.value, first.sheet.revision, RowId.generate().value, mapOf(propertyId to ""), WorkbookReadTransportAdapter.bundle(first.workbook))
         assertEquals(2, second.sheet.tabularContent.rowCount)
         assertEquals(second.sheet, store.loadSheet(sheetId))
     }
@@ -41,8 +42,9 @@ class RecordAdmissionTest {
         val content = TabularContent(listOf(row), listOf(column), mapOf(CellCoordinate(row, column) to "42"))
         store.saveWorkbook(initial.replaceSheet(sheet.copy(content = content)))
         val app = DefaultWorkbookApplication(store)
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row.value, mapOf(propertyId to "42")) }
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 99, row.value, mapOf(propertyId to "42")) }
+        val before = WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle())
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row.value, mapOf(propertyId to "42"), before) }
+        assertFailsWith<SheetRevisionConflict> { app.admitRecord(sheetId.value, 99, row.value, mapOf(propertyId to "42"), before) }
         assertEquals(1, app.loadSheet(sheetId.value).tabularContent.rowCount)
     }
 
@@ -51,11 +53,12 @@ class RecordAdmissionTest {
         store.saveWorkbook(workbook())
         val app = DefaultWorkbookApplication(store)
         val row = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF"
-        val first = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+        val before = WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle())
+        val first = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"), before)
         assertEquals(row.lowercase(), first.rowId.value)
         assertEquals(first.rowId, first.sheet.tabularContent.rows.single())
-        assertEquals(first.sheet, app.admitRecord(sheetId.value, 0, row.lowercase(), mapOf(propertyId to "42")).sheet)
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, first.sheet.revision, row, mapOf(propertyId to "42")) }
+        assertEquals(first.sheet, app.admitRecord(sheetId.value, 0, row.lowercase(), mapOf(propertyId to "42"), before).sheet)
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, first.sheet.revision, row, mapOf(propertyId to "42"), before) }
     }
 
     @Test
@@ -63,13 +66,15 @@ class RecordAdmissionTest {
         val directory = Files.createTempDirectory("record-admission")
         val path = directory.resolve("workbook.db")
         val row = RowId.generate().value
+        val original = workbook()
+        val before = WorkbookReadTransportAdapter.bundle(original)
         try {
             SqliteWorkbookStore(path).use { store ->
-                store.saveWorkbook(workbook())
-                DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+                store.saveWorkbook(original)
+                DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"), before)
             }
             SqliteWorkbookStore(path).use { store ->
-                val result = DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+                val result = DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"), before)
                 assertEquals(listOf(RowId(row)), result.sheet.tabularContent.rows)
             }
         } finally {
@@ -82,13 +87,14 @@ class RecordAdmissionTest {
         store.saveWorkbook(workbook())
         val app = DefaultWorkbookApplication(store)
         val before = store.loadSheet(sheetId)!!
+        val guard = WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle())
         listOf(emptyMap(), mapOf(propertyId to "oops"), mapOf("unknown" to "1")).forEach { values ->
-            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, before.revision, RowId.generate().value, values) }
+            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, before.revision, RowId.generate().value, values, guard) }
         }
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, "invalid", mapOf(propertyId to "1")) }
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, -1, RowId.generate().value, mapOf(propertyId to "1")) }
-        assertFailsWith<WorkbookApplicationException> { app.admitRecord(RowId.generate().value, 0, RowId.generate().value, mapOf(propertyId to "1")) }
-        assertFailsWith<SheetRevisionConflict> { app.admitRecord(sheetId.value, 99, RowId.generate().value, mapOf(propertyId to "1")) }
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, "invalid", mapOf(propertyId to "1"), guard) }
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, -1, RowId.generate().value, mapOf(propertyId to "1"), guard) }
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(RowId.generate().value, 0, RowId.generate().value, mapOf(propertyId to "1"), guard) }
+        assertFailsWith<SheetRevisionConflict> { app.admitRecord(sheetId.value, 99, RowId.generate().value, mapOf(propertyId to "1"), guard) }
         assertEquals(before, store.loadSheet(sheetId))
     }
 
@@ -98,7 +104,7 @@ class RecordAdmissionTest {
         val sheet = original.documents.getValue(sheetId)
         listOf(sheet.copy(modelId = null, modelColumnBindings = emptyMap()), sheet.copy(modelColumnBindings = emptyMap())).forEach { invalid ->
             val app = DefaultWorkbookApplication(InMemoryWorkbookStore(original.replaceSheet(invalid)))
-            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to "1")) }
+            assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to "1"), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle())) }
         }
     }
 
@@ -110,7 +116,7 @@ class RecordAdmissionTest {
             reject = true
             val app = DefaultWorkbookApplication(store)
             assertRejectedWithoutPersisting<IllegalStateException>(store) {
-                app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to "4"))
+                app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to "4"), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle()))
             }
         }
     }
@@ -133,11 +139,12 @@ class RecordAdmissionTest {
         val cases = listOf(ModelColumnType.STRING to "anything", ModelColumnType.INT to "12", ModelColumnType.FLOAT to "1.5", ModelColumnType.BOOLEAN to "TRUE")
         cases.forEach { (type, value) ->
             val app = DefaultWorkbookApplication(InMemoryWorkbookStore(workbook(type)))
-            val first = app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to value))
+            val first = app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to value), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle()))
             val emptyRow = RowId.generate().value
-            app.admitRecord(sheetId.value, first.sheet.revision, emptyRow, mapOf(propertyId to ""))
-            app.admitRecord(sheetId.value, first.sheet.revision, emptyRow, mapOf(propertyId to ""))
-            if (type != ModelColumnType.STRING) assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 2, RowId.generate().value, mapOf(propertyId to "bad")) }
+            val guard = WorkbookReadTransportAdapter.bundle(first.workbook)
+            app.admitRecord(sheetId.value, first.sheet.revision, emptyRow, mapOf(propertyId to ""), guard)
+            app.admitRecord(sheetId.value, first.sheet.revision, emptyRow, mapOf(propertyId to ""), guard)
+            if (type != ModelColumnType.STRING) assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 2, RowId.generate().value, mapOf(propertyId to "bad"), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle())) }
         }
     }
 
@@ -158,8 +165,11 @@ class RecordAdmissionTest {
         )
         cases.forEach { (type, value, valid) ->
             val app = DefaultWorkbookApplication(InMemoryWorkbookStore(workbook(type)))
-            val action = { app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to value)) }
+            val action = { app.admitRecord(sheetId.value, 0, RowId.generate().value, mapOf(propertyId to value), WorkbookReadTransportAdapter.bundle(app.loadWorkbookBundle())) }
             if (valid) action() else assertFailsWith<WorkbookApplicationException> { action() }
         }
     }
 }
+
+internal val RecordAdmissionResult.sheet: SheetDocument
+    get() = workbook.sheetsInOrder.single { rowId in it.tabularContent.rows }

@@ -14,6 +14,8 @@ export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 
   applyResult: (result: WorkbookOperationResult) => AppliedWorkbookOperation | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   setCellFeedback: (feedback: WorkbookController['contentHistoryFeedback']) => void;
+  replaySemantic: (transaction: import('@application/core/contentHistory').ContentTransaction, direction: 'undo' | 'redo') => void;
+  replayRecord: (transaction: import('@application/core/contentHistory').ContentTransaction, direction: 'undo' | 'redo') => void;
 }) {
   const [orderFailure, setOrderFailure] = useState<WorkbookController['orderReplayFailure']>();
   const extraction = useExtractionReplay({
@@ -33,6 +35,9 @@ export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 
   function replay(direction: 'undo' | 'redo') {
     const transaction = direction === 'undo' ? options.history.peekUndo() : options.history.peekRedo();
     if (!transaction) return;
+    if ((transaction.kind === 'semantic' || transaction.kind === 'model-record') && options.hasPending()) return;
+    if (transaction.kind === 'semantic') return options.replaySemantic(transaction, direction);
+    if (transaction.kind === 'model-record') return options.replayRecord(transaction, direction);
     if (transaction.kind === 'extraction') return extraction.replay(transaction, direction);
     if (transaction.kind === 'axis-order' && transaction.order) return axis.replay(transaction.order, direction);
     if (options.hasPending()) return;

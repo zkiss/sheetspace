@@ -1,6 +1,10 @@
 package com.sheetspace
 
 import java.util.UUID
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class SortCriterion(val columnId: String, val direction: String)
 
 @JvmInline
 value class SheetId(val value: String) {
@@ -20,6 +24,7 @@ data class SheetDocument(
     val modelColumnBindings: Map<String, ColumnId> = emptyMap(),
     val modelFormulaBindings: Map<String, BoundModelFormula>? = null,
     val columnNames: Map<String, String> = emptyMap(),
+    val sorting: List<SortCriterion> = emptyList(),
 ) {
     val tabularContent: TabularContent
         get() = content as? TabularContent

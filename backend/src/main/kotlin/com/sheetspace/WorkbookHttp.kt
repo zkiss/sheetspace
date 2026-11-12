@@ -29,16 +29,7 @@ data class PresentationWriteRequest(val writes: List<AxisSizeWrite> = emptyList(
 data class AxisOrderRequest(val axis: String, val order: List<String>)
 
 @Serializable
-data class HealthResponse(val status: String, val service: String)
-
-@Serializable
-data class CreateSheetRequest(
-    val name: String,
-    val position: WorkspacePosition = WorkspacePosition(),
-    val frameSize: SheetFrameSize = SheetFrameSize(),
-    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
-    val zIndex: Int? = null,
-)
+data class SortingWriteRequest(val sorting: List<SortCriterion>, val order: List<String>)
 
 @Serializable
 data class UpdateSheetRequest(
@@ -91,10 +82,10 @@ data class RowAppendResponse(
 )
 
 @Serializable
-data class RecordAdmissionRequest(val rowId: String, val values: Map<String, String>)
+data class RecordAdmissionRequest(val rowId: String, val values: Map<String, String>, val before: WorkbookBundleResponse, val rowOrders: List<RecordRowOrder> = emptyList())
 
 @Serializable
-data class RecordAdmissionResponse(val rowId: String, val sheet: SheetDocumentResponse)
+data class RecordAdmissionResponse(val rowId: String, val alreadyCommitted: Boolean, val workbook: WorkbookBundleResponse)
 
 @Serializable
 data class ColumnAppendResponse(
@@ -105,7 +96,7 @@ data class ColumnAppendResponse(
 )
 
 @Serializable
-data class ErrorResponse(val error: String)
+data class ErrorResponse(val error: String, val sheetId: String? = null, val expectedRevision: Long? = null, val actualRevision: Long? = null, val scope: String? = null)
 
 @Serializable
 data class DataModelWriteRequest(val name: String, val columns: List<ModelColumnWriteRequest>)
@@ -240,6 +231,17 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        put("/api/sheets/{sheetId}/sorting") {
+            val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@put
+            val expectedRevision = call.expectedSheetRevision() ?: return@put
+            val request = call.receiveRequest<SortingWriteRequest>() ?: return@put
+            call.respondApplicationResult {
+                val sheet = workbookApplication.writeSorting(sheetId, expectedRevision, request.sorting, request.order)
+                call.respond(WorkbookReadTransportAdapter.sheetDocument(sheet))
+            }
+        }
+
         put("/api/sheets/{sheetId}/axis-order") {
             val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
             if (!call.requireExistingSheet(workbookApplication, sheetId)) return@put
@@ -293,14 +295,35 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        post("/api/sheets/{sheetId}/records/{rowId}/deletions") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordDeletionRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.deleteRecord(sheetId, rowId, request)) }
+        }
+
+        post("/api/sheets/{sheetId}/records/{rowId}/deletions/{deletionId}/replay") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val deletionId = call.parameters["deletionId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordReplayRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.replayDeletion(sheetId, rowId, deletionId, request)) }
+        }
+
+        post("/api/sheets/{sheetId}/records/{rowId}/replay") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val rowId = call.parameters["rowId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "invalid-model-record")
+            val request = call.receiveRecordReplayRequest() ?: return@post
+            call.respondApplicationResult { call.respond(workbookApplication.replayRecord(sheetId, rowId, request)) }
+        }
+
         post("/api/sheets/{sheetId}/records") {
             val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
-            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             val request = call.receiveRequest<RecordAdmissionRequest>() ?: return@post
             call.respondApplicationResult {
-                val result = workbookApplication.admitRecord(sheetId, expectedRevision, request.rowId, request.values)
-                call.respond(RecordAdmissionResponse(result.rowId.value, WorkbookReadTransportAdapter.sheetDocument(result.sheet)))
+                val result = workbookApplication.admitRecord(sheetId, expectedRevision, request.rowId, request.values, request.before, request.rowOrders)
+                call.respond(RecordAdmissionResponse(result.rowId.value, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook)))
             }
         }
 
@@ -367,9 +390,15 @@ private suspend fun ApplicationCall.respondApplicationResult(response: suspend (
     try {
         response()
     } catch (conflict: SheetRevisionConflict) {
-        respondError(HttpStatusCode.Conflict, "sheet-revision-conflict")
+        respond(HttpStatusCode.Conflict, ErrorResponse("sheet-revision-conflict", conflict.sheetId, conflict.expectedRevision, conflict.actualRevision))
     } catch (rejection: WorkbookApplicationException) {
-        respondApplicationError(rejection.error)
+        if (rejection.sheetId != null) {
+            respond(HttpStatusCode.NotFound, ErrorResponse("sheet-not-found", sheetId = rejection.sheetId))
+        } else if (rejection.error == WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT) {
+            respond(HttpStatusCode.Conflict, ErrorResponse("model-lifecycle-conflict", scope = "workbook"))
+        } else {
+            respondApplicationError(rejection.error)
+        }
     }
 }
 
@@ -403,6 +432,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.BOUND_SHEET_STRUCTURE -> HttpStatusCode.BadRequest to "bound-sheet-structure"
         WorkbookApplicationError.INVALID_MODEL_RECORD -> HttpStatusCode.BadRequest to "invalid-model-record"
         WorkbookApplicationError.INVALID_AXIS_ORDER -> HttpStatusCode.BadRequest to "invalid-axis-order"
+        WorkbookApplicationError.INVALID_SORTING -> HttpStatusCode.BadRequest to "invalid-sorting"
     }
     respondError(status, code)
 }

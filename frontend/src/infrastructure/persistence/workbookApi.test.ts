@@ -455,15 +455,14 @@ describe('workbook API mutations', () => {
     } satisfies Partial<WorkbookApiError>);
   });
 
-  it('admits a record with its stable identity and decodes the persisted sheet', async () => {
-    const fetchMock = mockFetch({ rowId: 'row-1', sheet: inputsResponse });
-    const result = await workbookApi.admitRecord('sheet 1', 'row-1', { price: '12' }, 7);
-    expect(result).toEqual({ rowId: 'row-1', sheet: inputsDocument });
+  it('preserves validation errors for an atomic admission', async () => {
+    const before = { manifest: { version: 1 as const, revision: 0, sheetIds: [] }, documents: {} };
+    const request = { rowId: 'row-1', values: { price: '12' }, revision: 7, before, rowOrders: [] };
+    const fetchMock = mockFetch({ error: 'invalid-model-record' }, { status: 400 });
+    await expect(workbookApi.admitRecord('sheet 1', request)).rejects.toMatchObject({ status: 400, code: 'invalid-model-record' });
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201/records', {
-      method: 'POST', body: JSON.stringify({ rowId: 'row-1', values: { price: '12' } }),
+      method: 'POST', body: JSON.stringify({ rowId: 'row-1', values: { price: '12' }, before: { manifest: before.manifest, dataModels: [], documents: [] }, rowOrders: [] }),
       headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
     });
-    mockFetch({ error: 'invalid-model-record' }, { status: 400 });
-    await expect(workbookApi.admitRecord('sheet', 'row', {}, 0)).rejects.toMatchObject({ status: 400, code: 'invalid-model-record' });
   });
 });

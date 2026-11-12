@@ -8,6 +8,47 @@ const write = (beforeRaw: string | null, afterRaw: string | null): CellPersisten
 });
 
 describe('ContentHistory', () => {
+  it('guards stack transfers by stable copied identity', () => {
+    const history = new ContentHistory();
+    history.recordModelRecord({ sheetId: 'sheet', rowId: 'row' });
+    const id = history.peekUndo()!.identity;
+    expect(history.peekUndo()!.identity).toBe(id);
+    history.recordOrder({ sheetId: 'sheet', axis: 'row', before: ['a'], after: ['b'] });
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    expect(history.peekUndo()!.kind).toBe('axis-order');
+    history.commitUndo();
+    expect(history.commitGuarded('undo', id)).toBe(true);
+    expect(history.peekRedo()!.identity).toBe(id);
+    expect(history.commitGuarded('redo', id)).toBe(true);
+    history.record([write(null, 'edit')], affected);
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    history.clear();
+    expect(history.commitGuarded('undo', id)).toBe(false);
+    expect(history.commitGuarded('redo', id)).toBe(false);
+  });
+
+  it('retains immutable record replay identities across undo and redo', () => {
+    const history = new ContentHistory();
+    const record = { sheetId: 'sheet', rowId: 'row' };
+    history.recordModelRecord(record);
+    record.rowId = 'changed';
+    const retrieved = history.peekUndo()!;
+    retrieved.record!.rowId = 'changed-again';
+
+    history.commitUndo();
+    expect(history.peekRedo()).toMatchObject({ kind: 'model-record', record: { sheetId: 'sheet', rowId: 'row' } });
+    history.commitRedo();
+    expect(history.peekUndo()?.record?.rowId).toBe('row');
+  });
+
+  it('clears history when a record identity cannot fit the history budget', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'first')], affected);
+    history.recordModelRecord({ sheetId: 'sheet', rowId: 'x'.repeat(CONTENT_HISTORY_MAX_BYTES) });
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+  });
+
   it('keeps immutable content transitions and clears redo after an effective edit', () => {
     const history = new ContentHistory();
     const writes = [write(null, 'first')];
@@ -106,4 +147,25 @@ describe('ContentHistory', () => {
     (snapshot.order!.before as string[])[0] = 'changed';
     expect(history.peekUndo()?.order?.before).toEqual(['a', 'b']);
   });
+});
+
+it('bounds and clones semantic snapshots while preserving guarded cursor identity', async () => {
+  const { sheetDocument, workbookWithSheets } = await import('@test-support/workbookFactories');
+  const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1 });
+  const before = workbookWithSheets([sheet]);
+  const after = structuredClone(before);
+  after.documents.s!.content.rows.reverse();
+  const history = new ContentHistory();
+  expect(history.canRecordSemantic(before, after)).toBe(true);
+  expect(history.recordSemantic(before, after)).toBe(true);
+  const retained = history.peekUndo()!;
+  retained.snapshots!.after.documents.s!.content.rows.reverse();
+  expect(history.peekUndo()!.snapshots!.after.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
+  expect(history.commitGuarded('undo', retained.identity)).toBe(true);
+  expect(history.peekRedo()!.kind).toBe('semantic');
+  const huge = structuredClone(before);
+  huge.documents.s!.name = 'x'.repeat(17 * 1024 * 1024);
+  expect(history.canRecordSemantic(before, huge)).toBe(false);
+  expect(history.recordSemantic(before, huge)).toBe(false);
+  expect(history.canRedo).toBe(true);
 });

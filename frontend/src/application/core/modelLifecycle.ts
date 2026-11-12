@@ -1,3 +1,4 @@
+import { retainSortingColumns } from '@workbook/core/sorting';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { classifyCellValue, materializeFormulaValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { cellKey } from '@workbook/core/address';
@@ -181,6 +182,7 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
   return {
     ...sheet,
     modelId: model.id,
+    sorting: retainSortingColumns(sheet, columns),
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
     columnNames: sheet.columnNames && filter(sheet.columnNames, (id) => retained.has(id)),

@@ -29,7 +29,10 @@ data class SheetZOrderWrite(
 )
 
 interface WorkbookStore {
-    fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> WorkbookState): WorkbookState
+    fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission
+    fun replayDeletion(replay: PreparedDeletionReplay): StoredRecordAdmission
+    fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission
+    fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission
     fun loadManifest(): WorkbookManifest
 
     fun loadSheet(sheetId: SheetId): SheetDocument?

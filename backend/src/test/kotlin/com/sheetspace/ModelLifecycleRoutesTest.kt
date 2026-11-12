@@ -16,6 +16,31 @@ import kotlin.test.assertNotEquals
 
 class ModelLifecycleRoutesTest {
     @Test
+    fun `sorting and row order survive lifecycle save and invalid criteria are atomic`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleWorkbook()
+            store.saveWorkbook(before)
+            val sheet = before.sheetsInOrder.first()
+            val content = sheet.tabularContent
+            val sorted = sheet.copy(
+                sorting = listOf(SortCriterion(content.columns.first().value, "descending")),
+                content = TabularContent(content.rows.reversed(), content.columns, content.cellContents),
+            )
+            val after = before.replaceSheet(sorted)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }.status)
+                val saved = store.loadWorkbookBundle()
+                assertEquals(sorted.sorting, saved.documents.getValue(sheet.id).sorting)
+                assertEquals(sorted.tabularContent, saved.documents.getValue(sheet.id).tabularContent)
+                val invalid = saved.replaceSheet(saved.documents.getValue(sheet.id).copy(sorting = listOf(SortCriterion("unknown", "ascending"))))
+                assertEquals(HttpStatusCode.BadRequest, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(saved, invalid)) }.status)
+                assertEquals(saved, store.loadWorkbookBundle())
+            }
+        }
+    }
+
+    @Test
     fun `column names survive lifecycle writes and stale snapshots conflict`() {
         SqliteWorkbookStore.inMemory().use { store ->
             val before = lifecycleWorkbook()
@@ -50,7 +75,7 @@ class ModelLifecycleRoutesTest {
                 val revision = store.loadSheet(id)!!.revision
                 val invalid = client.post("/api/sheets/${id.value}/records") {
                     header("If-Match", revision)
-                    jsonBody(Json.encodeToString(RecordAdmissionRequest(RowId.generate().value, mapOf(LIFECYCLE_INPUT to "invalid"))))
+                    jsonBody(Json.encodeToString(RecordAdmissionRequest(RowId.generate().value, mapOf(LIFECYCLE_INPUT to "invalid"), WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle()))))
                 }
                 assertEquals(HttpStatusCode.BadRequest, invalid.status)
                 assertEquals(HttpStatusCode.BadRequest, client.post("/api/sheets/${id.value}/rows") { header("If-Match", revision) }.status)
@@ -58,15 +83,16 @@ class ModelLifecycleRoutesTest {
                 repeat(2) { index ->
                     val reloaded = store.loadSheet(id)!!
                     val rowId = RowId.generate().value
+                    val guard = WorkbookReadTransportAdapter.bundle(store.loadWorkbookBundle())
                     val row = client.post("/api/sheets/${id.value}/records") {
                         header("If-Match", reloaded.revision)
-                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"))))
+                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"), guard)))
                     }.decodeBody<RecordAdmissionResponse>()
                     val retry = client.post("/api/sheets/${id.value}/records") {
                         header("If-Match", reloaded.revision)
-                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"))))
+                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"), guard)))
                     }.decodeBody<RecordAdmissionResponse>()
-                    assertEquals(row, retry)
+                    assertEquals(row.copy(alreadyCommitted = true), retry)
                     val formula = derivedFormulaRaw(empty.documents.getValue(id).modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT), store.loadWorkbookBundle(), index, "=@A[1]*2", id.value)
                     val saved = store.loadWorkbookBundle().documents.getValue(id)
                     assertEquals(index + 1, saved.tabularContent.rowCount)
@@ -139,7 +165,7 @@ class ModelLifecycleRoutesTest {
                 val changed = store.updateWorkbook { current -> current.replaceSheet(current.sheetsInOrder.last().rename("Concurrent")) }
                 val conflict = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }
                 assertEquals(HttpStatusCode.Conflict, conflict.status)
-                assertEquals(ErrorResponse("model-lifecycle-conflict"), conflict.decodeBody())
+                assertEquals(ErrorResponse("model-lifecycle-conflict", scope = "workbook"), conflict.decodeBody())
                 assertEquals(changed, store.loadWorkbookBundle())
 
                 val invalid = after.copy(documents = after.documents.mapValues { (_, sheet) -> sheet.copy(name = "Duplicate") })

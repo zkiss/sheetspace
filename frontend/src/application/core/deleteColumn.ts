@@ -1,3 +1,4 @@
+import { retainSortingColumns } from '@workbook/core/sorting';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 
@@ -10,6 +11,7 @@ export function deleteColumn(workbook: Workbook, sheetId: string, columnId: stri
   const formats = sheet.presentation.formatOverrides;
   const next = {
     ...sheet,
+    sorting: retainSortingColumns(sheet, sheet.content.columns.filter((id) => id !== columnId)),
     columnNames: sheet.columnNames && withoutColumn(sheet.columnNames),
     content: { ...sheet.content, columns: sheet.content.columns.filter((id) => id !== columnId), cells: withoutColumnCells(sheet.content.cells) },
     presentation: {

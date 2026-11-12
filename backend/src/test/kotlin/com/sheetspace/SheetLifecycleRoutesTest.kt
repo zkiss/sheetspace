@@ -75,7 +75,7 @@ class SheetLifecycleRoutesTest {
             }
 
             assertEquals(HttpStatusCode.Conflict, staleDelete.status)
-            assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleDelete.decodeBody<ErrorResponse>())
+            assertEquals(ErrorResponse("sheet-revision-conflict", sheetId, initialRevision, initialRevision + 1), staleDelete.decodeBody<ErrorResponse>())
             assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
         }
 

@@ -21,6 +21,7 @@ internal fun WorkbookBundleResponse.toLifecycleWorkbook(): WorkbookState = try {
                 modelColumnBindings = document.modelColumnBindings.mapValues { ColumnId(it.value) },
                 modelFormulaBindings = document.modelFormulaBindings,
                 columnNames = document.columnNames,
+                sorting = document.sorting,
             )
             sheet.id to sheet
         },

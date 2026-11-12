@@ -3,6 +3,10 @@ const NATIVE_BOUNDARY = '[data-workspace-native-content], [role="menu"]';
 const CONTROL = 'button, a';
 const SHEET_FRAME = '[data-workspace-sheet-frame]';
 
+export function isSheetMenuTarget(target: EventTarget | null): boolean {
+  return !!eventTargetElement(target)?.closest('.sheet-context-menu');
+}
+
 function cssAttributeString(value: string): string {
   return Array.from(value, (character) => {
     const codePoint = character.codePointAt(0)!;
