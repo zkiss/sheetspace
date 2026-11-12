@@ -19,11 +19,11 @@ function equal(left: unknown, right: unknown): boolean {
   return keys.length === Object.keys(b).filter((key) => b[key] !== undefined).length && keys.every((key) => equal(a[key], b[key]));
 }
 
-function semantic(workbook: Workbook): Workbook {
+export function semantic(workbook: Workbook): Workbook {
   return { ...workbook, manifest: { ...workbook.manifest, revision: 0 }, documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => [id, { ...sheet, revision: 0 }])) };
 }
 
-function replayDelta(current: unknown, expected: unknown, target: unknown): { ok: true; value: unknown } | { ok: false } {
+export function replayDelta(current: unknown, expected: unknown, target: unknown): { ok: true; value: unknown } | { ok: false } {
   if (equal(expected, target)) return { ok: true, value: current };
   const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
   if (object(expected) && object(target)) {

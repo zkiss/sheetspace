@@ -8,7 +8,7 @@ export const EXTRACTION_HISTORY_MAX_BYTES = 16 * 1024 * 1024;
 
 export type ContentTransaction = {
   identity: number;
-  kind: 'cells' | 'extraction' | 'axis-order' | 'model-record';
+  kind: 'cells' | 'extraction' | 'axis-order' | 'model-record' | 'semantic';
   writes: readonly CellPersistenceWrite[];
   affected: AffectedWorkbookEntities;
   bytes: number;
@@ -82,6 +82,18 @@ export class ContentHistory {
     this.pushUndo(transaction);
     return { ok: true } as const;
   }
+  canRecordSemantic(before: Workbook, after: Workbook) {
+    return extractionBytes(before, after) + this.identityBytes() <= EXTRACTION_HISTORY_MAX_BYTES;
+  }
+  recordSemantic(before: Workbook, after: Workbook) {
+    const bytes = extractionBytes(before, after) + this.identityBytes();
+    if (bytes > EXTRACTION_HISTORY_MAX_BYTES) return false;
+    this.clearRedo();
+    this.pushUndo(cloneTransaction({ identity: this.nextIdentity++, kind: 'semantic', writes: [],
+      affected: { sheetIds: [...new Set([...before.manifest.sheetIds, ...after.manifest.sheetIds])], cells: [] },
+      bytes, snapshots: { before, after } }));
+    return true;
+  }
   recordOrder(order: NonNullable<ContentTransaction['order']>) {
     const bytes = new TextEncoder().encode(JSON.stringify(order)).byteLength + this.identityBytes();
     if (bytes > CONTENT_HISTORY_MAX_BYTES) return { ok: false, reason: 'order-history-too-large' } as const;
@@ -111,7 +123,7 @@ export class ContentHistory {
   private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; }
   private trimUndo() {
     const bytesFor = (kind: ContentTransaction['kind']) => this.undoStack.reduce((sum, entry) => sum + (entry.kind === kind ? entry.bytes : 0), 0);
-    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') + bytesFor('model-record') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') > EXTRACTION_HISTORY_MAX_BYTES) {
+    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') + bytesFor('model-record') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') + bytesFor('semantic') > EXTRACTION_HISTORY_MAX_BYTES) {
       const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes;
     }
   }

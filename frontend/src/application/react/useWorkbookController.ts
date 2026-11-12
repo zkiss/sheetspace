@@ -24,6 +24,7 @@ import {
   type WorkbookOperation,
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
+import { createSortingHistory } from './sortingHistory';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
@@ -371,19 +372,17 @@ export function useWorkbookController({
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
     publishHistory: () => setHistoryRevision((revision) => revision + 1),
-    replayRecord: recordReplay.replay,
+    replayRecord: recordReplay.replay, replaySemantic: (transaction, direction) => sortingHistory.replay(transaction, direction),
   });
 
+  const sortingHistory = createSortingHistory({ submit: (transform, success) => applyModelLifecycleTransition(transform, success, true), history: contentHistory, calculation: committedCalculation.current!, publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
-    const localSheetId = sheetId;
-    return applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
+    return applyAction({ kind: 'move-sheet-frame', sheetId, position });
   }
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
-    const localSheetId = sheetId;
-    return applyAction({
-      kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
-    });
+    return applyAction({ kind: 'resize-sheet-frame', sheetId, position, size: frameSize });
   }
 
   function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
@@ -406,6 +405,7 @@ export function useWorkbookController({
     })),
     commands: {
       currentWorkbook: () => optimisticWorkbook.current,
+      configureSorting: sortingHistory.configure,
       gatherAxis: (sheetId, axis, ids, gap) => mixedHistory.reorder(sheetId, axis, (source) => gatherAxis(source, sheetId, axis, ids, gap)),
       shiftAxis: (sheetId, axis, ids, direction) => mixedHistory.reorder(sheetId, axis, (source) => shiftAxis(source, sheetId, axis, ids, direction)),
       extractSelection: (request, publication) => extractionCommand(request, {

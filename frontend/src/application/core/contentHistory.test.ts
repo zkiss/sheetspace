@@ -148,3 +148,24 @@ describe('ContentHistory', () => {
     expect(history.peekUndo()?.order?.before).toEqual(['a', 'b']);
   });
 });
+
+it('bounds and clones semantic snapshots while preserving guarded cursor identity', async () => {
+  const { sheetDocument, workbookWithSheets } = await import('@test-support/workbookFactories');
+  const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1 });
+  const before = workbookWithSheets([sheet]);
+  const after = structuredClone(before);
+  after.documents.s!.content.rows.reverse();
+  const history = new ContentHistory();
+  expect(history.canRecordSemantic(before, after)).toBe(true);
+  expect(history.recordSemantic(before, after)).toBe(true);
+  const retained = history.peekUndo()!;
+  retained.snapshots!.after.documents.s!.content.rows.reverse();
+  expect(history.peekUndo()!.snapshots!.after.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
+  expect(history.commitGuarded('undo', retained.identity)).toBe(true);
+  expect(history.peekRedo()!.kind).toBe('semantic');
+  const huge = structuredClone(before);
+  huge.documents.s!.name = 'x'.repeat(17 * 1024 * 1024);
+  expect(history.canRecordSemantic(before, huge)).toBe(false);
+  expect(history.recordSemantic(before, huge)).toBe(false);
+  expect(history.canRedo).toBe(true);
+});
