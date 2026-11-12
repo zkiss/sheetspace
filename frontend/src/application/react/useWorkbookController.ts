@@ -412,7 +412,9 @@ export function useWorkbookController({
       shiftAxis: (sheetId, axis, ids, direction) => reorderOrigin({ before: optimisticWorkbook.current, sheetId, axis, transform: (source) => shiftAxis(source, sheetId, axis, ids, direction), reorder: mixedHistory.reorder, submit: (candidate, isNoop) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate }), undefined, undefined, isNoop).result }),
       extractSelection: (request, publication) => extractionCommand(request, {
         history: contentHistory,
+        current: () => optimisticWorkbook.current,
         submit: (transform, success) => applyModelLifecycleTransition(transform, success, true, publication),
+        submitOrigin: (candidate) => applyOriginatingLifecycle(() => ({ ok: true as const, value: candidate }), publication),
         publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); },
       }),
       submitEntryDraft: async (sheetId) => {
