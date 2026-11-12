@@ -68,14 +68,52 @@ async function replay(result: { current: ReturnType<typeof useWorkbookController
   await waitFor(() => expect(result.current.workbook.documents.sheet!.content.rows).toEqual(expected));
 }
 
+function assertEndpoint(result: { current: ReturnType<typeof useWorkbookController> }, initial: Workbook, rowId: string, admitted: boolean) {
+  const target = initial.documents.sheet!;
+  const dependent = initial.documents.other!;
+  const input = target.modelColumnBindings!.input!;
+  const output = target.modelColumnBindings!.output!;
+  const inputKey = cellIdentityKey({ rowId, columnId: input });
+  const outputKey = cellIdentityKey({ rowId, columnId: output });
+  const cells = admitted ? { ...target.content.cells, [inputKey]: '1', [outputKey]: `=SUM(@${input}[${rowId}])` } : target.content.cells;
+  expect(result.current.workbook.documents.sheet!.content).toEqual({
+    ...target.content, rows: admitted ? [rowId, ...target.content.rows] : target.content.rows, cells,
+  });
+  expect(result.current.workbook.documents.other!.content).toEqual({
+    ...dependent.content, rows: admitted ? [...dependent.content.rows].reverse() : dependent.content.rows,
+  });
+  if (!admitted) {
+    expect(Object.prototype.hasOwnProperty.call(result.current.workbook.documents.sheet!.content.cells, inputKey)).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(result.current.workbook.documents.sheet!.content.cells, outputKey)).toBe(false);
+  }
+  expect(result.current.canUndo).toBe(admitted);
+  expect(result.current.canRedo).toBe(!admitted);
+}
+
+function assertNoSubstituteWrites(api: ReturnType<typeof persistedWorkbookClient>) {
+  expect(api.admitRecord).toHaveBeenCalledOnce();
+  expect(api.writeCells).not.toHaveBeenCalled();
+  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.writeSorting).not.toHaveBeenCalled();
+  expect(api.writeAxisOrder).not.toHaveBeenCalled();
+}
+
 describe('persisted record replay integration', () => {
   it('adopts exact authoritative endpoints through an admission and three history moves', async () => {
     const { api, initial } = fixture();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    expect(result.current.workbook.documents.sheet!.content).toEqual(initial.documents.sheet!.content);
+    expect(result.current.workbook.documents.other!.content).toEqual(initial.documents.other!.content);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
     await submit(result);
     const admitted = result.current.workbook;
     const rowId = api.admitRecord.mock.calls[0]![1].rowId;
     const request = api.admitRecord.mock.calls[0]![1];
+    const bindings = initial.documents.sheet!.modelColumnBindings!;
+    expect(Object.prototype.hasOwnProperty.call(initial.documents.sheet!.content.cells, cellIdentityKey({ rowId, columnId: bindings.input! }))).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(initial.documents.sheet!.content.cells, cellIdentityKey({ rowId, columnId: bindings.output! }))).toBe(false);
+    assertEndpoint(result, initial, rowId, true);
     expect(request.before.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
     expect(request.before.documents.other!.content.rows).toEqual(initial.documents.other!.content.rows);
     expect(request.rowOrders).toEqual([
@@ -95,47 +133,41 @@ describe('persisted record replay integration', () => {
     ].sort());
 
     await replay(result, 'undo', initial.documents.sheet!.content.rows);
-    expect(result.current.canUndo).toBe(false);
-    expect(result.current.canRedo).toBe(true);
-    expect(result.current.workbook.documents.other!.content.rows).toEqual(initial.documents.other!.content.rows);
+    assertEndpoint(result, initial, rowId, false);
     await replay(result, 'redo', admitted.documents.sheet!.content.rows);
-    expect(result.current.canUndo).toBe(true);
-    expect(result.current.canRedo).toBe(false);
-    expect(result.current.workbook.documents.sheet!.content.cells).toEqual(admittedCells);
-    expect(result.current.workbook.documents.sheet!.content.rows).toEqual(admitted.documents.sheet!.content.rows);
-    expect(result.current.workbook.documents.other!.content.rows).toEqual(admitted.documents.other!.content.rows);
+    assertEndpoint(result, initial, rowId, true);
     await replay(result, 'undo', initial.documents.sheet!.content.rows);
-    expect(result.current.canUndo).toBe(false);
-    expect(result.current.canRedo).toBe(true);
-    expect(result.current.workbook.documents.other!.content.rows).toEqual(initial.documents.other!.content.rows);
+    assertEndpoint(result, initial, rowId, false);
     const requests = api.replayRecord.mock.calls.map((call) => call[2]);
     expect(api.replayRecord.mock.calls.map(([sheetId, replayRowId]) => [sheetId, replayRowId])).toEqual([
       ['sheet', rowId], ['sheet', rowId], ['sheet', rowId],
     ]);
     expect(requests.map((request) => request.direction)).toEqual(['undo', 'redo', 'undo']);
     expect(new Set(requests.map((request) => request.operationId)).size).toBe(3);
-    expect(api.admitRecord).toHaveBeenCalledOnce();
-    expect(api.writeCells).not.toHaveBeenCalled();
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    assertNoSubstituteWrites(api);
   });
 
   it('retries an ambiguous replay with the same frozen request and releases the fence', async () => {
     const { api, initial } = fixture(true);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     await submit(result);
+    const rowId = api.admitRecord.mock.calls[0]![1].rowId;
     const admittedRows = result.current.workbook.documents.sheet!.content.rows;
+    assertEndpoint(result, initial, rowId, true);
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.error).toBeDefined());
-    expect(result.current.canUndo).toBe(true);
-    expect(result.current.canRedo).toBe(false);
-    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+    assertEndpoint(result, initial, rowId, true);
     await replay(result, 'undo', initial.documents.sheet!.content.rows);
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
     await expect(api.replayRecord.mock.results[1]!.value).resolves.toMatchObject({ alreadyCommitted: true });
-    expect(result.current.canUndo).toBe(false);
-    expect(result.current.canRedo).toBe(true);
+    assertEndpoint(result, initial, rowId, false);
     await replay(result, 'redo', admittedRows);
-    expect(result.current.canUndo).toBe(true);
-    expect(result.current.canRedo).toBe(false);
+    assertEndpoint(result, initial, rowId, true);
+    expect(api.replayRecord).toHaveBeenCalledTimes(3);
+    const [first, , third] = api.replayRecord.mock.calls;
+    expect(third!.slice(0, 2)).toEqual(['sheet', rowId]);
+    expect(third![2].direction).toBe('redo');
+    expect(third![2].operationId).not.toBe(first![2].operationId);
+    assertNoSubstituteWrites(api);
   });
 });
