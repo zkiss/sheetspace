@@ -62,6 +62,10 @@ export class RecordDeletionOwner {
         if (!state.request) {
           const before = await options.loadWorkbook();
           adopt(before);
+          const sheet = before.documents[state.identity.sheetId];
+          if (!sheet?.modelId || !before.dataModels?.[sheet.modelId] || !sheet.content.rows.includes(state.identity.rowId)) {
+            throw new Error('The record is no longer available.');
+          }
           const candidate = deleteRow(before, state.identity.sheetId, state.identity.rowId);
           if (!candidate.ok) throw new Error('The record is no longer available.');
           const orders = settleSorting(candidate.value, options.calculator, { kind: 'structure' }).orders;
@@ -77,7 +81,10 @@ export class RecordDeletionOwner {
         });
         if (typeof result?.operationId !== 'string' || result.operationId.toLowerCase() !== state.identity.operationId.toLowerCase() ||
           typeof result.rowId !== 'string' || result.rowId.toLowerCase() !== state.identity.rowId.toLowerCase() ||
-          typeof result.deletionId !== 'string' || !result.deletionId || typeof result.alreadyCommitted !== 'boolean') {
+          typeof result.deletionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.deletionId) ||
+          typeof result.alreadyCommitted !== 'boolean' ||
+          (!result.alreadyCommitted && (!result.workbook?.documents?.[state.identity.sheetId] ||
+            result.workbook.documents[state.identity.sheetId].content.rows.includes(state.identity.rowId)))) {
           throw new Error('The deletion response did not match the operation. Retry to confirm it.');
         }
         adopt(result.workbook);

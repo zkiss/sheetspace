@@ -8,16 +8,26 @@ import { deferred } from '@test-support/apiClients';
 import type { Workbook } from '@workbook/core/model';
 import { RecordDeletionOwner } from './recordDeletionOwner';
 import type { RecordDeletionRequest } from './recordReplay';
+import { deleteRow } from './deleteRow';
+
+const deletionId = '12345678-1234-1234-1234-123456789abc';
+
+function deleted(workbook: Workbook, row: string) {
+  const result = deleteRow(workbook, 's', row);
+  if (!result.ok) throw new Error('Missing test row');
+  return result.value;
+}
 
 function setup() {
   const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 3, columnCount: 1, cells: { A1: '3', A2: '2', A3: '1' } });
-  const before = workbookWithSheets([{ ...sheet, sorting: [{ columnId: 's:column:1', direction: 'ascending' }] }]);
+  const before: Workbook = { ...workbookWithSheets([{ ...sheet, modelId: 'model', sorting: [{ columnId: 's:column:1', direction: 'ascending' }] }]),
+    dataModels: { model: { id: 'model', name: 'Model', columns: [] } } };
   let current = before;
   const coordinator = new WorkbookPersistenceCoordinator();
   const owner = new RecordDeletionOwner();
   const options = { coordinator, calculator: new FormulaCalculation(), waitForPredecessors: vi.fn(async () => {}),
     currentWorkbook: () => current, loadWorkbook: vi.fn(async () => before), reconcile: vi.fn((value: Workbook) => { current = value; }),
-    deleteRecord: vi.fn(async (_sheet: string, row: string, request: RecordDeletionRequest) => ({ operationId: request.operationId, rowId: row, deletionId: 'deletion', alreadyCommitted: false, workbook: before })) };
+    deleteRecord: vi.fn(async (_sheet: string, row: string, request: RecordDeletionRequest) => ({ operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: false, workbook: deleted(before, row) })) };
   return { owner, options, before, sheet, coordinator };
 }
 
@@ -41,7 +51,7 @@ it('retains immutable identity and request across lost responses and confirms on
   const request = structuredClone(options.deleteRecord.mock.calls[0]);
   before.documents.s!.name = 'changed';
   await expect(owner.start('s', sheet.content.rows[1]!, options)).rejects.toThrow('Resolve');
-  options.deleteRecord.mockImplementationOnce(async (_s, row, payload) => ({ operationId: payload.operationId, rowId: row, deletionId: 'deletion', alreadyCommitted: true, workbook: options.currentWorkbook() }));
+  options.deleteRecord.mockImplementationOnce(async (_s, row, payload) => ({ operationId: payload.operationId, rowId: row, deletionId, alreadyCommitted: true, workbook: options.currentWorkbook() }));
   await owner.confirmRetained(options);
   expect(options.deleteRecord.mock.calls[1]).toEqual(request);
   expect(options.loadWorkbook).toHaveBeenCalledOnce();
@@ -50,23 +60,45 @@ it('retains immutable identity and request across lost responses and confirms on
   expect(options.deleteRecord.mock.calls[2]![2].operationId).not.toBe(request![2].operationId);
 });
 
-it.each([{ operationId: null }, { rowId: 'wrong' }, { deletionId: '' }, { alreadyCommitted: 'yes' }])('retains malformed receipts: %o', async (bad) => {
+it.each([{ operationId: null }, { rowId: 'wrong' }, { deletionId: '' }, { deletionId: 'not-a-uuid' }, { alreadyCommitted: 'yes' }])('retains malformed receipts: %o', async (bad) => {
   const { owner, options, sheet } = setup();
-  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId: 'd', alreadyCommitted: false, workbook: options.currentWorkbook(), ...bad }) as never);
+  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: false, workbook: deleted(options.currentWorkbook(), row), ...bad }) as never);
   await expect(owner.start('s', sheet.content.rows[0]!, options)).rejects.toThrow('did not match');
   expect(owner.unresolved).toBe(true);
   await owner.confirmRetained(options);
+});
+
+it('retains a first-application receipt that still contains the row, but accepts a later already-committed endpoint', async () => {
+  const { owner, options, sheet, before } = setup();
+  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: false, workbook: before }));
+  await expect(owner.start('s', sheet.content.rows[0]!, options)).rejects.toThrow('did not match');
+  expect(owner.unresolved).toBe(true);
+  expect(options.reconcile).toHaveBeenCalledTimes(1);
+  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: true, workbook: before }));
+  await owner.confirmRetained(options);
+  expect(owner.unresolved).toBe(false);
+});
+
+it.each(['unbound', 'missing model', 'missing row'])('rejects %s targets before dispatch', async (target) => {
+  const { owner, options, sheet, before } = setup();
+  if (target === 'unbound') delete before.documents.s!.modelId;
+  if (target === 'missing model') before.documents.s!.modelId = 'missing';
+  const row = target === 'missing row' ? 'missing' : sheet.content.rows[0]!;
+  await expect(owner.start('s', row, options)).rejects.toThrow('no longer available');
+  expect(options.deleteRecord).not.toHaveBeenCalled();
+  expect(owner.unresolved).toBe(false);
+  expect(owner.identity).toBeUndefined();
 });
 
 it('retains stale adoption and reconciles missing sheets on confirmation', async () => {
   const { owner, options, sheet, coordinator } = setup();
   options.deleteRecord.mockImplementationOnce(async (_s, row, request) => {
     coordinator.recordRevision('s', 2);
-    return { operationId: request.operationId, rowId: row, deletionId: 'd', alreadyCommitted: false, workbook: options.currentWorkbook() };
+    return { operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: false, workbook: deleted(options.currentWorkbook(), row) };
   });
   await expect(owner.start('s', sheet.content.rows[0]!, options)).rejects.toThrow('older');
   const empty = workbookWithSheets([]); empty.manifest.revision = 2;
-  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId: 'd', alreadyCommitted: true, workbook: empty }));
+  options.deleteRecord.mockImplementationOnce(async (_s, row, request) => ({ operationId: request.operationId, rowId: row, deletionId, alreadyCommitted: true, workbook: empty }));
   await owner.confirmRetained(options);
   expect(coordinator.isSheetMissing('s')).toBe(true);
 });
