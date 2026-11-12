@@ -52,7 +52,7 @@ export function SheetContextMenu({
       role="menu"
       style={{
         left: menu.x,
-        top: menu.y,
+        top: `clamp(0px, ${menu.y}px, max(0px, calc(100vh - min(90vh, 40rem))))`,
         zIndex: FLOATING_OVERLAY_Z_INDEX,
       }}
     >

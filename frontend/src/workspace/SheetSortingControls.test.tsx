@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { SheetSortingControls } from './SheetSortingControls';
@@ -62,4 +63,21 @@ it('shows rejection and pending feedback without losing the draft', async () => 
   finish({ ok: false, reason: 'persistence-failed' });
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
   expect(screen.getByLabelText('Column 1')).toHaveValue('s:column:1');
+});
+
+
+it('keeps keyboard focus on the column selector when its value changes', async () => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 2 });
+  const result = { ok: true as const };
+  render(<SheetSortingControls sheet={sheet} onApply={() => ({ result, completion: Promise.resolve(result) })} />);
+  await user.click(screen.getByRole('menuitem', { name: 'Sorting…' }));
+  await user.click(screen.getByRole('button', { name: 'Add criterion' }));
+  const column = screen.getByLabelText('Column 1');
+  column.focus();
+  await user.selectOptions(column, 's:column:2');
+  expect(column).toHaveFocus();
+  expect(column).toHaveValue('s:column:2');
+  await user.tab();
+  expect(screen.getByLabelText('Direction 1')).toHaveFocus();
 });

@@ -1,5 +1,6 @@
 .sheet-context-menu {
   position: fixed;
+  box-sizing: border-box;
   display: grid;
   min-width: 10rem;
   max-height: min(90vh, 40rem);
