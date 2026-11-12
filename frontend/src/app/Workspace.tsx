@@ -14,7 +14,8 @@ import type { SelectionGesture, CellTarget, CellNavigationDirection, CellEditSes
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
-import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
+import { contextualReferences, projectReferenceGeometry } from '@reference-navigation/contextualReferenceProjection';
+import { useReferenceViewports } from './useReferenceViewports';
 import { inspectStoredFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
@@ -183,7 +184,6 @@ export function Workspace({
   const selectionTransition = useSelectionTransition(activeCell);
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [modifierReferenceSpan, setModifierReferenceSpan] = useState<{ start: number; end: number } | null>(null);
-  const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [errorsOpen, setErrorsOpen] = useState(false);
   const [errorReferenceHover, setErrorReferenceHover] = useState<ErrorReferenceHover>(null);
@@ -801,56 +801,9 @@ export function Workspace({
     return (maximise.state.mode !== 'restoring' && next.size !== mountedSheetIds.size)
       || [...next].some((id) => !mountedSheetIds.has(id));
   };
-  const referenceViewportsPaused = maximise.state.mode !== 'canvas' || interactionPinnedSheetId !== null;
-  const referenceViewportsPausedRef = useRef(referenceViewportsPaused);
-  referenceViewportsPausedRef.current = referenceViewportsPaused;
-  const bufferedReferenceViewports = useRef(new Map<string, GridReferenceViewport | null>());
-  const applyReferenceViewports = useCallback((updates: Map<string, GridReferenceViewport | null>) => {
-    if (!updates.size) return;
-    setReferenceGridViewports((current) => {
-      let next: Record<string, GridReferenceViewport | undefined> = current;
-      const copy = () => {
-        if (next === current) next = { ...current };
-        return next;
-      };
-      for (const [sheetId, viewport] of updates) {
-        const previous = next[sheetId];
-        if (!viewport) {
-          if (!previous) continue;
-          const changed = copy();
-          delete changed[sheetId];
-          continue;
-        }
-        if (previous
-          && previous.scrollLeft === viewport.scrollLeft && previous.scrollTop === viewport.scrollTop
-          && previous.size.width === viewport.size.width && previous.size.height === viewport.size.height
-          && previous.renderingMode === viewport.renderingMode) continue;
-        copy()[sheetId] = viewport;
-      }
-      return next;
-    });
-  }, []);
-  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
-    // A frame presentation or a frame gesture resizes the sheet body on every
-    // frame. Recording each size would re-render the whole workspace per
-    // frame, and reference links are hidden or stale until it settles anyway.
-    // Keep only the latest size so the settled geometry is still recorded.
-    if (referenceViewportsPausedRef.current) {
-      bufferedReferenceViewports.current.set(sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' });
-      return;
-    }
-    applyReferenceViewports(new Map([[sheetId, viewport && { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' }]]));
-  }, [applyReferenceViewports]);
-  useLayoutEffect(() => {
-    if (referenceViewportsPaused) return;
-    const buffered = bufferedReferenceViewports.current;
-    bufferedReferenceViewports.current = new Map();
-    applyReferenceViewports(buffered);
-  }, [applyReferenceViewports, referenceViewportsPaused]);
-  const reportReferenceRenderingMode = useCallback((sheetId: string, renderingMode: 'detailed' | 'overview') => {
-    if (renderingMode === 'detailed') return;
-    setReferenceGridViewports((current) => current[sheetId]?.renderingMode === renderingMode ? current : { ...current, [sheetId]: { scrollLeft: 0, scrollTop: 0, size: { width: 0, height: 0 }, mounted: true, renderingMode } });
-  }, []);
+  const { referenceGridViewports, reportReferenceViewport, reportReferenceRenderingMode } = useReferenceViewports(
+    maximise.state.mode !== 'canvas' || interactionPinnedSheetId !== null,
+  );
   const contextualReferenceItems = useMemo(() => formulaInspection ? contextualReferences(formulaInspection.references).map((contextual) => ({
     contextual,
     geometry: projectReferenceGeometry({ reference: contextual.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize }),

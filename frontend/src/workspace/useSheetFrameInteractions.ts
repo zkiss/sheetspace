@@ -139,6 +139,7 @@ export function useSheetFrameInteractions({
     const moved = position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y;
     const committed = !moved || (commands.moveSheetFrame(finishedDrag.sheetId, position)?.ok ?? true);
 
+    if (committed && current.frameElement) paintFrame(current.frameElement, position);
     clearInteractionSession(!committed);
   }
 
@@ -229,6 +230,7 @@ export function useSheetFrameInteractions({
     const committed = !changed
       || (commands.resizeSheetFrame(resize.sheetId, nextLayout.position, nextLayout.frameSize)?.ok ?? true);
 
+    if (committed && current.frameElement) paintFrame(current.frameElement, nextLayout.position, nextLayout.frameSize);
     clearInteractionSession(!committed);
   }
 
