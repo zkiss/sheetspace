@@ -9,22 +9,24 @@ import { tabularProjection } from '@workbook/read/queries';
 import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 import { gatherAxis } from '@workbook/mutations/reorderAxis';
 import { cellTargetAt } from './cellInteraction';
+import { animateGridAxes } from './gridAxisMotionEffects';
+import fs from 'node:fs';
 
-function pointer(element: Element, type: string, x: number, y: number, pointerId = 1) {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+function pointer(element: Element, type: string, x: number, y: number, pointerId = 1, modifiers: MouseEventInit = {}) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, ...modifiers });
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false, mixed = false) {
+function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false, mixed = false, cellSelection = false) {
   const original = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
   const sheet = long ? { ...original, rows: Array.from({ length: 30 }, (_, i) => `row-${i}`), columns: Array.from({ length: 30 }, (_, i) => `column-${i}`) } : original;
   const ref = createRef<HTMLDivElement>();
   const gather = vi.fn(); const select = vi.fn(); const activity = vi.fn();
   const anchor = cellTargetAt(sheet, 'A1')!;
-  const selection = { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
-  const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; modelId?: string; selectionOwner?: symbol; sheet?: typeof sheet } = {}) => {
+  const selection = cellSelection ? { mode: 'cells' as const, anchor, extent: anchor } : { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
+  const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; modelId?: string; selectionOwner?: symbol; sheet?: typeof sheet; projectionChange?: 'rows' | 'columns' } = {}) => {
     const currentSheet = changes.sheet ?? sheet;
-    const slots = special ? { rows: [{ kind: 'creating' as const, operationId: 'pending-row', boundary: 30 }], columns: [{ kind: 'creating' as const, operationId: 'pending-column', boundary: 30 }] } : undefined;
+    const slots = changes.projectionChange ? { rows: changes.projectionChange === 'rows' ? [{ kind: 'creating' as const, operationId: 'new', boundary: 1 }] : [], columns: changes.projectionChange === 'columns' ? [{ kind: 'creating' as const, operationId: 'new', boundary: 1 }] : [] } : special ? { rows: [{ kind: 'creating' as const, operationId: 'pending-row', boundary: 30 }], columns: [{ kind: 'creating' as const, operationId: 'pending-column', boundary: 30 }] } : undefined;
     return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet, slots)}
     presentation={special ? { rowHeights: { [mixed ? 'row-2' : 'row-1']: 50 }, columnWidths: { [mixed ? 'column-2' : 'column-1']: 160 } } : undefined}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
@@ -40,6 +42,26 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long
 }
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); delete (document as Partial<Document>).elementFromPoint; });
 describe('header gather controls', () => {
+  it.each(['rows', 'columns'] as const)('drags %s selection rather than gathering from cell selection', (axis) => {
+    const { grid, select, gather } = setup(axis, true, false, false, false, true);
+    const row = axis === 'rows';
+    const header = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((item) => item.hasAttribute('data-axis-durable-index'))[0];
+    pointer(header, 'pointerdown', 50, 30);
+    pointer(grid, 'pointermove', row ? 50 : 200, row ? 85 : 30);
+    pointer(grid, 'pointerup', row ? 50 : 200, row ? 85 : 30);
+    expect(select).toHaveBeenCalledWith(axis, expect.anything(), false, expect.objectContaining({ start: true }));
+    expect(select).toHaveBeenCalledWith(axis, expect.anything(), true, expect.anything());
+    expect(gather).not.toHaveBeenCalled();
+  });
+  it.each([{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }])('keeps modifier %o as a selection gesture', (modifiers) => {
+    const { grid, select, gather } = setup();
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30, 1, modifiers);
+    pointer(grid, 'pointermove', 20, 100);
+    pointer(grid, 'pointerup', 20, 100);
+    expect(select).toHaveBeenCalled();
+    expect(gather).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
+  });
   it.each(['rows', 'columns'] as const)('scrolls %s at a scaled edge and releases the stationary pointer at its updated gap', (axis) => {
     let callback: FrameRequestCallback | undefined;
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });
@@ -282,7 +304,7 @@ describe('header gather controls', () => {
     expect(gather).toHaveBeenCalledWith(row ? 'row' : 'column', row ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]], row ? 3 : 2);
   });
   it.each(['owner', 'sheet', 'order', 'disabled', 'model'] as const)('cancels on %s changes', (change) => {
-    const { sheet, gather, grid, rerender } = setup('columns');
+    const { sheet, gather, grid, rerender, container } = setup('columns');
     pointer(screen.getAllByRole('columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0], 'pointerdown', 50, 10);
     pointer(grid, 'pointermove', 230, 10);
     rerender(change === 'owner' ? { selectionOwner: Symbol('external') }
@@ -292,6 +314,18 @@ describe('header gather controls', () => {
     pointer(grid, 'pointerup', 230, 10);
     expect(gather).not.toHaveBeenCalled();
     expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.sheet-grid-axis-flight-card')).toHaveLength(2);
+  });
+  it.each(['rows', 'columns'] as const)('returns the %s deck on a projection-only change', (axis) => {
+    const { gather, grid, rerender, container } = setup(axis);
+    const row = axis === 'rows';
+    const header = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((item) => item.hasAttribute('data-axis-durable-index'))[0];
+    pointer(header, 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', row ? 20 : 230, row ? 100 : 10);
+    rerender({ projectionChange: axis });
+    expect(container.querySelectorAll('.sheet-grid-axis-flight-card')).toHaveLength(2);
+    pointer(grid, 'pointerup', row ? 20 : 230, row ? 100 : 10);
+    expect(gather).not.toHaveBeenCalled();
   });
   it('cancels when hidden and on unmount', () => {
     const { gather, grid, unmount } = setup();
@@ -344,16 +378,34 @@ describe('header gather controls', () => {
     expect(cards.map((card) => card.textContent)).toEqual(row ? ['3', ''] : ['C', '']);
     expect(cards[0].style.width).toBe(cards[1].style.width);
     expect(cards[0].style.height).toBe(cards[1].style.height);
+    expect(cards[0].style.width).toBe(row ? '40px' : '160px');
+    expect(cards[0].style.height).toBe(row ? '50px' : '26.4px');
     expect(parseFloat(cards[1].style.left) - parseFloat(cards[0].style.left)).toBe(4);
     expect(parseFloat(cards[1].style.top) - parseFloat(cards[0].style.top)).toBe(4);
     expect(screen.getAllByTestId('axis-gather-line')).toHaveLength(1);
     pointer(grid, 'pointerup', row ? 120 : 300, row ? 120 : 80);
     const flight = [...container.querySelectorAll<HTMLElement>('.sheet-grid-axis-flight-card')];
     expect(flight.map((card) => card.textContent)).toEqual(row ? ['3', '1'] : ['C', 'A']);
+    expect(flight.map((card) => card.style.getPropertyValue(row ? '--flight-to-y' : '--flight-to-x'))).toEqual(row ? ['52.8px', '26.4px'] : ['152px', '76px']);
+    expect(flight.map((card) => card.style.getPropertyValue(row ? '--flight-from-y' : '--flight-from-x'))).toEqual(row ? ['30px', '34px'] : ['90px', '94px']);
     expect(flight[1].style.getPropertyValue(row ? '--flight-scale-y' : '--flight-scale-x')).not.toBe('1');
     act(() => vi.advanceTimersByTime(340));
     expect(container.querySelector('.sheet-grid-axis-flight')).toBeNull();
     vi.useRealTimers();
+  });
+  it('synchronizes the flight transform and easing with real axis motion', () => {
+    const gridStyles = fs.readFileSync('src/grid/SheetGrid.css', 'utf8');
+    const root = document.createElement('div');
+    root.innerHTML = '<div data-motion-row="row"></div><div data-motion-column="column"></div>';
+    const animate = vi.fn(() => ({ cancel: vi.fn(), onfinish: null } as unknown as Animation));
+    root.querySelectorAll<HTMLElement>('div').forEach((element) => { element.animate = animate; });
+    const cancel = animateGridAxes(root, { rows: [{ id: 'row', delta: 50, index: 0, start: 0, size: 50 }], columns: [{ id: 'column', delta: 160, index: 0, start: 0, size: 160 }] }, vi.fn());
+    expect(animate).toHaveBeenNthCalledWith(1, [{ transform: 'translateY(50px)' }, { transform: 'translateY(0px)' }], { duration: 220, easing: 'ease-out' });
+    expect(animate).toHaveBeenNthCalledWith(2, [{ transform: 'translateX(160px)' }, { transform: 'translateX(0px)' }], { duration: 220, easing: 'ease-out' });
+    expect(gridStyles).toMatch(/animation:\s*axis-gather-flight 220ms ease-out both/);
+    expect(gridStyles).toMatch(/transform-origin:\s*top left/);
+    expect(gridStyles).toContain('translate(var(--flight-to-x), var(--flight-to-y)) scale(var(--flight-scale-x), var(--flight-scale-y))');
+    cancel();
   });
   it('flies headers home on Escape and clears an earlier flight on the next press', () => {
     const { grid, container, gather } = setup();

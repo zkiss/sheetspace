@@ -26,7 +26,7 @@ type CardBase = { id: string; label: string; width: number; height: number; orde
 export type AxisGatherCard = CardBase & { x: number; y: number };
 export type AxisGatherDeck = { axis: Axis; cards: readonly AxisGatherCard[]; primaryId: string };
 export type AxisGatherFlight = { axis: Axis; cards: readonly (AxisGatherCard & { toX: number; toY: number; toWidth: number; toHeight: number })[] };
-type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; modelId?: string; owner: symbol | null | undefined;
+type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; projection: string; sheetId: string; modelId?: string; owner: symbol | null | undefined;
   gesture?: symbol; awaitingOwner: boolean; selection?: CellSelection | null; activeSheetId: string | null | undefined; pointerId: number; element: HTMLElement;
   primaryId: string; cards: readonly CardBase[]; grabClientX: number; grabClientY: number;
   x: number; y: number; clientX: number; clientY: number; moved: boolean; focusTarget?: CellTarget };
@@ -34,6 +34,8 @@ type Preview = { axis: Axis; start: number; line: number; gap: number };
 const DECK_VISIBLE_CARDS = 3;
 const DECK_STACK_OFFSET = 4;
 const FLIGHT_MS = 220;
+const projectionKey = (entries: GridAxisProjection['rows'] | GridAxisProjection['columns']) => JSON.stringify(entries.map((entry) =>
+  entry.kind === 'saved' ? [entry.kind, entry.id, entry.durableIndex] : [entry.kind, entry.operationId, entry.boundary]));
 
 export function useAxisGather(options: Options) {
   const latest = useRef(options); latest.current = options;
@@ -66,12 +68,13 @@ export function useAxisGather(options: Options) {
       || (current.axis === 'column' && !next.allowColumns)) return false;
     const order = current.axis === 'row' ? next.sheet.rows : next.sheet.columns;
     if (order.length !== current.order.length || order.some((id, i) => id !== current.order[i])) return false;
+    if (projectionKey(current.axis === 'row' ? next.rows : next.columns) !== current.projection) return false;
     if (current.awaitingOwner && next.selectionOwner === current.gesture) { current.awaitingOwner = false; current.activeSheetId = next.activeSheetId; current.selection = next.selection; }
     if (!current.awaitingOwner && current.selection !== next.selection) return false;
     return next.selectionOwner === undefined || next.selectionOwner === (current.awaitingOwner ? current.owner : current.gesture ?? current.owner);
   }, []);
-  useLayoutEffect(() => { if (session.current && !owns()) cancel(); });
   const interruptRef = useRef<() => void>(() => cancel());
+  useLayoutEffect(() => { if (session.current && !owns()) interruptRef.current(); });
   useLayoutEffect(() => {
     const interrupt = () => interruptRef.current();
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') interrupt(); };
@@ -195,7 +198,7 @@ export function useAxisGather(options: Options) {
   }
   function update() {
     const current = session.current; const container = latest.current.scrollContainerRef.current;
-    if (!current || !container || !owns()) { if (current) cancel(); return; }
+    if (!current || !container || !owns()) { if (current) cancelWithFlight(); return; }
     setDeck(current.moved ? deckAt(current, current.clientX, current.clientY) : null);
     const result = current.moved ? target(current.clientX, current.clientY) : null;
     setPreview(result);
@@ -220,7 +223,7 @@ export function useAxisGather(options: Options) {
     if (!velocity || (velocity < 0 ? scroll <= 0 : scroll >= max)) return;
     frame.current = requestAnimationFrame(() => {
       frame.current = null;
-      if (session.current !== current || !owns()) { if (session.current === current) cancel(); return; }
+      if (session.current !== current || !owns()) { if (session.current === current) cancelWithFlight(); return; }
       if (!target(current.clientX, current.clientY)) { setPreview(null); return; }
       const before = row ? container.scrollTop : container.scrollLeft;
       const value = Math.max(0, Math.min(max, before + velocity * 12 / scale));
@@ -263,7 +266,7 @@ export function useAxisGather(options: Options) {
     const grabClientX = event.clientX - sourceRect.left;
     const grabClientY = event.clientY - sourceRect.top;
     dismissFlight();
-    session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id, modelId: next.modelId,
+    session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], projection: projectionKey(axis === 'row' ? next.rows : next.columns), sheetId: next.sheet.id, modelId: next.modelId,
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
       primaryId: id, cards, grabClientX, grabClientY,
       pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, clientX: event.clientX, clientY: event.clientY, moved: false, focusTarget };
@@ -283,7 +286,7 @@ export function useAxisGather(options: Options) {
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current = session.current; if (!current || current.pointerId !== event.pointerId) return;
-    if (!owns()) { cancel(); return; }
+    if (!owns()) { cancelWithFlight(); return; }
     if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > 4) current.moved = true;
     current.clientX = event.clientX; current.clientY = event.clientY;
     if (frame.current !== null) cancelAnimationFrame(frame.current);
