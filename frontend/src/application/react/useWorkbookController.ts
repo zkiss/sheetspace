@@ -220,7 +220,7 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./workbookControllerTypes').LifecyclePublication, axisOwner?: string): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
-    if (admissionFence.held) {
+    if (admissionFence.held || recordReplay.state.unresolved) {
       setMutationFailure('pending-model-transition');
       const result = { ok: false, reason: 'pending-model-transition' } as const;
       return { result, completion: Promise.resolve(result) };

@@ -239,6 +239,29 @@ describe('persisted record replay integration', () => {
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
   });
 
+  it('fences sorting configuration and clearing until a retained record replay is confirmed', async () => {
+    const { api, initial } = fixture(true);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    await submit(result);
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
+    const before = result.current.workbook;
+    const columnId = before.documents.sheet!.modelColumnBindings!.input!;
+    act(() => {
+      expect(result.current.commands.configureSorting('sheet', [{ columnId, direction: 'descending' }]).result).toEqual({ ok: false, reason: 'pending-model-transition' });
+      expect(result.current.commands.configureSorting('sheet', []).result).toEqual({ ok: false, reason: 'pending-model-transition' });
+    });
+    expect(result.current.workbook).toEqual(before);
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
+    expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
+    expect(result.current.canRedo).toBe(true);
+    act(() => { expect(result.current.commands.configureSorting('sheet', []).result.ok).toBe(true); });
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+  });
+
   it('confirms a lost redo after an edit invalidates redo without restoring the old cursor', async () => {
     const { api, initial, loseNext } = fixture(false, false);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
