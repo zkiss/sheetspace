@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   clampSheetVisualScale,
   MAX_SHEET_VISUAL_SCALE,
@@ -37,6 +37,21 @@ export function SheetContextMenu({
   onSetScale: (sheetId: string, visualScale: number) => void;
   sheet: SheetDocument;
 }) {
+  const overlay = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = overlay.current;
+    if (!element) return;
+    const position = () => {
+      const bounds = element.getBoundingClientRect();
+      element.style.left = `${Math.max(0, Math.min(menu.x, window.innerWidth - bounds.width))}px`;
+      element.style.top = `${Math.max(0, Math.min(menu.y, window.innerHeight - bounds.height))}px`;
+    };
+    position();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(element);
+    window.addEventListener('resize', position);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', position); };
+  }, [menu.x, menu.y]);
   const [scale, setScale] = useState(String(sheet.frame.visualScale * 100));
   useEffect(() => setScale(String(sheet.frame.visualScale * 100)), [sheet.id, sheet.frame.visualScale]);
   const commitScale = () => {
@@ -45,6 +60,7 @@ export function SheetContextMenu({
   };
   return (
     <div
+      ref={overlay}
       aria-label={`${sheet.name} sheet menu`}
       className="sheet-context-menu"
       onPointerDown={(event) => event.stopPropagation()}
@@ -52,7 +68,7 @@ export function SheetContextMenu({
       role="menu"
       style={{
         left: menu.x,
-        top: `clamp(0px, ${menu.y}px, max(0px, calc(100vh - min(90vh, 40rem))))`,
+        top: menu.y,
         zIndex: FLOATING_OVERLAY_Z_INDEX,
       }}
     >
