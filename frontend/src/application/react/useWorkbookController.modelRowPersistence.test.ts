@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
+import { ContentHistory } from '@application/core/contentHistory';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -24,9 +25,9 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  afterEach(() => vi.restoreAllMocks());
   it('rejects admission during a same-turn startup retry until its load completes', async () => {
-    const workbook = boundWorkbook();
-    const api = persistedWorkbookClient(workbook);
+    const workbook = boundWorkbook(), api = persistedWorkbookClient(workbook);
     let resolveRetry!: (value: Workbook) => void;
     api.loadWorkbook.mockResolvedValueOnce(workbook).mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve; }));
     const { result } = renderHook(() => useWorkbookController({ apiClient: api }));
@@ -67,6 +68,7 @@ describe('calculated row persistence', () => {
   });
 
   it('persists a sorted model admission atomically and reloads its physical order', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const original = boundWorkbook();
     const sheet = original.documents.sheet!;
     const workbook: Workbook = { ...original, documents: { ...original.documents, sheet: {
@@ -81,6 +83,7 @@ describe('calculated row persistence', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toBe(sheet.content.rows[0]);
     expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
     expect(result.current.canUndo).toBe(true);
     act(() => result.current.commands.undo());
     expect(result.current.canUndo).toBe(true);
@@ -97,6 +100,7 @@ describe('calculated row persistence', () => {
   });
 
   it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -107,6 +111,7 @@ describe('calculated row persistence', () => {
 
     expect(submission!.firstInvalid).toBe('input');
     expect(api.admitRecord).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
     act(() => { expect(result.current.commands.unbindSheetFromModel('sheet').result).toMatchObject({ ok: false }); });
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('not a number');
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
@@ -124,6 +129,7 @@ describe('calculated row persistence', () => {
   });
 
   it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
     api.admitRecord.mockRejectedValueOnce(new Error('connection lost'));
@@ -134,23 +140,44 @@ describe('calculated row persistence', () => {
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
     expect(result.current.canUndo).toBe(false);
+    expect(record).not.toHaveBeenCalled();
     act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
 
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
     expect(api.admitRecord).toHaveBeenCalledTimes(2);
     expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
     expect(result.current.canUndo).toBe(true);
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
+  it('records one original identity when a duplicate submission arrives while admission is pending', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
+    const workbook = boundWorkbook(), api = persistedWorkbookClient(workbook);
+    const admit = api.admitRecord.getMockImplementation()!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    api.admitRecord.mockImplementationOnce(async (...args) => { await held; return admit(...args); });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let first!: Promise<unknown>; act(() => { first = result.current.commands.submitEntryDraft('sheet'); });
+    await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(record).not.toHaveBeenCalled();
+    await act(async () => { release(); await first; });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
+  });
   it('retains a rejected draft for correction and submits it with a new identity', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
     api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('invalid', 400, 'invalid-model-record'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(record).not.toHaveBeenCalled();
     expect(result.current.entrySessions.sheet).toMatchObject({ draft: { fields: { input: { raw: '5' } } }, failure: expect.stringContaining('Correct') });
     expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
     act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
@@ -210,6 +237,7 @@ describe('calculated row persistence', () => {
   });
 
   it('confirms a frozen receipt after another admission refresh removes its target', async () => {
+    const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
     const bound = boundWorkbook();
     const second = { ...bound.documents.sheet!, id: 'second', name: 'Second' };
     const workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: ['sheet', 'second'] }, documents: { ...bound.documents, second } };
@@ -224,11 +252,13 @@ describe('calculated row persistence', () => {
     await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
     act(() => result.current.commands.changeEntryField('second', 'input', '7'));
     await act(async () => { await result.current.commands.submitEntryDraft('second'); });
+    expect(record).not.toHaveBeenCalled();
     expect(result.current.workbook.documents.sheet).toBeUndefined();
     let confirmation!: Awaited<ReturnType<typeof result.current.commands.submitEntryDraft>>;
     await act(async () => { confirmation = await result.current.commands.submitEntryDraft('sheet'); });
     expect(api.admitRecord.mock.calls[2]).toEqual(api.admitRecord.mock.calls[0]);
     expect(confirmation.result?.rowId).toBe(api.admitRecord.mock.calls[0]![1].rowId);
+    expect(record.mock.calls).toEqual([[{ sheetId: 'sheet', rowId: api.admitRecord.mock.calls[0]![1].rowId }]]);
     expect(result.current.canUndo).toBe(true);
     act(() => result.current.commands.undo());
     expect(result.current.canUndo).toBe(true);
