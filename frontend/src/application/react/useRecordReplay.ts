@@ -12,6 +12,7 @@ export function useRecordReplay(options: {
   replayOptions: Omit<ReplayOptions, 'operation' | 'waitForPredecessors' | 'recover'>;
   coordinator: Parameters<typeof recoverRecordReplay>[1];
   publishHistory: () => void;
+  replayLocal: (transaction: ContentTransaction, direction: 'undo' | 'redo') => void;
 }) {
   const owner = useRef<RecordReplayOwner | undefined>(undefined);
   owner.current ??= new RecordReplayOwner(options.history);
@@ -21,7 +22,7 @@ export function useRecordReplay(options: {
     if (pending.current) return;
     pending.current = true;
     setState({ pending: true });
-    void owner.current!.replay(transaction, direction, (operation) => options.run(() => replayEntryRecord({
+    void owner.current!.replay(transaction, direction, (operation) => options.run(() => transaction.localRecord ? Promise.resolve().then(() => options.replayLocal(transaction, direction)) : replayEntryRecord({
       ...options.replayOptions, operation, waitForPredecessors: async () => {},
       recover: (error, refresh) => recoverRecordReplay(error, options.coordinator, refresh),
     }))).then(() => {

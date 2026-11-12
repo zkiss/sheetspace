@@ -32,6 +32,7 @@ import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
 import { appendModelEntry, materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { settleSorting } from '@application/core/settleSorting';
+import { admitLocalRecord, replayLocalRecord, type LocalRecordDelta } from '@application/core/localRecordReplay';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
@@ -351,6 +352,7 @@ export function useWorkbookController({
   const recordReplay = useRecordReplay({
     history: contentHistory, coordinator: persistenceCoordinator,
     publishHistory: () => setHistoryRevision((revision) => revision + 1),
+    replayLocal: (transaction, direction) => { if (autosaveEnabled || !transaction.localRecord) throw new Error('Local record replay is unavailable.'); setWorkbook(replayLocalRecord(optimisticWorkbook.current, transaction.localRecord, direction), { kind: 'structure' }); },
     run: (execute) => admissionFence.run({
       hasUnsettled: () => lifecycle.hasPending() || hasPendingCreations() || axisCreation.hasUnsettled() || isStartupLoading(),
       snapshot: savedAutosave.currentOutboxSnapshot, waitFor: savedAutosave.waitFor, execute,
@@ -415,13 +417,13 @@ export function useWorkbookController({
         if (rejectPendingModelTransition()) return {};
         const model = entrySessions.retryModel(sheetId) ?? entryModel(sheetId);
         if (!model || entrySessions.get(sheetId, model).pending) return {};
+        let localRecord: LocalRecordDelta | undefined;
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
           admissionLocks.current.add(sheetId);
           if (!autosaveEnabled) {
-            const candidate = appendModelEntry(optimisticWorkbook.current, sheetId, model.id, submission.rowId, submission.values);
-            const next = settleSorting(candidate, committedCalculation.current!, { kind: 'structure' }).workbook;
-            setWorkbook(next, { kind: 'structure' });
-            return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
+            const admitted = admitLocalRecord(optimisticWorkbook.current, sheetId, model.id, submission.rowId, submission.values, committedCalculation.current!);
+            localRecord = admitted.delta; setWorkbook(admitted.workbook, { kind: 'structure' });
+            return { rowId: submission.rowId, sheet: admitted.workbook.documents[sheetId]! };
           }
           try {
             return await admissionFence.run({
@@ -450,8 +452,7 @@ export function useWorkbookController({
         publishEntries();
         try {
           const settled = await result;
-          if (autosaveEnabled && settled.result) {
-            contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId });
+          if (settled.result) { if (localRecord) contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId }, localRecord); else contentHistory.recordModelRecord({ sheetId, rowId: settled.result.rowId });
             setHistoryRevision((revision) => revision + 1);
           }
           if (settled.result || !entrySessions.get(sheetId, model).retryRequired) {

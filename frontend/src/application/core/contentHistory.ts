@@ -1,5 +1,6 @@
 import type { AffectedWorkbookEntities, CellPersistenceWrite } from './userActions';
 import type { Workbook } from '@workbook/core/model';
+import type { LocalRecordDelta } from './localRecordReplay';
 
 export const CONTENT_HISTORY_MAX_ENTRIES = 100;
 export const CONTENT_HISTORY_MAX_BYTES = 64 * 1024;
@@ -14,6 +15,7 @@ export type ContentTransaction = {
   snapshots?: { before: Workbook; after: Workbook };
   order?: { sheetId: string; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] };
   record?: { sheetId: string; rowId: string };
+  localRecord?: LocalRecordDelta;
 };
 
 function extractionBytes(before: Workbook, after: Workbook) {
@@ -33,6 +35,7 @@ function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
     ...(transaction.snapshots && { snapshots: structuredClone(transaction.snapshots) }),
     ...(transaction.order && { order: structuredClone(transaction.order) }),
     ...(transaction.record && { record: { ...transaction.record } }),
+    ...(transaction.localRecord && { localRecord: structuredClone(transaction.localRecord) }),
   };
 }
 
@@ -86,11 +89,11 @@ export class ContentHistory {
     this.pushUndo(cloneTransaction({ identity: this.nextIdentity++, kind: 'axis-order', order, writes: [], affected: { sheetIds: [order.sheetId], cells: [] }, bytes }));
     return { ok: true } as const;
   }
-  recordModelRecord(record: NonNullable<ContentTransaction['record']>) {
-    const bytes = new TextEncoder().encode(JSON.stringify(record)).byteLength + this.identityBytes();
+  recordModelRecord(record: NonNullable<ContentTransaction['record']>, localRecord?: LocalRecordDelta) {
+    const bytes = new TextEncoder().encode(JSON.stringify({ record, localRecord })).byteLength + this.identityBytes();
     if (bytes > CONTENT_HISTORY_MAX_BYTES) { this.clear(); return; }
     this.clearRedo();
-    this.pushUndo(cloneTransaction({ identity: this.nextIdentity++, kind: 'model-record', record, writes: [], affected: { sheetIds: [record.sheetId], cells: [] }, bytes }));
+    this.pushUndo(cloneTransaction({ identity: this.nextIdentity++, kind: 'model-record', record, localRecord, writes: [], affected: { sheetIds: [record.sheetId], cells: [] }, bytes }));
   }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }

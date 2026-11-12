@@ -63,7 +63,7 @@ describe('calculated row persistence', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toBe(sheet.content.rows[0]);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
-    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canUndo).toBe(true);
   });
   it('persists a sorted model admission atomically and reloads its physical order', async () => {
     const record = vi.spyOn(ContentHistory.prototype, 'recordModelRecord');
