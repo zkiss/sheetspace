@@ -15,7 +15,7 @@ function pointer(element: Element, type: string, x: number, y: number, pointerId
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false) {
+function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false, mixed = false) {
   const original = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
   const sheet = long ? { ...original, rows: Array.from({ length: 30 }, (_, i) => `row-${i}`), columns: Array.from({ length: 30 }, (_, i) => `column-${i}`) } : original;
   const ref = createRef<HTMLDivElement>();
@@ -26,7 +26,7 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long
     const currentSheet = changes.sheet ?? sheet;
     const slots = special ? { rows: [{ kind: 'creating' as const, operationId: 'pending-row', boundary: 30 }], columns: [{ kind: 'creating' as const, operationId: 'pending-column', boundary: 30 }] } : undefined;
     return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet, slots)}
-    presentation={special ? { rowHeights: { 'row-1': 50 }, columnWidths: { 'column-1': 160 } } : undefined}
+    presentation={special ? { rowHeights: { [mixed ? 'row-2' : 'row-1']: 50 }, columnWidths: { [mixed ? 'column-2' : 'column-1']: 160 } } : undefined}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()} navigationHighlightCellKey={null}
@@ -38,7 +38,7 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long
   virtualGridGeometry(ref.current!, { width: 400, height: 160 });
   return { sheet, gather, select, activity, container: ref.current!, grid: screen.getByTestId('sheet-grid'), rerender: (changes: Parameters<typeof view>[0]) => rendered.rerender(view(changes)), unmount: rendered.unmount };
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); delete (document as Partial<Document>).elementFromPoint; });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); delete (document as Partial<Document>).elementFromPoint; });
 describe('header gather controls', () => {
   it.each(['rows', 'columns'] as const)('scrolls %s at a scaled edge and releases the stationary pointer at its updated gap', (axis) => {
     let callback: FrameRequestCallback | undefined;
@@ -49,18 +49,18 @@ describe('header gather controls', () => {
     container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 200, height: 80 });
     const row = axis === 'rows';
     const x = row ? 20 : 205; const y = row ? 85 : 15;
-    const source = screen.getByRole('button', { name: row ? 'Drag row 3' : 'Drag column C' });
+    const source = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[2];
     const capture = vi.fn(); const release = vi.fn();
     Object.assign(grid, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release });
     pointer(source, 'pointerdown', 60, 45);
     expect(capture).toHaveBeenCalledWith(1);
     pointer(grid, 'pointermove', x, y);
-    const before = screen.getByTestId('axis-gather-preview').getAttribute('style');
+    const before = screen.getByTestId('axis-gather-line').getAttribute('style');
     expect(callback).toBeDefined();
     act(() => { const next = callback!; callback = undefined; next(16); });
     expect(row ? container.scrollTop : container.scrollLeft).toBeGreaterThan(12);
     act(() => { for (let i = 0; i < 24 && callback; i++) { const next = callback; callback = undefined; next(32 + i * 16); fireEvent.scroll(container); } });
-    expect(screen.getByTestId('axis-gather-preview').getAttribute('style')).not.toBe(before);
+    expect(screen.getByTestId('axis-gather-line').getAttribute('style')).not.toBe(before);
     expect(activity).toHaveBeenLastCalledWith(sheet.id, true);
     expect(source).not.toBeInTheDocument();
     pointer(grid, 'pointerup', x, y);
@@ -73,7 +73,7 @@ describe('header gather controls', () => {
   it.each(['rows', 'columns'] as const)('uses variable %s sizes at the saved endpoint and rejects the adjacent placeholder', (axis) => {
     const { sheet, grid, container, gather } = setup(axis, true, true, true);
     const row = axis === 'rows';
-    const button = screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' });
+    const button = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0];
     pointer(button, 'pointerdown', 20, 30);
     // The last saved midpoint lies 29 default sizes plus the extra size of axis 2 away.
     const lastMidpoint = row ? 29 * 26.4 + (50 - 26.4) + 13.2 : 29 * 76 + 84 + 38;
@@ -89,7 +89,7 @@ describe('header gather controls', () => {
     if (row) container.scrollTop += 14; else container.scrollLeft += 39;
     fireEvent.scroll(container);
     pointer(grid, 'pointermove', row ? 20 : position, row ? position : 10);
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
     pointer(grid, 'pointerup', row ? 20 : position, row ? position : 10);
     expect(gather).toHaveBeenCalledTimes(1);
   });
@@ -100,7 +100,7 @@ describe('header gather controls', () => {
     const { sheet, grid, container, gather, activity } = setup(axis, true, true);
     Object.defineProperties(container, { scrollHeight: { configurable: true, value: 900 }, scrollWidth: { configurable: true, value: 3000 } });
     const row = axis === 'rows';
-    const button = screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' });
+    const button = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0];
     pointer(button, 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', row ? 20 : 395, row ? 155 : 10);
     const stale = callback!;
@@ -125,17 +125,17 @@ describe('header gather controls', () => {
     Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 900 });
     const surface = vi.fn((): Element | null => grid);
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: surface });
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', 20, 155);
-    const before = screen.getByTestId('axis-gather-preview').getAttribute('style');
+    const before = screen.getByTestId('axis-gather-line').getAttribute('style');
     container.scrollTop = 80;
     fireEvent.scroll(container);
-    expect(screen.getByTestId('axis-gather-preview').getAttribute('style')).not.toBe(before);
+    expect(screen.getByTestId('axis-gather-line').getAttribute('style')).not.toBe(before);
     expect(callback).toBeDefined();
     surface.mockReturnValue(null);
     fireEvent.scroll(container);
     expect(callback).toBeUndefined();
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
     pointer(grid, 'pointerup', 20, 155);
     expect(gather).not.toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe('header gather controls', () => {
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { callback = undefined; });
     const { grid, container, gather } = setup('rows', true, true);
     Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 200 });
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const button = screen.getAllByRole('rowheader')[0];
     pointer(button, 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', 20, 155);
     act(() => { for (let i = 0; i < 10 && callback; i++) { const next = callback; callback = undefined; next(i * 16); } });
@@ -163,10 +163,10 @@ describe('header gather controls', () => {
   });
   it('gathers scattered selected rows at the original gap without selecting again', () => {
     const { sheet, gather, select, activity, grid } = setup();
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
     expect(activity).toHaveBeenLastCalledWith(sheet.id, true);
     pointer(grid, 'pointermove', 20, 100);
-    expect(screen.getByTestId('axis-gather-preview')).toHaveStyle({ height: '52.8px' });
+    expect(screen.getByTestId('axis-gather-line')).toHaveStyle({ height: '2px', left: '0px', right: '0px' });
     expect(gather).not.toHaveBeenCalled();
     pointer(grid, 'pointerup', 20, 100);
     expect(gather).toHaveBeenCalledWith('row', [sheet.rows[0], sheet.rows[2]], 3);
@@ -174,7 +174,7 @@ describe('header gather controls', () => {
   });
   it('uses the column control and does not commit below the threshold', () => {
     const { sheet, gather, grid } = setup('columns');
-    const button = screen.getByRole('button', { name: 'Drag column A' });
+    const button = screen.getAllByRole('columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0];
     pointer(button, 'pointerdown', 50, 10); pointer(grid, 'pointerup', 53, 10);
     expect(gather).not.toHaveBeenCalled();
     pointer(button, 'pointerdown', 50, 10); pointer(grid, 'pointermove', 230, 10); pointer(grid, 'pointerup', 230, 10);
@@ -182,25 +182,25 @@ describe('header gather controls', () => {
   });
   it('ignores foreign pointers and cancels on escape', () => {
     const { gather, grid } = setup();
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
     pointer(grid, 'pointerup', 20, 100, 2);
     pointer(grid, 'pointermove', 20, 100);
     fireEvent.keyDown(window, { key: 'Escape' });
     pointer(grid, 'pointerup', 20, 100);
     expect(gather).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
   });
   it('selects an unselected source and dispatches only that identity', () => {
     const { sheet, gather, select, grid } = setup();
-    pointer(screen.getByRole('button', { name: 'Drag row 2' }), 'pointerdown', 20, 60);
+    pointer(screen.getAllByRole('rowheader')[1], 'pointerdown', 20, 60);
     expect(select).toHaveBeenCalledWith('rows', expect.objectContaining({ cell: expect.objectContaining({ rowId: sheet.rows[1] }) }), false, expect.objectContaining({ start: true }));
     pointer(grid, 'pointermove', 20, 100); pointer(grid, 'pointerup', 20, 100);
     expect(gather).toHaveBeenCalledWith('row', [sheet.rows[1]], 3);
   });
   it('rejects invalid destinations and pointer cancellation', () => {
     const { gather, grid } = setup();
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
-    pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 100, 100); pointer(grid, 'pointerup', 100, 100);
+    const button = screen.getAllByRole('rowheader')[0];
+    pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 500, 100); pointer(grid, 'pointerup', 500, 100);
     expect(gather).not.toHaveBeenCalled();
     pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 20, 100); pointer(grid, 'pointercancel', 20, 100);
     pointer(grid, 'pointerup', 20, 100);
@@ -212,16 +212,16 @@ describe('header gather controls', () => {
     document.body.append(otherSheet);
     const surface = vi.fn((): Element | null => grid);
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: surface });
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const button = screen.getAllByRole('rowheader')[0];
     pointer(button, 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', 20, 100);
-    expect(screen.getByTestId('axis-gather-preview')).toBeInTheDocument();
+    expect(screen.getByTestId('axis-gather-line')).toBeInTheDocument();
     surface.mockReturnValue(otherSheet);
     pointer(grid, 'pointermove', 20, 100);
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
     surface.mockReturnValue(null);
     pointer(grid, 'pointermove', 20, 100);
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
     surface.mockReturnValue(container);
     pointer(grid, 'pointermove', 20, 100);
     surface.mockReturnValue(otherSheet);
@@ -233,11 +233,11 @@ describe('header gather controls', () => {
     'cancels row gathering when model changes from %s to %s', (before, after) => {
       const { gather, grid, rerender } = setup();
       rerender({ modelId: before });
-      pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+      pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
       pointer(grid, 'pointermove', 20, 100);
-      expect(screen.getByTestId('axis-gather-preview')).toBeInTheDocument();
+      expect(screen.getByTestId('axis-gather-line')).toBeInTheDocument();
       rerender({ modelId: after });
-      expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
       pointer(grid, 'pointerup', 20, 100);
       expect(gather).not.toHaveBeenCalled();
     },
@@ -245,14 +245,14 @@ describe('header gather controls', () => {
   it('allows row gathering while the model binding remains unchanged', () => {
     const { sheet, gather, grid, rerender } = setup();
     rerender({ modelId: 'model-a' });
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', 20, 100);
     pointer(grid, 'pointerup', 20, 100);
     expect(gather).toHaveBeenCalledWith('row', [sheet.rows[0], sheet.rows[2]], 3);
   });
   it('passes the original gap to the real gather mutation', () => {
     const { sheet, gather, grid } = setup();
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
     pointer(grid, 'pointermove', 20, 100); pointer(grid, 'pointerup', 20, 100);
     const document = smallSheetDocument({ id: 'gather', name: 'Gather' });
     const [axis, ids, gap] = gather.mock.calls[0] as ['row', string[], number];
@@ -264,9 +264,9 @@ describe('header gather controls', () => {
     const { sheet, gather, grid, container } = setup();
     container.scrollTop = 26.4;
     container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 200, height: 80 });
-    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 28);
+    pointer(screen.getAllByRole('rowheader')[0], 'pointerdown', 20, 28);
     pointer(grid, 'pointermove', 20, 47);
-    expect(screen.getByTestId('axis-gather-preview')).toHaveStyle({ top: '52.8px', height: '52.8px' });
+    expect(screen.getByTestId('axis-gather-line')).toHaveStyle({ top: '104.6px', height: '2px' });
     pointer(grid, 'pointerup', 20, 47);
     expect(gather).toHaveBeenCalledWith('row', [sheet.rows[0], sheet.rows[2]], 3);
   });
@@ -276,14 +276,14 @@ describe('header gather controls', () => {
     container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 210, height: 90 });
     container.scrollTop = 26.4; container.scrollLeft = 20;
     const row = axis === 'rows';
-    pointer(screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' }), 'pointerdown', 20, 25);
+    pointer(screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0], 'pointerdown', 20, 25);
     pointer(grid, 'pointermove', row ? 20 : 110, row ? 47 : 15);
     pointer(grid, 'pointerup', row ? 20 : 110, row ? 47 : 15);
     expect(gather).toHaveBeenCalledWith(row ? 'row' : 'column', row ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]], row ? 3 : 2);
   });
   it.each(['owner', 'sheet', 'order', 'disabled', 'model'] as const)('cancels on %s changes', (change) => {
     const { sheet, gather, grid, rerender } = setup('columns');
-    pointer(screen.getByRole('button', { name: 'Drag column A' }), 'pointerdown', 50, 10);
+    pointer(screen.getAllByRole('columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'))[0], 'pointerdown', 50, 10);
     pointer(grid, 'pointermove', 230, 10);
     rerender(change === 'owner' ? { selectionOwner: Symbol('external') }
       : change === 'sheet' ? { activeSheetId: 'other' }
@@ -291,11 +291,11 @@ describe('header gather controls', () => {
           : change === 'disabled' ? { interactionsEnabled: false } : { allowColumnGather: false });
     pointer(grid, 'pointerup', 230, 10);
     expect(gather).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
   });
   it('cancels when hidden and on unmount', () => {
     const { gather, grid, unmount } = setup();
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const button = screen.getAllByRole('rowheader')[0];
     pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 20, 100);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     fireEvent(document, new Event('visibilitychange'));
@@ -308,11 +308,12 @@ describe('header gather controls', () => {
     const { grid, gather } = setup();
     const capture = vi.fn(); const release = vi.fn();
     Object.assign(grid, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release });
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const button = screen.getAllByRole('rowheader')[0];
     const secondary = new MouseEvent('pointerdown', { bubbles: true, button: 0 });
     Object.defineProperties(secondary, { pointerId: { value: 2 }, isPrimary: { value: false } });
     fireEvent(button, secondary);
-    expect(capture).not.toHaveBeenCalled();
+    pointer(grid, 'pointercancel', 20, 30, 2);
+    capture.mockClear();
     pointer(button, 'pointerdown', 20, 30);
     expect(capture).toHaveBeenCalledWith(1);
     button.remove();
@@ -322,7 +323,7 @@ describe('header gather controls', () => {
   });
   it('cancels on lost capture or window blur and starts a fresh gesture', () => {
     const { gather, grid } = setup();
-    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    const button = screen.getAllByRole('rowheader')[0];
     pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 20, 100);
     pointer(grid, 'lostpointercapture', 20, 100); pointer(grid, 'pointerup', 20, 100);
     pointer(button, 'pointerdown', 20, 30); fireEvent.blur(window); pointer(grid, 'pointerup', 20, 100);
@@ -330,9 +331,49 @@ describe('header gather controls', () => {
     pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointerup', 20, 100);
     expect(gather).toHaveBeenCalledTimes(1);
   });
+  it.each(['rows', 'columns'] as const)('renders the %s deck and restores mixed sizes and labels in flight', (axis) => {
+    vi.useFakeTimers();
+    const { grid, container } = setup(axis, true, true, true, true);
+    const row = axis === 'rows';
+    const headers = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
+    pointer(headers[2], 'pointerdown', row ? 20 : 210, row ? 90 : 10);
+    expect(container.querySelector('.sheet-grid-axis-deck')).toBeNull();
+    pointer(grid, 'pointermove', row ? 120 : 300, row ? 120 : 80);
+    const cards = [...container.querySelectorAll<HTMLElement>('.sheet-grid-axis-deck .sheet-grid-axis-card')];
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.textContent)).toEqual(row ? ['3', ''] : ['C', '']);
+    expect(cards[0].style.width).toBe(cards[1].style.width);
+    expect(cards[0].style.height).toBe(cards[1].style.height);
+    expect(parseFloat(cards[1].style.left) - parseFloat(cards[0].style.left)).toBe(4);
+    expect(parseFloat(cards[1].style.top) - parseFloat(cards[0].style.top)).toBe(4);
+    expect(screen.getAllByTestId('axis-gather-line')).toHaveLength(1);
+    pointer(grid, 'pointerup', row ? 120 : 300, row ? 120 : 80);
+    const flight = [...container.querySelectorAll<HTMLElement>('.sheet-grid-axis-flight-card')];
+    expect(flight.map((card) => card.textContent)).toEqual(row ? ['3', '1'] : ['C', 'A']);
+    expect(flight[1].style.getPropertyValue(row ? '--flight-scale-y' : '--flight-scale-x')).not.toBe('1');
+    act(() => vi.advanceTimersByTime(340));
+    expect(container.querySelector('.sheet-grid-axis-flight')).toBeNull();
+    vi.useRealTimers();
+  });
+  it('flies headers home on Escape and clears an earlier flight on the next press', () => {
+    const { grid, container, gather } = setup();
+    const header = screen.getAllByRole('rowheader')[0];
+    pointer(header, 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', 120, 100);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(gather).not.toHaveBeenCalled();
+    expect([...container.querySelectorAll('.sheet-grid-axis-flight-card')].map((card) => card.textContent)).toEqual(['1', '3']);
+    pointer(header, 'pointerdown', 20, 30);
+    expect(container.querySelector('.sheet-grid-axis-flight')).toBeNull();
+    pointer(grid, 'pointerup', 20, 30);
+  });
   it('does not offer model-owned column controls', () => {
-    setup('columns', false);
-    expect(screen.queryByRole('button', { name: 'Drag column A' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Drag row 1' })).toBeInTheDocument();
+    const { grid, gather } = setup('columns', false);
+    const header = screen.getAllByRole('columnheader').find((item) => item.hasAttribute('data-axis-durable-index'))!;
+    pointer(header, 'pointerdown', 50, 10);
+    pointer(grid, 'pointermove', 230, 10);
+    pointer(grid, 'pointerup', 230, 10);
+    expect(gather).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('axis-gather-line')).not.toBeInTheDocument();
   });
 });

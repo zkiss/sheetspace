@@ -49,6 +49,7 @@ export function useAxisGather(options: Options) {
     flightTimer.current = null;
     setFlight(null);
   }, []);
+  useEffect(() => () => { if (flightTimer.current !== null) window.clearTimeout(flightTimer.current); }, []);
   const cancel = useCallback(() => {
     const current = session.current; session.current = null;
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -70,12 +71,14 @@ export function useAxisGather(options: Options) {
     return next.selectionOwner === undefined || next.selectionOwner === (current.awaitingOwner ? current.owner : current.gesture ?? current.owner);
   }, []);
   useLayoutEffect(() => { if (session.current && !owns()) cancel(); });
+  const interruptRef = useRef<() => void>(() => cancel());
   useLayoutEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
-    const hidden = () => { if (document.visibilityState === 'hidden') cancel(); };
-    window.addEventListener('keydown', key, true); window.addEventListener('blur', cancel);
+    const interrupt = () => interruptRef.current();
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') interrupt(); };
+    const hidden = () => { if (document.visibilityState === 'hidden') interrupt(); };
+    window.addEventListener('keydown', key, true); window.addEventListener('blur', interrupt);
     document.addEventListener('visibilitychange', hidden);
-    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', hidden); cancel(); };
+    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('blur', interrupt); document.removeEventListener('visibilitychange', hidden); cancel(); };
   }, [cancel]);
   function target(x: number, y: number): Preview | null {
     const current = session.current; const next = latest.current; const container = next.scrollContainerRef.current;
@@ -259,6 +262,7 @@ export function useAxisGather(options: Options) {
     const sourceRect = source.getBoundingClientRect();
     const grabClientX = event.clientX - sourceRect.left;
     const grabClientY = event.clientY - sourceRect.top;
+    dismissFlight();
     session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id, modelId: next.modelId,
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
       primaryId: id, cards, grabClientX, grabClientY,
@@ -300,6 +304,15 @@ export function useAxisGather(options: Options) {
     cancel();
     if (result) latest.current.gather?.(current.axis, current.ids, result.gap);
   }
-  function interrupt(event: PointerEvent<HTMLDivElement>) { if (session.current?.pointerId === event.pointerId) cancel(); }
+  function cancelWithFlight() {
+    const current = session.current;
+    if (current?.moved) {
+      const nextFlight = flightFor(current, current.clientX, current.clientY, null);
+      if (nextFlight) showFlight(nextFlight);
+    }
+    cancel();
+  }
+  interruptRef.current = cancelWithFlight;
+  function interrupt(event: PointerEvent<HTMLDivElement>) { if (session.current?.pointerId === event.pointerId) cancelWithFlight(); }
   return { active, preview, deck, flight, dismissFlight, press, move, stop, interrupt };
 }
