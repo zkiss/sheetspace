@@ -29,9 +29,10 @@ export function submitOriginatingLifecycle<T extends { ok: true; value: Workbook
   submit: <R extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => R, success?: (before: Workbook, after: Workbook) => void, protect?: boolean, publication?: LifecyclePublication) => { result: R | TransitionFailure; completion: Promise<R | TransitionFailure> };
   publish: () => void;
   isNoop?: (final: Workbook) => boolean;
+  forceSemanticHistory?: boolean;
 }) {
   const candidate = options.transform(options.before);
-  if (!candidate.ok || candidate.value === options.before || !(sheetsInOrder(options.before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(candidate.value).some((sheet) => sheet.sorting?.length))) {
+  if (!candidate.ok || candidate.value === options.before || !(options.forceSemanticHistory || sheetsInOrder(options.before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(candidate.value).some((sheet) => sheet.sorting?.length))) {
     return options.submit(() => candidate, undefined, false, options.publication);
   }
   if (options.replayUnresolved) {

@@ -247,8 +247,8 @@ export function useWorkbookController({
     return rejection;
   }
 
-  function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void, isNoop?: (final: Workbook) => boolean) {
-    const submission = submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, isNoop, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+  function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication, onSuccess?: () => void, isNoop?: (final: Workbook) => boolean, forceSemanticHistory = false) {
+    const submission = submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, isNoop, forceSemanticHistory, publish: () => { onSuccess?.(); mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
     reportOriginatingFailure(submission.result, setMutationFailure); return submission;
   }
 
@@ -385,7 +385,7 @@ export function useWorkbookController({
 
   const deleteRowCommand: WorkbookController['commands']['deleteRow'] = (sheetId, rowId, publication) => submitRecordDeletion({
     sheetId, rowId, publication, before: optimisticWorkbook.current, enabled: autosaveEnabled, capture: recordDeletion,
-    local: (id, row, publish) => applyOriginatingLifecycle((source) => deleteRow(source, id, row), publish),
+    local: (id, row, publish) => applyOriginatingLifecycle((source) => deleteRow(source, id, row), publish, undefined, undefined, !autosaveEnabled && Boolean(optimisticWorkbook.current.documents[id]?.modelId)),
     blocked: () => replayFenceBlocked() || lifecycle.hasPending() || isStartupLoading(), calculator: committedCalculation.current!,
     hasUnfinishedEntries: () => Object.keys(optimisticWorkbook.current.documents).some((id) => entrySessions.hasUnfinished(id)), validate: transitionRejection,
   });
