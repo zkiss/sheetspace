@@ -1189,6 +1189,7 @@ export function Workspace({
               const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
               return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
             })()}
+            sorting={{ labels: modelColumnPresentation(menuSheet, workbook.dataModels).columnLabels, apply: commands.configureSorting }}
             modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();

@@ -122,7 +122,7 @@ export function useWorkspaceController({
     if (!pendingSheetMenu) return;
     // The menu owns Escape even when focus is still in the underlying grid.
     const cancelMenu = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !matchesShortcut(event, 'cancel')) return;
+      if (event.defaultPrevented || !matchesShortcut(event, 'cancel') || (event.target instanceof Element && event.target.closest('[data-sheet-sorting-editor]'))) return;
       event.preventDefault();
       event.stopPropagation();
       closeSheetMenu();
