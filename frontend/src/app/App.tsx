@@ -31,7 +31,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, recordDeletion, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -210,6 +210,13 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       {recordReplay.error ? <p className="form-error" role="alert">Undo or redo could not be completed: {recordReplay.error}</p> : null}
       {recordReplay.unresolved ? <div role="status">The previous undo or redo needs confirmation before another history action.
         <button type="button" disabled={recordReplay.pending} onClick={commands.undo}>Confirm previous undo or redo</button>
+      </div> : null}
+      {recordDeletion.error ? <p className="form-error" role="alert">Deletion could not be completed: {recordDeletion.error}</p> : null}
+      {recordDeletion.pending || recordDeletion.unresolved ? <div role="status">
+        {recordDeletion.pending ? 'Confirming deletion. ' : null}
+        {recordDeletion.unresolved ? <>The previous deletion needs confirmation before further conflicting changes.
+          <button type="button" disabled={recordDeletion.pending} onClick={commands.confirmRecordDeletion}>Confirm previous deletion</button>
+        </> : null}
       </div> : null}
 
       {dataModelsOpen ? (
