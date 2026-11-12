@@ -26,6 +26,7 @@ import {
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { createSortingHistory } from './sortingHistory';
 import { submitSortedOrigin } from './submitSortedOrigin';
+import { submitOriginatingLifecycle } from './submitOriginatingLifecycle';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
@@ -186,9 +187,9 @@ export function useWorkbookController({
       setMutationFailure('pending-model-transition');
       return { ok: false, reason: 'pending-model-transition' };
     }
-    if (operation.kind === 'write-cells' && result.ok && result.value.changed && (sheetsInOrder(optimisticWorkbook.current).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) {
+    if ((operation.kind === 'write-cells' || operation.kind === 'rename-sheet') && result.ok && result.value.changed && (sheetsInOrder(optimisticWorkbook.current).some((sheet) => sheet.sorting?.length) || sheetsInOrder(result.value.nextWorkbook).some((sheet) => sheet.sorting?.length))) {
       if (recordReplay.state.unresolved) { setMutationFailure('pending-model-transition'); return { ok: false, reason: 'pending-model-transition' }; }
-      const submitted = submitSortedOrigin({ before: optimisticWorkbook.current, candidate: result.value.nextWorkbook, impact: result.value.calculationImpact, calculation: committedCalculation.current!, history: contentHistory, submit: (candidate, success) => applyModelLifecycleTransition(() => ({ ok: true as const, value: candidate }), success, true), publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+      const submitted = submitSortedOrigin({ before: optimisticWorkbook.current, candidate: result.value.nextWorkbook, impact: operation.kind === 'rename-sheet' ? { kind: 'structure' } : result.value.calculationImpact, calculation: committedCalculation.current!, history: contentHistory, submit: (candidate, success) => applyModelLifecycleTransition(() => ({ ok: true as const, value: candidate }), success, true), publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
       if (!submitted.ok) return submitted;
       setMutationFailure(undefined);
       return { ok: true, value: { ...result.value, nextWorkbook: submitted.value, calculationImpact: { kind: 'structure' } } };
@@ -262,6 +263,10 @@ export function useWorkbookController({
 
   }
 
+  function applyOriginatingLifecycle<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, publication?: import('./workbookControllerTypes').LifecyclePublication) {
+    return submitOriginatingLifecycle({ before: optimisticWorkbook.current, transform, publication, replayUnresolved: recordReplay.state.unresolved, calculation: committedCalculation.current!, history: contentHistory, submit: applyModelLifecycleTransition, publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); } });
+  }
+
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
@@ -270,8 +275,7 @@ export function useWorkbookController({
       return { ok: false, reason: 'pending-model-transition' };
     }
 
-    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
-    const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
+    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const; const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) entrySessions.remove(sheetId);
@@ -279,8 +283,7 @@ export function useWorkbookController({
 
     savedAutosave.supersedeSheetOperations(sheetId);
     const enqueueDelete = () => savedAutosave.enqueue(operation.operationId, applied.persistence);
-    const pendingAxisCreation = axisCreation.prepareSheetDeletion(sheetId);
-    if (pendingAxisCreation) void pendingAxisCreation.then(enqueueDelete);
+    const pendingAxisCreation = axisCreation.prepareSheetDeletion(sheetId); if (pendingAxisCreation) void pendingAxisCreation.then(enqueueDelete);
     else enqueueDelete();
     return result;
   }
@@ -288,15 +291,13 @@ export function useWorkbookController({
   function renameSheetCommand(sheetId: string, name: string): RenameSheetResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
-    const localSheetId = sheetId;
     const sourceWorkbook = optimisticWorkbook.current;
-    const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
-    if (!findSheetById(sourceWorkbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
+    const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), sheetId);
+    if (!findSheetById(sourceWorkbook, sheetId)) return { ok: false, reason: 'unknown-sheet' };
     if (!validation.ok) return validation;
-    const result = applyAction({ kind: 'rename-sheet', sheetId: localSheetId, name });
-    if (!result.ok && result.reason === 'pending-model-transition') return { ok: false, reason: 'pending-model-transition' };
-    if (!result.ok) return { ok: false, reason: 'unknown-sheet' };
-    return { ok: true, value: result.value.nextWorkbook };
+    const result = applyAction({ kind: 'rename-sheet', sheetId, name });
+    if (!result.ok && (result.reason === 'pending-model-transition' || result.reason === 'pending-axis-creation' || result.reason === 'pending-sheet-creation' || result.reason === 'blocked-persistence-prerequisite' || result.reason === 'persistence-failed' || result.reason === 'sorting-history-too-large')) return { ok: false, reason: result.reason };
+    return result.ok ? { ok: true, value: result.value.nextWorkbook } : { ok: false, reason: 'unknown-sheet' };
   }
 
   const axisCreation = useGridAxisCreationOperations({
@@ -475,17 +476,17 @@ export function useWorkbookController({
         const model = entryModel(sheetId);
         if (model) { entrySessions.dismiss(sheetId, model, propertyId); publishEntries(); }
       },
-      bindSheetToModel: (sheetId, modelId, publication) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID()), undefined, false, publication),
-      unbindSheetFromModel: (sheetId, publication) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId), undefined, false, publication),
-      addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
-      replaceModelDeclaration: (model, publication) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID()), undefined, false, publication),
-      renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
+      bindSheetToModel: (sheetId, modelId, publication) => applyOriginatingLifecycle((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID()), publication),
+      unbindSheetFromModel: (sheetId, publication) => applyOriginatingLifecycle((source) => unbindSheetFromModel(source, sheetId), publication),
+      addDataModel: (model) => applyOriginatingLifecycle((source) => addDataModel(source, model)),
+      replaceModelDeclaration: (model, publication) => applyOriginatingLifecycle((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID()), publication),
+      renameColumn: (sheetId, columnId, name) => applyOriginatingLifecycle((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
       appendRow: (sheetId) => { if (!admissionFence.held && !admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
-      deleteRow: (sheetId, rowId, publication) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId), undefined, false, publication),
-      deleteColumn: (sheetId, columnId, publication) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId), undefined, false, publication),
+      deleteRow: (sheetId, rowId, publication) => applyOriginatingLifecycle((source) => deleteRow(source, sheetId, rowId), publication),
+      deleteColumn: (sheetId, columnId, publication) => applyOriginatingLifecycle((source) => deleteColumn(source, sheetId, columnId), publication),
       changeSheetZOrder,
       createSheet: (...args) => admissionFence.held ? { ok: false, reason: 'pending-model-transition' } : createSheet(...args),
       deleteSheet: deleteSheetCommand,
