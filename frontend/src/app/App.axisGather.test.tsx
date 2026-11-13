@@ -61,6 +61,26 @@ it('routes a scattered header drag through the controller while retaining logica
   expect([1, 2, 3, 4].map((row) => frame.querySelector(`[data-cell-key="A${row}"]`)?.textContent)).toEqual(['b', 'a', 'c', 'd']);
   expect(animation.effects.length).toBeGreaterThan(afterUndo);
 });
+it('undoes and redoes a header drag through application history', async () => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Inputs', rowCount: 4, columnCount: 2,
+    cells: { A1: 'a', A2: 'b', A3: 'c', A4: 'd' } });
+  render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+  const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+  act(() => { virtualGridGeometry(within(frame).getByTestId('sheet-frame-body'), { height: 160, width: 240 }); });
+  const headers = () => within(frame).getAllByRole('rowheader');
+  const values = () => [1, 2, 3, 4].map((row) => frame.querySelector(`[data-cell-key="A${row}"]`)?.textContent);
+  await user.click(headers()[0]);
+  await user.keyboard('{Control>}'); await user.click(headers()[2]); await user.keyboard('{/Control}');
+  const grid = within(frame).getByTestId('sheet-grid');
+  pointer(headers()[0], 'pointerdown', 20, 30);
+  pointer(grid, 'pointermove', 20, 130); pointer(grid, 'pointerup', 20, 130);
+  expect(values()).toEqual(['b', 'd', 'a', 'c']);
+  await user.keyboard('{Control>}z{/Control}');
+  expect(values()).toEqual(['a', 'b', 'c', 'd']);
+  await user.keyboard('{Control>}y{/Control}');
+  expect(values()).toEqual(['b', 'd', 'a', 'c']);
+});
 it.each(['row', 'column'] as const)('animates an unselected %s drag and its displaced neighbors after owned settlement', async (axis) => {
   const user = userEvent.setup();
   const row = axis === 'row';

@@ -17,13 +17,14 @@ function pointer(element: Element, type: string, x: number, y: number, pointerId
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false, mixed = false, cellSelection = false) {
+function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false, special = false, mixed = false, cellSelection = false, memberCount = 0) {
   const original = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
   const sheet = long ? { ...original, rows: Array.from({ length: 30 }, (_, i) => `row-${i}`), columns: Array.from({ length: 30 }, (_, i) => `column-${i}`) } : original;
   const ref = createRef<HTMLDivElement>();
   const gather = vi.fn(); const select = vi.fn(); const activity = vi.fn();
   const anchor = cellTargetAt(sheet, 'A1')!;
-  const selection = cellSelection ? { mode: 'cells' as const, anchor, extent: anchor } : { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
+  const members = sheet[axis];
+  const selection = cellSelection ? { mode: 'cells' as const, anchor, extent: anchor } : { mode: axis, anchor, extent: anchor, members: memberCount ? members.slice(0, memberCount) : [members[0], members[2]] };
   const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; modelId?: string; selectionOwner?: symbol; sheet?: typeof sheet; projectionChange?: 'rows' | 'columns' } = {}) => {
     const currentSheet = changes.sheet ?? sheet;
     const slots = changes.projectionChange ? { rows: changes.projectionChange === 'rows' ? [{ kind: 'creating' as const, operationId: 'new', boundary: 1 }] : [], columns: changes.projectionChange === 'columns' ? [{ kind: 'creating' as const, operationId: 'new', boundary: 1 }] : [] } : special ? { rows: [{ kind: 'creating' as const, operationId: 'pending-row', boundary: 30 }], columns: [{ kind: 'creating' as const, operationId: 'pending-column', boundary: 30 }] } : undefined;
@@ -392,6 +393,21 @@ describe('header gather controls', () => {
     act(() => vi.advanceTimersByTime(340));
     expect(container.querySelector('.sheet-grid-axis-flight')).toBeNull();
     vi.useRealTimers();
+  });
+  it.each(['rows', 'columns'] as const)('caps the visible %s deck at three stacked depths', (axis) => {
+    const { grid, container } = setup(axis, true, true, false, false, false, 5);
+    const row = axis === 'rows';
+    const headers = screen.getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
+    pointer(headers[0], 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', row ? 120 : 200, row ? 100 : 80);
+    const cards = [...container.querySelectorAll<HTMLElement>('.sheet-grid-axis-deck .sheet-grid-axis-card')];
+    expect(cards).toHaveLength(5);
+    expect(cards.map((card) => card.textContent)).toEqual(row ? ['1', '', '', '', ''] : ['A', '', '', '', '']);
+    expect(cards.map((card) => Number(card.style.zIndex))).toEqual([3, 2, 1, 0, 0]);
+    for (const coordinate of ['left', 'top'] as const) {
+      const origin = parseFloat(cards[0].style[coordinate]);
+      expect(cards.map((card) => parseFloat(card.style[coordinate]) - origin)).toEqual([0, 4, 8, 8, 8]);
+    }
   });
   it('synchronizes the flight transform and easing with real axis motion', () => {
     const gridStyles = fs.readFileSync('src/grid/SheetGrid.css', 'utf8');
