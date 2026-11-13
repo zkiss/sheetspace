@@ -72,7 +72,7 @@ it.each(['drag', 'resize', 'scale'] as const)('retires captured frame %s before 
   pointer(target, 'pointermove', 100, owner === 'scale');
   expect(captured).toBe(true);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(target.releasePointerCapture).toHaveBeenCalledWith(17);
   pointer(target, 'pointermove', 150, owner === 'scale');
   pointer(target, 'pointerup', 150, owner === 'scale');
@@ -141,7 +141,7 @@ it.each((['drag', 'resize', 'scale'] as const).flatMap((owner) => [
     for (const callback of pending) act(() => callback(now));
   }
 
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(frame).toHaveAttribute('data-presented', 'true');
   expect(target.releasePointerCapture).toHaveBeenCalledWith(17);
   expect(captured).toBe(false);
@@ -155,12 +155,12 @@ it.each((['drag', 'resize', 'scale'] as const).flatMap((owner) => [
   expect(transformScale(body)).toBeCloseTo(sourceTableScale, 6);
   expectGeometry({ left: source.left + parseFloat(body.style.left), top: source.top + parseFloat(body.style.top), width: parseFloat(body.style.width) * sourceTableScale, height: parseFloat(body.style.height) * sourceTableScale }, { left: source.left + sourceTableScale, top: source.top + 33 * sourceTableScale, width: source.width - 2 * sourceTableScale, height: source.height - 34 * sourceTableScale });
 
-  advance(150);
+  advance(237.5);
   expectGeometry(surfaceFrameGeometry(frame, surface), midpoint(source, { left: 0, top: 0, width: 800, height: 600 }));
   expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ opacity: '0.5' });
 
   if (!reverseEarly) {
-    advance(150);
+    advance(237.5);
     expectGeometry(surfaceFrameGeometry(frame, surface), { left: 0, top: 0, width: 800, height: 600 });
     expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ height: '0px', opacity: '0' });
   }
@@ -172,9 +172,9 @@ it.each((['drag', 'resize', 'scale'] as const).flatMap((owner) => [
   expect(transformScale(body)).toBeCloseTo(interruptedBodyScale, 6);
   expect([frame.dataset.positionX, frame.dataset.positionY, frame.dataset.frameWidth, frame.dataset.frameHeight, frame.dataset.visualScale]).toEqual(saved);
 
-  advance(150);
+  advance(237.5);
   expectGeometry(surfaceFrameGeometry(frame, surface), midpoint(interrupted, { left: 245, top: 190, width: 310, height: 220 }));
-  advance(150);
+  advance(237.5);
 
   expect(frame).not.toHaveAttribute('data-presented');
   expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBe(frame);

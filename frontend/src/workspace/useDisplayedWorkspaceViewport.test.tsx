@@ -33,6 +33,28 @@ it('reports no animations for an ordinary jsdom element', () => {
   expect(document.createElement('div').getAnimations()).toEqual([]);
 });
 
+it('publishes only mount-set changes while moving, then always publishes the final viewport', () => {
+  const plane = document.createElement('div');
+  plane.dataset.navigationMotion = 'smooth';
+  const animation = { playState: 'running' } as Animation;
+  vi.spyOn(plane, 'getAnimations').mockReturnValue([animation]);
+  let transform = 'matrix(1, 0, 0, 1, 10, 0)';
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({ transform }) as CSSStyleDeclaration);
+  let frame: FrameRequestCallback = () => {};
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frame = callback; return 1; });
+  const ref = { current: plane };
+  const viewport = { x: 0, y: 0, scale: 1 };
+  const { result } = renderHook(() => useDisplayedWorkspaceViewport(ref, viewport, (next) => next.x >= 50));
+  expect(result.current).toEqual(viewport);
+  transform = 'matrix(1, 0, 0, 1, 50, 0)';
+  act(() => frame(16));
+  expect(result.current.x).toBe(50);
+  transform = 'matrix(1, 0, 0, 1, 20, 0)';
+  Object.defineProperty(animation, 'playState', { value: 'finished' });
+  act(() => frame(32));
+  expect(result.current.x).toBe(20);
+});
+
 it('keeps frames at the displayed camera mounted until the animation leaves them', () => {
   const plane = document.createElement('div');
   plane.dataset.navigationMotion = 'smooth';

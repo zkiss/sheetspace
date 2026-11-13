@@ -424,6 +424,14 @@ export function Workspace({
     };
   }, [modeActive, interactionsEnabled, workspaceController.workspaceSurfaceRef]);
   const displayedFrames = useRef(new Map<string, ReturnType<typeof frameProjection>>());
+  function liveFrame(id: string, fallback: ReturnType<typeof frameProjection>) {
+    const article = workspaceController.workspaceSurfaceRef.current?.querySelector<HTMLElement>(`article.sheet-frame[data-sheet-id="${CSS.escape(id)}"]`);
+    if (!article) return fallback;
+    const { positionX, positionY, frameWidth, frameHeight } = article.dataset;
+    const values = [positionX, positionY, frameWidth, frameHeight].map(Number);
+    if ([positionX, positionY, frameWidth, frameHeight].some((value) => value === undefined) || values.some((value) => !Number.isFinite(value))) return fallback;
+    return { ...fallback, position: { x: values[0], y: values[1] }, size: { width: values[2], height: values[3] } };
+  }
   const transportInputs = useRef({ maximise, workspaceController, workbook });
   transportInputs.current = { maximise, workspaceController, workbook };
   const transport = useMemo(() => createNavigationTransport({
@@ -471,7 +479,7 @@ export function Workspace({
     cancelNavigationBeforeUserMovement.current();
     if (!modeActive && selectedSheet) {
       const saved = frameProjection(selectedSheet);
-      const displayed = displayedFrames.current.get(selectedSheet.id) ?? saved;
+      const displayed = liveFrame(selectedSheet.id, displayedFrames.current.get(selectedSheet.id) ?? saved);
       cancelSheetFrameScale();
       maximise.enter(selectedSheet.id, saved, displayed);
     }
@@ -1328,10 +1336,12 @@ export function Workspace({
               key={sheet.id}
               onOpenSheetMenu={workspaceController.openSheetMenu}
               onMaximise={interactionsEnabled && !modeActive && sheet.id !== paintOwner?.source.id && sheet.id !== paintOwner?.targetId && sheet.id !== extractionPresentation?.targetId ? (keyboard) => {
+                const saved = frameProjection(sheet);
+                const displayed = liveFrame(sheet.id, displayedFrames.current.get(sheet.id) ?? saved);
                 cancelNavigationBeforeUserMovement.current();
                 cancelSheetFrameScale();
                 onActivateSheet(sheet.id, false);
-                maximise.enter(sheet.id, frameProjection(sheet), displayedFrames.current.get(sheet.id) ?? frameProjection(sheet));
+                maximise.enter(sheet.id, saved, displayed);
                 if (keyboard) requestAnimationFrame(() => {
                   if (maximise.currentState().sheetId === sheet.id && document.activeElement === document.body) {
                     document.querySelector<HTMLButtonElement>('.workspace-toolbar [aria-label="Restore to workspace"]')?.focus({ preventScroll: true });

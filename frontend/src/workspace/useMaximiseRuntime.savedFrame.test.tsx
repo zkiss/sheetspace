@@ -66,7 +66,7 @@ it.each([false, true])('retargets an owned restore continuously when committed g
   act(() => { pending = result.current.ensureCanvas(); });
   now = 100;
   act(() => callback(now));
-  const displayed = result.current.presentation;
+  const displayed = result.current.currentPresentation();
   const stale = callback;
   const edited = { position: { x: -200, y: 300 }, size: { width: 500, height: 350 }, visualScale: 2 };
   rerender({ frame: edited, reducedMotion: reduced });
@@ -75,7 +75,7 @@ it.each([false, true])('retargets an owned restore continuously when committed g
     expect(result.current.state.motion?.to).toEqual(canvasPresentation(edited, restoredViewport(edited, size)));
     act(() => stale(1000));
     expect(result.current.state.mode).toBe('restoring');
-    now = 400;
+    now = 600;
     act(() => callback(now));
   }
   expect(await pending).toBe('settled');

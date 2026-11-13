@@ -301,13 +301,13 @@ it('samples the handoff and reverses continuously, then commits the native-scale
   const first = result.current.settled();
   now = 150;
   act(() => callbacks.get(nextId)!(now));
-  const middle = result.current.presentation;
+  const middle = result.current.currentPresentation();
   act(() => result.current.toggle());
   expect(await first).toBe('cancelled');
   expect(result.current.presentation).toEqual(middle);
   expect(result.current.state.motion?.to).toEqual(canvasPresentation(saved, restoredViewport(saved, size)));
   const restored = result.current.settled();
-  now = 450;
+  now = 650;
   act(() => callbacks.get(nextId)!(now));
   expect(await restored).toBe('settled');
   expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, size));
@@ -408,14 +408,14 @@ it.each(['entering', 'restoring'] as const)('retargets an in-flight %s resize fr
   const { result, rerender } = renderHook(({ dimensions }) => useMaximiseRuntime(handoff, dimensions, false, () => true), { initialProps: { dimensions: size } });
   act(() => result.current.enter('sheet', saved));
   if (mode === 'restoring') {
-    now = 300;
+    now = 500;
     act(() => callbacks.get(nextId)!(now));
     act(() => result.current.toggle());
   }
   const pending = result.current.settled();
   now += 100;
   act(() => callbacks.get(nextId)!(now));
-  const middle = result.current.presentation;
+  const middle = result.current.currentPresentation();
   const stale = callbacks.get(nextId)!;
   const resized = { width: 1000, height: 700 };
   rerender({ dimensions: resized });
@@ -426,7 +426,7 @@ it.each(['entering', 'restoring'] as const)('retargets an in-flight %s resize fr
   expect(result.current.state.mode).toBe(mode);
   expect(result.current.presentation).toEqual(middle);
   expect(handoff.commitFrozenViewport).not.toHaveBeenCalled();
-  now += 300;
+  now += 500;
   act(() => callbacks.get(nextId)!(now));
   expect(await retargeted).toBe('settled');
   if (mode === 'entering') {
