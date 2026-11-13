@@ -53,7 +53,7 @@ export function useWorkspaceController({
   const creationMotionSample = useRef<{ animation: Animation; time: CSSNumberish | null } | undefined>(undefined);
   const viewportRef = useRef(viewport);
   viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
-  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport, shouldRenderPanViewport);
+  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport, shouldRenderPanViewport, paintWorkspaceGrid);
   const navigationMayBeMoving = useRef(false);
   const activeViewportMotion = useRef<{ animation: Animation; motion: ReturnType<typeof navigationViewportMotion> }>();
   const viewportMovementIsUser = useRef(false);
@@ -242,6 +242,11 @@ export function useWorkspaceController({
     surface.dataset.viewportY = String(next.y);
     surface.dataset.viewportScale = String(next.scale);
     const grid = surface.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
+    if (grid) drawWorkspaceGrid(grid, activeViewportMotion.current ? displayedWorkspaceViewport(plane) ?? next : next);
+  }
+
+  function paintWorkspaceGrid(next: WorkspaceViewport) {
+    const grid = workspaceSurfaceRef.current?.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
     if (grid) drawWorkspaceGrid(grid, next);
   }
 

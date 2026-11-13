@@ -55,6 +55,38 @@ it('publishes only mount-set changes while moving, then always publishes the fin
   expect(result.current.x).toBe(20);
 });
 
+it('paints every motion sample even when virtualization does not publish, including after retargeting', () => {
+  const plane = document.createElement('div');
+  plane.dataset.navigationMotion = 'smooth';
+  const animation = { playState: 'running' } as Animation;
+  vi.spyOn(plane, 'getAnimations').mockReturnValue([animation]);
+  let transform = 'matrix(1, 0, 0, 1, 10, 0)';
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({ transform }) as CSSStyleDeclaration);
+  let frame: FrameRequestCallback = () => {};
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frame = callback; return 1; });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  const paint = vi.fn();
+  const ref = { current: plane };
+  const { rerender, unmount } = renderHook(({ viewport }) => useDisplayedWorkspaceViewport(ref, viewport, () => false, paint), {
+    initialProps: { viewport: { x: 100, y: 0, scale: 1 } },
+  });
+
+  transform = 'matrix(2, 0, 0, 2, 30, 40)';
+  act(() => frame(16));
+  expect(paint).toHaveBeenLastCalledWith({ x: 30, y: 40, scale: 2 });
+  rerender({ viewport: { x: 200, y: 0, scale: 1 } });
+  expect(paint).toHaveBeenLastCalledWith({ x: 30, y: 40, scale: 2 });
+  transform = 'matrix(1, 0, 0, 1, 60, 0)';
+  act(() => frame(32));
+  expect(paint).toHaveBeenLastCalledWith({ x: 60, y: 0, scale: 1 });
+  Object.defineProperty(animation, 'playState', { value: 'finished' });
+  transform = 'matrix(1, 0, 0, 1, 200, 0)';
+  act(() => frame(48));
+  expect(paint).toHaveBeenLastCalledWith({ x: 200, y: 0, scale: 1 });
+  unmount();
+  expect(window.cancelAnimationFrame).toHaveBeenCalled();
+});
+
 it('keeps frames at the displayed camera mounted until the animation leaves them', () => {
   const plane = document.createElement('div');
   plane.dataset.navigationMotion = 'smooth';
