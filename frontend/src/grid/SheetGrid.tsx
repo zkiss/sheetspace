@@ -5,7 +5,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type SyntheticEvent } from 'react';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
-import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
+import { createSheetGridAxisMetrics } from './gridAxisMetrics';
 import { gridCellReveal, gridRangeReveal } from './gridCellReveal';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
@@ -39,10 +39,6 @@ type NavigationFocusIntent = {
   generation: number;
   range: CellRange;
   targetKey: string;
-};
-export type SheetGridAxisMetrics = {
-  readonly columns: GridAxisMetrics;
-  readonly rows: GridAxisMetrics;
 };
 export function SheetGrid({
   entryRow,

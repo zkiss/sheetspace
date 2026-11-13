@@ -8,7 +8,9 @@ import type { EntrySessionState } from '@application/core/modelEntrySession';
 import type { CellEditSession, CellSelection, CellSelectionMode, CellTarget, SelectionGesture } from './cellInteractionContracts';
 import type { SheetGridCellInteraction } from './SheetGridCell';
 import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
-import type { SheetGridAxisMetrics } from './SheetGrid';
+import type { GridAxisMetrics } from './gridAxisMetrics';
+
+type SheetGridAxisMetrics = { readonly columns: GridAxisMetrics; readonly rows: GridAxisMetrics };
 
 export type SheetGridProps = {
   entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands; onEntryFocus?: () => void };

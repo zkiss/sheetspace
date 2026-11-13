@@ -1,5 +1,5 @@
 import { activateCellEditor } from '@test-support/appScreen';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import { App } from './App';
@@ -45,12 +45,12 @@ describe('shared formula editor workspace gesture ownership', () => {
     expect(surface).toHaveAttribute('data-viewport-y', '0');
   });
 
-  it('routes Ctrl wheel over the portaled editor to workspace zoom and retains the draft', () => {
+  it('routes Ctrl wheel over the portaled editor to workspace zoom and retains the draft', async () => {
     const { cell, editor, surface } = setup();
     const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 });
     fireEvent(editor, event);
     expect(event.defaultPrevented).toBe(true);
-    expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
+    await waitFor(() => expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1));
     expect(cell).toHaveAttribute('data-active-cell', 'true');
     expect(screen.getByRole('textbox')).toBe(editor);
     expect(editor).toHaveValue('=@B[1]+1');

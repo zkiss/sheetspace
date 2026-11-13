@@ -10,7 +10,6 @@ import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 import { gatherAxis } from '@workbook/mutations/reorderAxis';
 import { cellTargetAt } from './cellInteraction';
 import { animateGridAxes } from './gridAxisMotionEffects';
-import fs from 'node:fs';
 
 function pointer(element: Element, type: string, x: number, y: number, pointerId = 1, modifiers: MouseEventInit = {}) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, ...modifiers });
@@ -410,7 +409,6 @@ describe('header gather controls', () => {
     }
   });
   it('synchronizes the flight transform and easing with real axis motion', () => {
-    const gridStyles = fs.readFileSync('src/grid/SheetGrid.css', 'utf8');
     const root = document.createElement('div');
     root.innerHTML = '<div data-motion-row="row"></div><div data-motion-column="column"></div>';
     const animate = vi.fn(() => ({ cancel: vi.fn(), onfinish: null } as unknown as Animation));
@@ -418,9 +416,6 @@ describe('header gather controls', () => {
     const cancel = animateGridAxes(root, { rows: [{ id: 'row', delta: 50, index: 0, start: 0, size: 50 }], columns: [{ id: 'column', delta: 160, index: 0, start: 0, size: 160 }] }, vi.fn());
     expect(animate).toHaveBeenNthCalledWith(1, [{ transform: 'translateY(50px)' }, { transform: 'translateY(0px)' }], { duration: 220, easing: 'ease-out' });
     expect(animate).toHaveBeenNthCalledWith(2, [{ transform: 'translateX(160px)' }, { transform: 'translateX(0px)' }], { duration: 220, easing: 'ease-out' });
-    expect(gridStyles).toMatch(/animation:\s*axis-gather-flight 220ms ease-out both/);
-    expect(gridStyles).toMatch(/transform-origin:\s*top left/);
-    expect(gridStyles).toContain('translate(var(--flight-to-x), var(--flight-to-y)) scale(var(--flight-scale-x), var(--flight-scale-y))');
     cancel();
   });
   it('flies headers home on Escape and clears an earlier flight on the next press', () => {

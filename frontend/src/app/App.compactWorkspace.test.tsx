@@ -1,5 +1,5 @@
 import { activateCellEditor } from '@test-support/appScreen';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -54,7 +54,7 @@ describe('compact workspace interactions', () => {
     expect(input).toHaveValue('Draft name');
   });
 
-  it('zooms from the portal editor and commits its draft before a middle-button canvas pan', () => {
+  it('zooms from the portal editor and commits its draft before a middle-button canvas pan', async () => {
     render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     activateCellEditor(cell);
@@ -62,7 +62,7 @@ describe('compact workspace interactions', () => {
     fireEvent.change(editor, { target: { value: 'Draft' } });
     fireEvent.wheel(editor, { ctrlKey: true, deltaY: -100 });
     const surface = screen.getByTestId('workspace-surface');
-    expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
+    await waitFor(() => expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1));
     expect(editor).toHaveFocus();
     pointer(editor, 'pointerdown', { button: 1, buttons: 4 });
     pointer(surface, 'pointermove', { button: 1, buttons: 4, clientX: 20 });
