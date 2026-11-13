@@ -21,7 +21,7 @@ it.each([
   fireEvent.keyDown(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }), { key: 'F2' });
   fireEvent.change(screen.getByRole('textbox', { name: 'Inputs A1 editor' }), { target: { value: 'changed' } });
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Inputs A1 editor' }), { key: 'Enter' });
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: command }));
   for (const [label, number] of Object.entries(edits)) {
@@ -32,7 +32,7 @@ it.each([
   expect(frame).toHaveAttribute('data-presented', 'true');
   restoreAndExpectNativeCentredFrame(frame, surface);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
   await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveTextContent('changed'));
   expect(frame).toHaveAttribute(attribute, value);

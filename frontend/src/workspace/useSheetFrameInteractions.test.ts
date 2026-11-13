@@ -1,11 +1,18 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
 import type { SheetFrameLayoutCommands, SheetFrameResizeDirection } from './workspaceContracts';
 import { Workbook } from '@workbook/core/model';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+
+let frame: HTMLElement;
+beforeEach(() => {
+  frame = document.createElement('article');
+  frame.className = 'sheet-frame';
+  Object.assign(frame.style, { left: '10px', top: '20px', width: '240px', height: '160px' });
+});
 
 function commands() {
   return {
@@ -29,6 +36,7 @@ function pointerEvent({
   target?: Element;
 }) {
   const currentTarget = document.createElement('div');
+  frame.append(currentTarget);
   currentTarget.setPointerCapture = vi.fn();
   currentTarget.releasePointerCapture = vi.fn();
 
@@ -188,9 +196,9 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
     });
 
-    expect(result.current.frameLayoutPreview).toMatchObject({
-      sheetId: 'sheet-inputs', position: { x: 30, y: 35 },
-    });
+    expect(frame).toHaveStyle({ left: '30px', top: '35px' });
+    expect(frame.dataset).toMatchObject({ positionX: '30', positionY: '35' });
+    expect(result.current.frameLayoutPreview).toBeNull();
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
 
@@ -218,7 +226,7 @@ describe('useSheetFrameInteractions', () => {
       }
     });
 
-    expect(result.current.frameLayoutPreview).toMatchObject({ position: { x: 15, y: 20 } });
+    expect(frame).toHaveStyle({ left: '15px', top: '20px' });
     act(() => {
       result.current.stopSheetFrameDrag(pointerEvent({ clientX: 110, clientY: 120 }));
     });
@@ -268,11 +276,8 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 160, clientY: 160 }));
     });
 
-    expect(result.current.frameLayoutPreview).toEqual({
-      sheetId: 'sheet-inputs',
-      position: { x: 10, y: 20 },
-      size: { width: 270, height: 180 },
-    });
+    expect(frame).toHaveStyle({ left: '10px', top: '20px', width: '270px', height: '180px' });
+    expect(frame.dataset).toMatchObject({ frameWidth: '270', frameHeight: '180' });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
 
@@ -313,7 +318,7 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 120 }));
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
     });
-    expect(result.current.frameLayoutPreview).not.toBeNull();
+    expect(frame.style.left === '50px' || frame.style.width === '280px').toBe(true);
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150 })));
     expect(result.current.frameLayoutPreview).toBeNull();
@@ -328,7 +333,7 @@ describe('useSheetFrameInteractions', () => {
       );
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150 }));
     });
-    expect(result.current.frameLayoutPreview).not.toBeNull();
+    expect(frame).toHaveStyle({ width: '280px', height: '190px' });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.cancelSheetFrameResize(pointerEvent({ clientX: 140, clientY: 150 })));
     expect(result.current.frameLayoutPreview).toBeNull();
@@ -357,7 +362,7 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeStart('sheet-inputs', { horizontal: 1, vertical: 0 }, pointerEvent({ clientX: 0, clientY: 0 }));
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 100, clientY: 0 }));
     });
-    expect(result.current.frameLayoutPreview?.size.width).toBe(340);
+    expect(frame).toHaveStyle({ width: '340px' });
     act(() => result.current.cancelSheetFrameResize(pointerEvent({ clientX: 100, clientY: 0 })));
     act(() => {
       result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
@@ -386,11 +391,7 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 40, clientY: 30 }));
     });
 
-    expect(result.current.frameLayoutPreview).toEqual({
-      sheetId: 'sheet-inputs',
-      position: { x: 30, y: 35 },
-      size: { width: 200, height: 130 },
-    });
+    expect(frame).toHaveStyle({ left: '30px', top: '35px', width: '200px', height: '130px' });
 
     act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 40, clientY: 30 })));
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
@@ -461,7 +462,7 @@ describe('useSheetFrameInteractions', () => {
     });
 
     expect(result.current.frameScalePreview).toBeNull();
-    expect(result.current.frameLayoutPreview).toMatchObject({ position: { x: 50, y: 50 } });
+    expect(frame).toHaveStyle({ left: '50px', top: '50px' });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.stopSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 })));
     expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 50, y: 50 });
@@ -477,9 +478,10 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 3 }));
     });
 
-    expect(result.current.frameLayoutPreview).toMatchObject({ size: { width: 280, height: 190 } });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 140, clientY: 150, pointerId: 3 })));
+    expect(frame.style.width).toBe('280px');
+    expect(frame.style.height).toBe('190px');
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
       'sheet-inputs', { x: 10, y: 20 }, { width: 280, height: 190 },
     );
@@ -507,3 +509,37 @@ it('cancels a captured frame scale with the rebound chord before editor bubbling
     input.remove();
   } finally { map.cancel = original; }
 });
+
+it.each(['cancel', 'escape', 'blur', 'rejection', 'return to origin'])(
+  'settles a direct drag preview after %s', (ending) => {
+    const { commands: testCommands, result } = renderInteractions();
+    if (ending === 'rejection') testCommands.moveSheetFrame.mockReturnValue({ ok: false, reason: 'not-found' } as never);
+    act(() => {
+      result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 0, clientY: 0 }));
+      result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 40, clientY: 30 }));
+    });
+    expect(frame.dataset).toMatchObject({ positionX: '50', positionY: '50' });
+    act(() => {
+      if (ending === 'cancel') result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 40, clientY: 30 }));
+      if (ending === 'escape') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      if (ending === 'blur') window.dispatchEvent(new Event('blur'));
+      if (ending === 'rejection') result.current.stopSheetFrameDrag(pointerEvent({ clientX: 40, clientY: 30 }));
+      if (ending === 'return to origin') result.current.stopSheetFrameDrag(pointerEvent({ clientX: 0, clientY: 0 }));
+    });
+    expect(frame.dataset).toMatchObject({ positionX: '10', positionY: '20' });
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+  },
+);
+
+it('restores moved position and size when a top-left resize is rejected', () => {
+  const { commands: testCommands, result } = renderInteractions();
+  testCommands.resizeSheetFrame.mockReturnValue({ ok: false, reason: 'not-found' } as never);
+  act(() => {
+    result.current.handleSheetFrameResizeStart('sheet-inputs', { horizontal: -1, vertical: -1 }, pointerEvent({ clientX: 0, clientY: 0 }));
+    result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 20, clientY: 30 }));
+  });
+  expect(frame.dataset).toMatchObject({ positionX: '30', positionY: '50', frameWidth: '220', frameHeight: '130' });
+  act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 20, clientY: 30 })));
+  expect(frame.dataset).toMatchObject({ positionX: '10', positionY: '20', frameWidth: '240', frameHeight: '160' });
+});
+

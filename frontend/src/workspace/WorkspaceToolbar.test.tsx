@@ -6,6 +6,21 @@ import { NumberFormatControls } from './NumberFormatControls.testHarness';
 const titles = { back: 'Back', forward: 'Forward', commandPalette: 'Command palette', errorsList: 'Error list' };
 
 describe('compact workspace toolbar', () => {
+  it('exposes only the rightmost icon restore control while maximised', () => {
+    const toggle = vi.fn();
+    const props = { onCreateSheet: vi.fn(), onRetryFailedSaves: vi.fn(), canRetryFailedSaves: false, titles, formatControls: null, saveStatus: 'saved' as const, onToggleMaximise: toggle, canMaximise: true };
+    const { rerender } = render(<WorkspaceToolbar {...props} />);
+    expect(screen.queryByRole('button', { name: /maximise/i })).not.toBeInTheDocument();
+    rerender(<WorkspaceToolbar {...props} maximised />);
+    const restore = screen.getByRole('button', { name: 'Restore to workspace' });
+    expect(restore).toHaveAttribute('title', 'Restore to workspace');
+    expect(restore).toHaveTextContent('');
+    expect(screen.getByRole('banner').lastElementChild).toBe(restore);
+    restore.focus();
+    expect(restore).toHaveFocus();
+    fireEvent.click(restore);
+    expect(toggle).toHaveBeenCalledOnce();
+  });
   it('orders four cohesive formatting groups after creation, keeping precision and resets with their properties', () => {
     render(<WorkspaceToolbar canRetryFailedSaves={false} saveStatus="saved" onCreateSheet={vi.fn()} onRetryFailedSaves={vi.fn()}
       titles={titles}

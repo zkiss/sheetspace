@@ -38,7 +38,10 @@ it('suppresses formula reference links through maximised editing and restores th
   });
   render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
   const { outputs: outputsFrame, surface } = measureWorkspaceAndGrids();
+  vi.useFakeTimers();
   zoomWorkspace('in');
+  act(() => vi.advanceTimersByTime(250));
+  vi.useRealTimers();
   expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
 
   fireEvent.click(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
@@ -67,7 +70,7 @@ it('suppresses formula reference links through maximised editing and restores th
     }
   }
 
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   // The entering phase still owns a sampled canvas-to-maximised presentation.
   expect(outputsFrame).toHaveAttribute('data-presented', 'true');
   expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
@@ -125,7 +128,7 @@ it('suppresses canvas-anchored error reference previews outside canvas mode', as
   fireEvent.mouseEnter(errorReference!);
   expect(await screen.findByLabelText('Formula reference paths')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(outputsFrame).toHaveAttribute('data-presented', 'true');
   expect(screen.queryByLabelText('Formula reference paths')).not.toBeInTheDocument();
 

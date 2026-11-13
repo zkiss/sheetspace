@@ -3,7 +3,7 @@ import { zoomScaleBy } from './workspaceGeometry';
 import { canvasPresentation, interpolatePresentation, maximisedPresentation, restoredViewport } from './maximiseGeometry';
 import type { SavedFrame, SheetPresentation } from './maximiseGeometry';
 
-export const MAXIMISE_TRANSITION_MS = 300;
+export const MAXIMISE_TRANSITION_MS = 475;
 type Mode = 'canvas' | 'entering' | 'maximised' | 'restoring';
 type Motion = { from: SheetPresentation; to: SheetPresentation; start: number };
 export type MaximiseState = {

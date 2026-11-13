@@ -62,10 +62,12 @@
 .sheet-grid-column-header {
   position: absolute;
   top: 0;
+  touch-action: none;
 }
 
 .sheet-grid-row-header {
   position: sticky;
+  touch-action: none;
 }
 
 .sheet-grid-column-header,
@@ -111,25 +113,57 @@
 .sheet-grid-resize-handle-row { bottom: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
 .sheet-grid-resize-handle:hover { background: var(--accent); }
 
-.sheet-grid-gather-handle {
-  cursor: grab;
-  min-height: 0;
-  height: 100%;
-  line-height: 1;
-  border: 0;
-  padding: 0 2px;
-  background: transparent;
-  color: inherit;
-  opacity: 0.6;
-  touch-action: none;
+.sheet-grid-gather-line {
+  position: absolute;
+  z-index: 45;
+  background: #2778dc;
+  pointer-events: none;
 }
 
-.sheet-grid-gather-handle:hover, .sheet-grid-gather-handle:focus-visible { opacity: 1; }
-.sheet-grid-gather-preview {
+.sheet-grid-axis-deck,
+.sheet-grid-axis-flight {
   position: absolute;
-  border: 2px solid #2778dc;
-  background: rgb(39 120 220 / 12%);
+  inset: 0;
   pointer-events: none;
-  z-index: 20;
+  z-index: 50;
+}
+
+.sheet-grid-axis-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
+  background: #f7fafb;
+  border: 1px solid #b9c7d1;
+  color: #34495a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(23 32 42 / 18%);
+  user-select: none;
+}
+
+/* The grabbed card sits on top of the deck; the cards behind it only need a
+   thin edge, so the whole stack reads as three crisp sheets. */
+.sheet-grid-axis-card:first-child {
+  box-shadow: 0 10px 20px rgb(23 32 42 / 22%), 0 2px 4px rgb(23 32 42 / 12%);
+}
+
+.sheet-grid-axis-flight-card {
+  transform-origin: top left;
+  animation: axis-gather-flight 220ms ease-out both;
+}
+
+.sheet-grid-axis-card-stacking {
+  background: #eef3f6;
+  animation: axis-gather-stack 160ms ease-out both;
+}
+
+@keyframes axis-gather-stack {
+  from { transform: translate(var(--stack-from-x), var(--stack-from-y)); }
+  to { transform: translate(0, 0); }
+}
+
+@keyframes axis-gather-flight {
+  from { transform: translate(var(--flight-from-x), var(--flight-from-y)) scale(1, 1); }
+  to { transform: translate(var(--flight-to-x), var(--flight-to-y)) scale(var(--flight-scale-x), var(--flight-scale-y)); }
 }

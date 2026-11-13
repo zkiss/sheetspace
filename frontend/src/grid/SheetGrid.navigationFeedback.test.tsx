@@ -1,12 +1,13 @@
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, type ComponentProps } from 'react';
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { virtualGridGeometry } from '@test-support/domGeometry';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from './gridAxisProjection';
 import { SheetGrid } from './SheetGrid';
+import { useReferenceViewports } from '@app/useReferenceViewports';
 
 function setup(rowCount = 30, columnCount = 10) {
   const document = sheetDocument({ id: 'target', name: 'Target', rowCount, columnCount,
@@ -31,21 +32,37 @@ function setup(rowCount = 30, columnCount = 10) {
 }
 
 describe('reference-navigation range feedback', () => {
+  it('measures the settled grid before a deferred resize observer report', () => {
+    const { result, rerender } = renderHook(({ paused }) => useReferenceViewports(paused), { initialProps: { paused: false } });
+    const { viewport, show } = setup();
+    show({ onReferenceViewport: result.current.reportReferenceViewport });
+    rerender({ paused: true });
+    let width = 320;
+    Object.defineProperty(viewport, 'clientWidth', { configurable: true, get: () => width });
+    fireEvent.scroll(viewport);
+    width = 280;
+    rerender({ paused: false });
+    const settled = result.current.referenceGridViewports;
+    expect(settled.target?.size.width).toBe(280);
+    fireEvent.scroll(viewport);
+    expect(result.current.referenceGridViewports).toBe(settled);
+  });
+
   it('reports viewport changes and releases the old observer when its owner changes', () => {
     const { viewport, show, unmount } = setup();
     const first = vi.fn();
     const second = vi.fn();
     show({ onReferenceViewport: first });
-    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 0, width: 240, height: 160 });
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 0, width: 240, height: 160 }, expect.any(Function));
     viewport.scrollLeft = 25;
     viewport.scrollTop = 30;
     fireEvent.scroll(viewport);
-    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 240, height: 160 });
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 240, height: 160 }, expect.any(Function));
     act(() => { virtualGridGeometry(viewport, { width: 320, height: 180 }); });
-    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 });
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 }, expect.any(Function));
     show({ onReferenceViewport: second });
     expect(first).toHaveBeenLastCalledWith('target', null);
-    expect(second).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 });
+    expect(second).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 }, expect.any(Function));
     unmount();
     expect(second).toHaveBeenLastCalledWith('target', null);
   });
@@ -73,7 +90,7 @@ describe('reference-navigation range feedback', () => {
       show({ onReferenceViewport: report });
       viewport.scrollTop = 40;
       fireEvent.scroll(viewport);
-      expect(report).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 40, width: 240, height: 160 });
+      expect(report).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 40, width: 240, height: 160 }, expect.any(Function));
       unmount();
       expect(report).toHaveBeenLastCalledWith('target', null);
     } finally {

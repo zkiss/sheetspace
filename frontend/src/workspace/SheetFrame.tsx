@@ -38,6 +38,7 @@ export function SheetFrame({
   onDetailedNativeFocusReleased,
   onRenderingModeChange,
   onOpenSheetMenu,
+  onMaximise,
   onResizeCancel,
   onResizeMove,
   onResizeStart,
@@ -73,6 +74,7 @@ export function SheetFrame({
   onDetailedNativeFocusReleased?: () => void;
   onRenderingModeChange?: (sheetId: string, mode: 'detailed' | 'overview') => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
+  onMaximise?: (keyboard: boolean) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
@@ -187,6 +189,16 @@ export function SheetFrame({
         onPointerUp={onSheetFrameDragStop}
       >
         <h2>{frame.name}</h2>
+        {!presentation && onMaximise && <button
+          aria-label={`Maximise ${frame.name}`}
+          className="sheet-frame-maximise"
+          data-workspace-presentation-action
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => { event.stopPropagation(); onMaximise(event.detail === 0); }}
+          title="Maximise sheet"
+          type="button"
+        ><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" /></svg></button>}
       </header>
       <div
         className="sheet-frame-body"

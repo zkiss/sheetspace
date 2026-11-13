@@ -33,7 +33,7 @@ it('routes a scattered header drag through the controller while retaining logica
   await user.click(headers()[0]);
   await user.keyboard('{Control>}'); await user.click(headers()[2]); await user.keyboard('{/Control}');
   const grid = within(frame).getByTestId('sheet-grid');
-  pointer(within(frame).getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+  pointer(within(frame).getAllByRole('rowheader')[0], 'pointerdown', 20, 30);
   pointer(grid, 'pointermove', 20, 130); pointer(grid, 'pointerup', 20, 130);
   const values = [1, 2, 3, 4].map((row) => frame.querySelector(`[data-cell-key="A${row}"]`)?.textContent);
   expect(values).toEqual(['b', 'd', 'a', 'c']);
@@ -61,6 +61,26 @@ it('routes a scattered header drag through the controller while retaining logica
   expect([1, 2, 3, 4].map((row) => frame.querySelector(`[data-cell-key="A${row}"]`)?.textContent)).toEqual(['b', 'a', 'c', 'd']);
   expect(animation.effects.length).toBeGreaterThan(afterUndo);
 });
+it('undoes and redoes a header drag through application history', async () => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Inputs', rowCount: 4, columnCount: 2,
+    cells: { A1: 'a', A2: 'b', A3: 'c', A4: 'd' } });
+  render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+  const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+  act(() => { virtualGridGeometry(within(frame).getByTestId('sheet-frame-body'), { height: 160, width: 240 }); });
+  const headers = () => within(frame).getAllByRole('rowheader');
+  const values = () => [1, 2, 3, 4].map((row) => frame.querySelector(`[data-cell-key="A${row}"]`)?.textContent);
+  await user.click(headers()[0]);
+  await user.keyboard('{Control>}'); await user.click(headers()[2]); await user.keyboard('{/Control}');
+  const grid = within(frame).getByTestId('sheet-grid');
+  pointer(headers()[0], 'pointerdown', 20, 30);
+  pointer(grid, 'pointermove', 20, 130); pointer(grid, 'pointerup', 20, 130);
+  expect(values()).toEqual(['b', 'd', 'a', 'c']);
+  await user.keyboard('{Control>}z{/Control}');
+  expect(values()).toEqual(['a', 'b', 'c', 'd']);
+  await user.keyboard('{Control>}y{/Control}');
+  expect(values()).toEqual(['b', 'd', 'a', 'c']);
+});
 it.each(['row', 'column'] as const)('animates an unselected %s drag and its displaced neighbors after owned settlement', async (axis) => {
   const user = userEvent.setup();
   const row = axis === 'row';
@@ -72,7 +92,7 @@ it.each(['row', 'column'] as const)('animates an unselected %s drag and its disp
   const headers = () => within(frame).getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
   await user.click(headers()[0]);
   const grid = within(frame).getByTestId('sheet-grid');
-  pointer(within(frame).getByRole('button', { name: row ? 'Drag row 2' : 'Drag column B' }), 'pointerdown', row ? 20 : 200, row ? 60 : 10);
+  pointer(headers()[1], 'pointerdown', row ? 20 : 200, row ? 60 : 10);
   pointer(grid, 'pointermove', row ? 20 : 340, row ? 130 : 10);
   pointer(grid, 'pointerup', row ? 20 : 340, row ? 130 : 10);
   const keys = row ? ['A1', 'A2', 'A3', 'A4'] : ['A1', 'B1', 'C1', 'D1'];
@@ -97,7 +117,7 @@ it('focuses an unselected source on a below-threshold release', async () => {
   const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
   act(() => { virtualGridGeometry(within(frame).getByTestId('sheet-frame-body'), { height: 160, width: 240 }); });
   await user.click(within(frame).getAllByRole('rowheader')[0]);
-  pointer(within(frame).getByRole('button', { name: 'Drag row 2' }), 'pointerdown', 20, 60);
+  pointer(within(frame).getAllByRole('rowheader')[1], 'pointerdown', 20, 60);
   pointer(within(frame).getByTestId('sheet-grid'), 'pointerup', 20, 60);
   expect(frame.querySelector('[data-cell-key="A2"]')).toHaveFocus();
 });
@@ -112,7 +132,7 @@ it.each(['row', 'column'] as const)('cancels an unselected %s source without tra
   const headers = () => within(frame).getAllByRole(row ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
   await user.click(headers()[0]);
   const grid = within(frame).getByTestId('sheet-grid');
-  pointer(within(frame).getByRole('button', { name: row ? 'Drag row 2' : 'Drag column B' }), 'pointerdown', row ? 20 : 200, row ? 60 : 10);
+  pointer(headers()[1], 'pointerdown', row ? 20 : 200, row ? 60 : 10);
   await user.click(headers()[2]);
   pointer(grid, 'pointerup', row ? 20 : 340, row ? 130 : 10);
   expect(headers()[2]).toHaveClass('sheet-grid-axis-selected');

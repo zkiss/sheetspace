@@ -20,7 +20,7 @@ function setup(empty = false, reducedMotion = true) {
     virtualGridGeometry(within(destination).getByTestId('sheet-frame-body'), { width: 800, height: 600 });
   });
   fireEvent.click(within(source).getByRole('cell', { name: 'Outputs A1 cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   return { source, destination };
 }
 
@@ -124,11 +124,11 @@ it.each([
     expect([presented.style.cssText, body.style.cssText]).toEqual(geometry);
   }
   if (activation === 'delayed') await finishTransfer();
-  const activationGeometry = [presented.style.cssText, body.style.cssText];
-  expect(restore).toHaveTextContent('Restore to workspace');
+  const activationGeometry = [presented.style.width, presented.style.height, body.style.cssText];
+  expect(restore).toHaveAccessibleName('Restore to workspace');
   // Explicit focus plus click models keyboard-generated activation; keyDown alone has no native default in jsdom.
   fireEvent.click(restore);
-  expect([presented.style.cssText, body.style.cssText]).toEqual(activationGeometry);
+  expect([presented.style.width, presented.style.height, body.style.cssText]).toEqual(activationGeometry);
   await finishTransfer();
   expect(source).not.toHaveAttribute('data-presented');
   expect(destination).not.toHaveAttribute('data-presented');
@@ -137,12 +137,12 @@ it.each([
   expect(Number(surface.dataset.viewportScale)).toBeCloseTo(scale);
   expect(Number(surface.dataset.viewportX) + Number(presented.dataset.positionX) * scale).toBeCloseTo((800 - Number(presented.dataset.frameWidth)) / 2);
   expect(Number(surface.dataset.viewportY) + Number(presented.dataset.positionY) * scale).toBeCloseTo((600 - Number(presented.dataset.frameHeight)) / 2);
-  expect(screen.getByRole('button', { name: 'Maximise sheet' })).toBeInTheDocument();
+  expect(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!).toBeInTheDocument();
   expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
   expect(destination.contains(document.activeElement)).toBe(false);
 
   fireEvent.click(within(source).getByRole('cell', { name: 'Outputs A1 cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   await finishTransfer();
   followRange(source);
   await finishTransfer();
@@ -261,7 +261,7 @@ it.each(['click', 'keyboard', 'extend', 'pointer'] as const)('retires an animate
   expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
 
   fireEvent.click(within(source).getByRole('cell', { name: 'Outputs A1 cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   await finishTransfer();
   followRange(source);
   await finishTransfer();

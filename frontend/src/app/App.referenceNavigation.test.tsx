@@ -243,6 +243,7 @@ describe('formula reference navigation', () => {
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     modifierClickReference();
     fireEvent.wheel(workspaceSurface(), { ctrlKey: true, deltaY: -120, clientX: 300, clientY: 200 });
+    act(() => { vi.advanceTimersByTime(20); });
     expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
 
     // Drain the cancelled operation after the controller has synchronously

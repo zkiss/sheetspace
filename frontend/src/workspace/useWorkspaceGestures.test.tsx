@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceController } from './useWorkspaceController';
+import * as grid from './workspaceGrid';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 
 afterEach(() => vi.useRealTimers());
@@ -15,7 +16,7 @@ function setup() {
     renders();
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
-      <div className="workspace-grid" data-testid="grid" />
+      <canvas className="workspace-grid" data-testid="grid" />
       <div ref={controller.workspacePlaneRef} data-testid="plane" />
       <div data-sheet-id="sheet" data-workspace-sheet-frame onContextMenu={(event) => controller.openSheetMenu('sheet', event)} onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
         <div role="cell" tabIndex={0} onKeyDown={childAction} onClick={childAction}>Cell</div>
@@ -69,7 +70,9 @@ describe('workspace wheel and gesture routing', () => {
 
   it('coalesces wheel zoom previews and commits the exact anchored burst', () => {
     vi.useFakeTimers();
+    const draw = vi.spyOn(grid, 'drawWorkspaceGrid').mockImplementation(() => {});
     const { surface, state } = setup();
+    draw.mockClear();
     const frame = vi.spyOn(window, 'requestAnimationFrame');
     act(() => {
       for (let i = 0; i < 4; i++) wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 });
@@ -81,14 +84,18 @@ describe('workspace wheel and gesture routing', () => {
     const x = Number(surface.dataset.viewportX);
     const y = Number(surface.dataset.viewportY);
     const scale = Math.exp(64 / 500);
+    expect(draw).toHaveBeenLastCalledWith(screen.getByTestId('grid'), expect.objectContaining({ x, y }));
+    expect(draw.mock.lastCall?.[1].scale).toBeCloseTo(scale);
     expect(x).toBeCloseTo(120 * (1 - scale));
     expect(y).toBeCloseTo(80 * (1 - scale));
-    expect(screen.getByTestId('grid').style.transform).toContain(`${x}px`);
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     act(() => vi.advanceTimersByTime(150));
+    expect(state().viewport.x).toBeCloseTo(x);
     expect(state().viewport.scale).toBeCloseTo(scale);
     expect(state().viewport.x).toBeCloseTo(x);
     expect(state().viewport.y).toBeCloseTo(y);
     frame.mockRestore();
+    draw.mockRestore();
   });
 
   it.each([[0, 32, 0], [1, 0, 3], [2, 0.04, 0.08]])('keeps ordinary mode %s scrolling inert on the background', (deltaMode, deltaX, deltaY) => {
@@ -192,7 +199,9 @@ describe('workspace wheel and gesture routing', () => {
 describe('workspace pointer ownership and lifecycle', () => {
   it('coalesces drag previews, aligns the grid, and commits the final unpainted move', () => {
     vi.useFakeTimers();
+    const draw = vi.spyOn(grid, 'drawWorkspaceGrid').mockImplementation(() => {});
     const { surface, state } = setup();
+    draw.mockClear();
     fireEvent.keyDown(screen.getByRole('cell'), { code: 'Space' });
     pointer(screen.getByRole('cell'), 'pointerdown');
     const frame = vi.spyOn(window, 'requestAnimationFrame');
@@ -206,12 +215,15 @@ describe('workspace pointer ownership and lifecycle', () => {
     act(() => vi.advanceTimersByTime(16));
     expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
     expect(screen.getByTestId('plane').style.transform).toContain('35px');
-    expect(screen.getByTestId('grid').style.transform).toBe('translate(35px, 25px)');
+    expect(draw).toHaveBeenLastCalledWith(screen.getByTestId('grid'), expect.objectContaining({ x: 35, y: 25, scale: 1 }));
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     pointer(surface, 'pointermove', { clientX: 49, clientY: 33 });
     pointer(surface, 'pointerup');
     expect(state().viewport).toEqual({ x: 49, y: 33, scale: 1 });
-    expect(screen.getByTestId('grid').style.transform).toBe('translate(9px, 33px)');
+    expect(draw).toHaveBeenLastCalledWith(screen.getByTestId('grid'), expect.objectContaining({ x: 49, y: 33, scale: 1 }));
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     frame.mockRestore();
+    draw.mockRestore();
   });
 
   it('ends a focused-cell Space pan on keyup before pointerup and releases capture', () => {
@@ -393,9 +405,12 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(Number(surface.dataset.viewportScale)).toBeCloseTo(1.5);
     expect(Number(surface.dataset.viewportX)).toBeCloseTo(-50);
     expect(Number(surface.dataset.viewportY)).toBeCloseTo(-50);
-    expect(screen.getByTestId('grid').style.transform).toContain(`${surface.dataset.viewportX}px`);
+    // The grid stays frozen while the gesture previews; it catches up on settle
+    // so the scaled plane is not re-rasterized on every pinch frame.
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     act(() => gesture('gestureend', 1.5));
     act(() => vi.advanceTimersByTime(150));
+    expect(screen.getByTestId('grid').style.transform).toBe('');
     expect(state().viewport.scale).toBeCloseTo(1.5);
     expect(state().viewport.x).toBeCloseTo(-50);
     expect(state().viewport.y).toBeCloseTo(-50);

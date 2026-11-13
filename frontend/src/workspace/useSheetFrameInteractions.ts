@@ -15,7 +15,29 @@ type SheetFrameInteractionSession = (
   | { owner: 'drag'; interaction: SheetFrameDrag }
   | { owner: 'resize'; interaction: SheetFrameResize }
   | { owner: 'pointer-scale'; interaction: SheetFrameScale }
-) & { captureElement: HTMLElement; viewportScale: number };
+) & { captureElement: HTMLElement; viewportScale: number; frameElement?: HTMLElement };
+
+/** Paints gesture geometry on the frame element; `size` is omitted when only the position moves. */
+function paintFrame(element: HTMLElement, position: WorkspacePosition, size?: SheetFrameSize) {
+  element.style.left = `${position.x}px`;
+  element.style.top = `${position.y}px`;
+  element.dataset.positionX = String(position.x);
+  element.dataset.positionY = String(position.y);
+  if (!size) return;
+  element.style.width = `${size.width}px`;
+  element.style.height = `${size.height}px`;
+  element.dataset.frameWidth = String(size.width);
+  element.dataset.frameHeight = String(size.height);
+}
+
+function restoreInteractionPreview(session: SheetFrameInteractionSession | null) {
+  if (!session?.frameElement) return;
+  if (session.owner === 'drag') {
+    paintFrame(session.frameElement, session.interaction.startPosition);
+  } else if (session.owner === 'resize') {
+    paintFrame(session.frameElement, session.interaction.startPosition, session.interaction.startFrameSize);
+  }
+}
 
 export function useSheetFrameInteractions({
   commands,
@@ -44,9 +66,10 @@ export function useSheetFrameInteractions({
     return true;
   }
 
-  function clearInteractionSession() {
+  function clearInteractionSession(restorePreview = true) {
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
+    if (restorePreview) restoreInteractionPreview(previous);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }
@@ -64,7 +87,7 @@ export function useSheetFrameInteractions({
     if (!sheet) {
       return;
     }
-    if (!startInteraction({ owner: 'drag', captureElement: event.currentTarget, viewportScale, interaction: {
+    if (!startInteraction({ owner: 'drag', captureElement: event.currentTarget, viewportScale, frameElement: event.currentTarget.closest<HTMLElement>('article.sheet-frame') ?? undefined, interaction: {
       pointerId: event.pointerId,
       sheetId,
       startClientX: event.clientX,
@@ -87,16 +110,14 @@ export function useSheetFrameInteractions({
       { x: event.clientX, y: event.clientY },
       current.viewportScale,
     );
-    const sheet = findSheetById(workbook, drag.sheetId);
-    if (!sheet) return;
-    setFrameLayoutPreview({
-      sheetId: drag.sheetId,
-      position: {
+    // Move the frame element directly. A React state commit per pointermove
+    // re-renders every mounted sheet grid while the sheet is dragged.
+    if (current.frameElement) {
+      paintFrame(current.frameElement, {
         x: Math.round(drag.startPosition.x + delta.x),
         y: Math.round(drag.startPosition.y + delta.y),
-      },
-      size: sheet.frame.size,
-    });
+      });
+    }
   }
 
   function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -115,11 +136,11 @@ export function useSheetFrameInteractions({
       x: Math.round(finishedDrag.startPosition.x + delta.x),
       y: Math.round(finishedDrag.startPosition.y + delta.y),
     };
-    if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
-      commands.moveSheetFrame(finishedDrag.sheetId, position);
-    }
+    const moved = position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y;
+    const committed = !moved || (commands.moveSheetFrame(finishedDrag.sheetId, position)?.ok ?? true);
 
-    clearInteractionSession();
+    if (committed && current.frameElement) paintFrame(current.frameElement, position);
+    clearInteractionSession(!committed);
   }
 
   function cancelSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -146,7 +167,7 @@ export function useSheetFrameInteractions({
       return;
     }
 
-    if (!startInteraction({ owner: 'resize', captureElement: event.currentTarget, viewportScale, interaction: {
+    if (!startInteraction({ owner: 'resize', captureElement: event.currentTarget, viewportScale, frameElement: event.currentTarget.closest<HTMLElement>('article.sheet-frame') ?? undefined, interaction: {
       pointerId: event.pointerId,
       sheetId,
       startClientX: event.clientX,
@@ -172,19 +193,15 @@ export function useSheetFrameInteractions({
     }
 
     const resize = current.interaction;
-    const sheet = findSheetById(workbook, resize.sheetId);
-    if (!sheet) return;
     const nextLayout = resizeSheetFrame(resize, logicalDeltaFromClient(
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
       current.viewportScale,
       resize.startVisualScale,
     ));
-    setFrameLayoutPreview({
-      sheetId: resize.sheetId,
-      position: nextLayout.position,
-      size: nextLayout.frameSize,
-    });
+    // Resize the frame element directly. A React state commit per pointermove
+    // re-renders every mounted sheet grid while the sheet is resized.
+    if (current.frameElement) paintFrame(current.frameElement, nextLayout.position, nextLayout.frameSize);
   }
 
   function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
@@ -198,8 +215,6 @@ export function useSheetFrameInteractions({
     }
 
     const resize = current.interaction;
-    const sheet = findSheetById(workbook, resize.sheetId);
-    if (!sheet) return;
     const nextLayout = resizeSheetFrame(resize, logicalDeltaFromClient(
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
@@ -207,16 +222,16 @@ export function useSheetFrameInteractions({
       resize.startVisualScale,
     ));
 
-    if (
+    const changed =
       nextLayout.position.x !== resize.startPosition.x ||
       nextLayout.position.y !== resize.startPosition.y ||
       nextLayout.frameSize.width !== resize.startFrameSize.width ||
-      nextLayout.frameSize.height !== resize.startFrameSize.height
-    ) {
-      commands.resizeSheetFrame(resize.sheetId, nextLayout.position, nextLayout.frameSize);
-    }
+      nextLayout.frameSize.height !== resize.startFrameSize.height;
+    const committed = !changed
+      || (commands.resizeSheetFrame(resize.sheetId, nextLayout.position, nextLayout.frameSize)?.ok ?? true);
 
-    clearInteractionSession();
+    if (committed && current.frameElement) paintFrame(current.frameElement, nextLayout.position, nextLayout.frameSize);
+    clearInteractionSession(!committed);
   }
 
   function cancelSheetFrameResize(event: PointerEvent<HTMLElement>) {
@@ -232,6 +247,7 @@ export function useSheetFrameInteractions({
   const cancelSheetFrameScale = useCallback(() => {
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
+    restoreInteractionPreview(previous);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }

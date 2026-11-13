@@ -39,7 +39,7 @@ it.each([[false, 'move'], [true, 'move'], [true, 'resize'], [true, 'scale']] as 
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  if (maximised) fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  if (maximised) fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
   const target = await screen.findByRole('article', { name: 'Sheet Sheet 1', hidden: true });
@@ -66,7 +66,7 @@ it('places both ends of a selected rectangle at the captured maximised body scal
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs B2 empty cell' }), { shiftKey: true });
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   const sourceBody = source.querySelector<HTMLElement>('.sheet-frame-body')!;
   sourceBody.getBoundingClientRect = () => testRect({ left: 100, top: 80, width: 400, height: 300 });
   const sourceScale = Number(sourceBody.style.transform.match(/scale\(([^)]+)\)/)![1]);
@@ -98,7 +98,7 @@ it.each([false, true])('presents the extracted target while its source is maximi
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  if (maximised) fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  if (maximised) fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
   const target = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
@@ -116,7 +116,7 @@ it('restores the actual canvas and removes target presentation after a nonvisual
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   surface.style.visibility = 'hidden';
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
@@ -147,7 +147,7 @@ it('accepts the published inherited scale and post-stacking z-index without a fo
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   surface.style.visibility = 'hidden';
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
@@ -165,7 +165,7 @@ it('releases a waiting target presentation when the user restores the source', a
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
   const target = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
@@ -183,7 +183,7 @@ it('hands painted target cells through the real maximised restore to ordinary ca
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
   const target = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
@@ -234,7 +234,7 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(screen.getByRole('button', { name: 'Restore to workspace' })).toBeEnabled();
   await tick(400);
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -310,7 +310,7 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
     else expect(target).not.toHaveAttribute('data-presented');
     return;
   }
-  await tick(400);
+  await tick(500);
   expect(source).not.toHaveAttribute('data-presented');
   expect(surface.dataset.viewportScale).toBe('1.25');
   expect(target).toHaveAttribute('data-presented');

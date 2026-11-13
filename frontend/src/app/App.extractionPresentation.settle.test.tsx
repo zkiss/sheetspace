@@ -71,7 +71,7 @@ async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGa
     fireEvent.click(screen.getByRole('button', { name: 'Select row' }));
   }
   if (maximised) {
-    fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
     clock.runFrames(clock.now() + 400);
   }
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -149,7 +149,7 @@ it('does not reclaim selection or focus when a delayed extraction fails after ne
 
 async function finishOwnedRestore(clock: ExtractionClock, { maximised }: { maximised: boolean }) {
   if (!maximised) return;
-  clock.runFrames(clock.now() + 400);
+  clock.runFrames(clock.now() + 500);
   await act(async () => {});
 }
 
@@ -194,7 +194,7 @@ it.each([false, true])('keeps a successor presentation when the aborted extracti
   expect(target).not.toHaveAttribute('data-presented');
 
   fireEvent.click(within(target).getByRole('cell', { name: 'Sheet 1 A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   clock.runFrames(clock.now() + 400);
   expect(target).toHaveAttribute('data-presented');
   const successorStyle = target.getAttribute('style');
@@ -222,7 +222,7 @@ it('keeps a successor presentation when the aborted restore publishes stale comp
   expect(target).not.toHaveAttribute('data-presented');
 
   fireEvent.click(within(target).getByRole('cell', { name: 'Sheet 1 A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   clock.runFrames(clock.now() + 400);
   expect(target).toHaveAttribute('data-presented');
   const successorStyle = target.getAttribute('style');

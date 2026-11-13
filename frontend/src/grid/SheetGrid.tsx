@@ -1,13 +1,11 @@
+import { useGridViewport } from './useGridViewport';
+import type { SheetGridProps } from './SheetGridProps';
+import { ensureCellVisibleOutsideStickyHeaders } from './gridFocusVisibility';
 import { matchesShortcut } from '@shared/keyboard/keymap';
-/* eslint-disable max-lines -- Grid owns its virtualizer, focus, and navigation-settlement lifecycle. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject, type SyntheticEvent } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type SyntheticEvent } from 'react';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
-import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
-import { type SheetTabularProjection } from '@workbook/core/model';
-import type { GridAxisProjection } from '@grid/gridAxisProjection';
-import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
+import { createSheetGridAxisMetrics } from './gridAxisMetrics';
 import { gridCellReveal, gridRangeReveal } from './gridCellReveal';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
@@ -15,57 +13,23 @@ import {
   GRID_CELL_WIDTH,
   GRID_ROW_HEADER_WIDTH,
 } from '@grid/gridGeometry';
-import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget } from './cellInteractionContracts';
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
-import type { SheetGridCellInteraction } from './SheetGridCell';
-import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { useAxisGather } from './useAxisGather';
+import { AxisGatherOverlay } from './AxisGatherOverlay';
 import { useGridAxisMotion } from './useGridAxisMotion';
 import { useAxisResize } from './useAxisResize';
-import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
-import type { CellSelection } from './cellInteractionContracts';
 import { SheetGridHeaders } from '@grid/SheetGridHeaders';
 import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
 import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
 import { gridSelectionPresentation } from './gridSelectionPresentation';
-import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
-import type { DataModel } from '@workbook/core/model';
-import type { EntrySessionState } from '@application/core/modelEntrySession';
+import { ModelEntryRow } from './ModelEntryRow';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
 import { useOwnedScroll } from './useOwnedScroll';
-import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
-import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
+import { gridClipboardHandlers } from './gridClipboardHandlers';
+import { isNativeEditorTarget } from './gridScrollInput';
 import '@grid/SheetGrid.css';
-function ensureCellVisibleOutsideStickyHeaders(
-  cell: HTMLElement,
-  scrollContainer: HTMLElement,
-  columnHeader: HTMLElement | null,
-  rowHeader: HTMLElement | null,
-) {
-  const cellRect = cell.getBoundingClientRect();
-  const scrollContainerRect = scrollContainer.getBoundingClientRect();
-  const logicalPerRenderedPixel = logicalUnitsPerRenderedPixel(scrollContainer, scrollContainerRect);
-  const visibleTop = scrollContainerRect.top
-    + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT / logicalPerRenderedPixel.y);
-  const visibleLeft = scrollContainerRect.left
-    + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH / logicalPerRenderedPixel.x);
-  const visibleBottom = scrollContainerRect.top + scrollContainer.clientHeight / logicalPerRenderedPixel.y;
-  const visibleRight = scrollContainerRect.left + scrollContainer.clientWidth / logicalPerRenderedPixel.x;
-  if (cellRect.top < visibleTop) {
-    scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop
-      - (visibleTop - cellRect.top) * logicalPerRenderedPixel.y);
-  } else if (cellRect.bottom > visibleBottom) {
-    scrollContainer.scrollTop += (cellRect.bottom - visibleBottom) * logicalPerRenderedPixel.y;
-  }
-  if (cellRect.left < visibleLeft) {
-    scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft
-      - (visibleLeft - cellRect.left) * logicalPerRenderedPixel.x);
-  } else if (cellRect.right > visibleRight) {
-    scrollContainer.scrollLeft += (cellRect.right - visibleRight) * logicalPerRenderedPixel.x;
-  }
-}
 type GridFocusIntent = {
   id: string;
   requestId?: number;
@@ -75,10 +39,6 @@ type NavigationFocusIntent = {
   generation: number;
   range: CellRange;
   targetKey: string;
-};
-export type SheetGridAxisMetrics = {
-  readonly columns: GridAxisMetrics;
-  readonly rows: GridAxisMetrics;
 };
 export function SheetGrid({
   entryRow,
@@ -134,80 +94,8 @@ export function SheetGrid({
   navigationRequestRange,
   onNavigationSettled,
   onReferenceViewport,
-}: {
-  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands; onEntryFocus?: () => void };
-  presentation?: SheetPresentation;
-  logicalSelection?: CellSelection | null;
-  onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
-  onGatherAxis?: (axis: 'row' | 'column', ids: readonly string[], gap: number) => void;
-  allowColumnGather?: boolean;
-  modelId?: string;
-  interactionsEnabled?: boolean;
-  /** Keeps this grid mounted while a live pointer session owns it. */
-  onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
-  /** Publishes native ownership only after focus reaches a concrete cell. */
-  onNativeFocusTarget?: (target: CellTarget) => void;
-  pendingCutCells?: ReadonlySet<string>;
-  columnLabels?: ReadonlyMap<string, string>;
-  calculatedColumnIds?: ReadonlySet<string>;
-  /** Announces the committed scroll container to workspace integrations. */
-  onScrollContainerAvailable?: (element: HTMLElement | null) => void;
-  /** Reports positively identified user scroll input to the spatial history owner. */
-  onUserViewportMovement?: () => void;
-  historyRestore?: { generation: number; left: number; top: number };
-  navigationRestoreGeneration?: number;
-  navigationRequestGeneration?: number; navigationRequestCellKey?: string | null; navigationRequestRange?: CellRange;
-  /** Acknowledges either final saved-scroll restoration or an explicit reveal. */
-  onNavigationSettled?: (generation: number) => void;
-  /** Publishes real detailed-grid viewport changes for workspace reference geometry. */
-  onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => void;
-  activeCellKey: string | null;
-  selectionTransition?: { from: CellTarget; to: CellTarget; id: number } | null;
-  /**
-   * The sheet that currently owns logical selection/focus.  A mounted grid may
-   * remain visible after ownership moves to another sheet, so its pointer
-   * session must not continue dispatching into the shared selection state.
-   */
-  activeSheetId?: string | null;
-  axisMetrics?: SheetGridAxisMetrics;
-  axisProjection: GridAxisProjection;
-  cellInteraction: SheetGridCellInteraction;
-  editorInteraction: SheetGridCellEditorInteraction;
-  editingCell: CellEditSession | null;
-  keyboardFocusRequest: { id: number; targetKey: string | null } | null;
-  onKeyboardFocusRequestConsumed: (requestId: number) => void;
-  navigationHighlightCellKey: string | null;
-  navigationHighlightRange?: CellRange;
-  /** One reference-navigation action, independent of range/projection allocations. */
-  navigationHighlightIdentity?: number;
-  historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
-  historyRevealCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
-  canRevealHistory?: (sheetId: string, identity: string) => boolean;
-  revealEnabled?: boolean;
-  requireMeasuredViewport?: boolean;
-  ownsGridRestore?: (sheetId: string, generation: number) => boolean;
-  /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
-  historyFeedbackIdentity?: string;
-  historyRevealReady?: boolean;
-  onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
-  formulaResults: FormulaEvaluationSnapshot;
-  scrollContainerRef: RefObject<HTMLElement>;
-  ownedScroll?: { left: number; top: number };
-  selectionMode?: CellSelectionMode;
-  /** Controlled selection owner; omitted only by consumers without shared interaction state. */
-  selectionOwner?: symbol | null;
-  sheet: SheetTabularProjection;
-  selectedRange?: CellRange;
-  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => void;
-  /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
-  clipboardInteraction?: {
-    copy: () => { text: string; marker: string } | undefined;
-    cut?: () => { text: string; marker: string } | undefined;
-    paste: (clipboard: { text: string; marker?: string }) => void;
-    cancelCut?: () => void;
-  };
-}) {
-  const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
+}: SheetGridProps) {
+  const focusTargetsRef = useRef(new Map<string, HTMLElement>());
   // Remember acknowledgements because virtualization can rerun a live request effect.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
   const revealedHistoryIdentity = useRef<string>();
@@ -226,15 +114,10 @@ export function SheetGrid({
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
   const motion = useGridAxisMotion({ gridRef, scrollContainerRef, projection: axisProjection, rowMetrics, columnMetrics,
     sheetId: sheet.id, activeSheetId, owner: selectionOwner, completedGatherOwner, enabled: interactionsEnabled });
-  const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
-  const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
-  const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
-  const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const gather = useAxisGather({ sheet, selection: logicalSelection, selectionOwner, activeSheetId,
-    enabled: interactionsEnabled, allowColumns: allowColumnGather, modelId, columns, rows, columnMetrics, rowMetrics,
+    enabled: interactionsEnabled, allowColumns: allowColumnGather, modelId, columns, rows, columnLabels, columnMetrics, rowMetrics,
     gridRef, scrollContainerRef, completedGatherOwner, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
   useOwnedScroll(scrollContainerRef, ownedScroll);
-  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
   const [navigationFocusIntent, setNavigationFocusIntent] = useState<NavigationFocusIntent | null>(null);
   // Derive application focus during render so a newer request atomically replaces an older one.
@@ -245,7 +128,8 @@ export function SheetGrid({
   ), [keyboardFocusRequest?.id, keyboardFocusRequest?.targetKey]);
   const focusIntent = keyboardFocusIntent ?? gridEntryFocusIntent;
   const pointer = useGridPointerSelection({ activeSheetId, cellInteraction, columnMetrics, columns,
-    onSelectAxis, rowMetrics, rows, scrollContainerRef, selectionOwner, sheet, interactionsEnabled });
+    onSelectAxis, onAxisPress: (event, axis, id) => gather.press(event, axis, id),
+    rowMetrics, rows, scrollContainerRef, selection: logicalSelection, selectionOwner, sheet, interactionsEnabled });
   const { dragging, beginDrag, moveDrag, completeDrag, cancelDrag, finishDrag, openDoubleClick } = pointer;
   useEffect(() => {
     const active = dragging || gather.active || resize.preview !== null;
@@ -260,70 +144,8 @@ export function SheetGrid({
       setGridEntryFocusIntent(null);
     }
   }, [keyboardFocusIntent]);
-  useEffect(() => {
-    setScrollElement(scrollContainerRef.current);
-  }, [scrollContainerRef]);
-  useEffect(() => {
-    const element = scrollContainerRef.current;
-    onScrollContainerAvailable?.(element);
-    return () => onScrollContainerAvailable?.(null);
-  }, [onScrollContainerAvailable, scrollContainerRef]);
-  useEffect(() => {
-    const element = scrollContainerRef.current;
-    if (!element || !onReferenceViewport) return;
-    const report = () => onReferenceViewport(sheet.id, { scrollLeft: element.scrollLeft, scrollTop: element.scrollTop, width: element.clientWidth, height: element.clientHeight });
-    report();
-    element.addEventListener('scroll', report, { passive: true });
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(report);
-    observer?.observe(element);
-    return () => { element.removeEventListener('scroll', report); observer?.disconnect(); onReferenceViewport(sheet.id, null); };
-  }, [onReferenceViewport, scrollContainerRef, sheet.id]);
-  useEffect(() => {
-    const element = scrollContainerRef.current;
-    if (!element || !onUserViewportMovement) return;
-    const reportWheel = () => onUserViewportMovement(); const reportTouchMove = () => onUserViewportMovement();
-    const reportScrollKey = (event: KeyboardEvent) => {
-      if (isNativeEditorTarget(event.target)) return;
-      if ([' ', 'PageDown', 'PageUp', 'Home', 'End'].includes(event.key)) onUserViewportMovement();
-    };
-    const reportScrollbarPointer = (event: PointerEvent) => {
-      const rect = element.getBoundingClientRect();
-      const inVerticalScrollbar = event.clientX >= rect.left + element.clientWidth; const inHorizontalScrollbar = event.clientY >= rect.top + element.clientHeight;
-      if (inVerticalScrollbar || inHorizontalScrollbar) onUserViewportMovement();
-    };
-    // A native scroll event carries no reliable provenance: script writes,
-    // virtualizer reveals, and user gestures all dispatch the same event. Only
-    // input that can originate a user scroll is allowed to arm history.
-    element.addEventListener('wheel', reportWheel, { passive: true });
-    element.addEventListener('touchmove', reportTouchMove, { passive: true });
-    element.addEventListener('keydown', reportScrollKey);
-    element.addEventListener('pointerdown', reportScrollbarPointer, { passive: true });
-    return () => {
-      element.removeEventListener('wheel', reportWheel); element.removeEventListener('touchmove', reportTouchMove);
-      element.removeEventListener('keydown', reportScrollKey); element.removeEventListener('pointerdown', reportScrollbarPointer);
-    };
-  }, [onUserViewportMovement, scrollContainerRef]);
-  const rowVirtualizer = useVirtualizer({
-    count: rowMetrics.count,
-    estimateSize: rowItemSize,
-    getItemKey: rowItemKey,
-    getScrollElement: () => scrollElement,
-    initialRect: { height: 600, width: 800 },
-    overscan: 3,
-    paddingStart: GRID_COLUMN_HEADER_HEIGHT,
-  });
-  const columnVirtualizer = useVirtualizer({
-    count: columnMetrics.count,
-    estimateSize: columnItemSize,
-    getItemKey: columnItemKey,
-    horizontal: true,
-    getScrollElement: () => scrollElement,
-    initialRect: { height: 600, width: 800 },
-    overscan: 2,
-    paddingStart: GRID_ROW_HEADER_WIDTH,
-  });
-  useEffect(() => { rowVirtualizer.measure(); }, [rowMetrics, rowVirtualizer]);
-  useEffect(() => { columnVirtualizer.measure(); }, [columnMetrics, columnVirtualizer]);
+  const { rowVirtualizer, columnVirtualizer } = useGridViewport({ scrollContainerRef, onScrollContainerAvailable,
+    onReferenceViewport, onUserViewportMovement, sheetId: sheet.id, rowMetrics, columnMetrics });
   const activeAddress = parseCellAddress(activeCellKey, sheet);
   const keyboardFocusAddress = parseCellAddress(keyboardFocusRequest?.targetKey ?? null, sheet);
   const focusIntentAddress = parseCellAddress(focusIntent?.targetKey ?? null, sheet);
@@ -383,20 +205,12 @@ export function SheetGrid({
   const focusIntentIsInWindow = Boolean(focusIntentAddress
     && nativeRows.some((virtualRow) => hasDurableIndex(rows[virtualRow.index], focusIntentAddress.rowIndex))
     && nativeColumns.some((virtualColumn) => hasDurableIndex(columns[virtualColumn.index], focusIntentAddress.columnIndex)));
-  function registerCell(key: string, cellElement: HTMLElement | null) {
-    if (
-      key === activeCellKey
-      || key === keyboardFocusRequest?.targetKey
-      || key === focusIntent?.targetKey
-      || key === cellKeyForTarget(sheet, editingCell?.target ?? null)
-      || key === navigationHighlightCellKey
-      || key === navigationTargetKey
-    ) {
-      if (key === focusIntent?.targetKey || key === navigationTargetKey) {
-        focusTargetRef.current = { element: cellElement, key };
-      }
+  const registerCell = useCallback((key: string, cellElement: HTMLElement | null) => {
+    if (key === focusIntent?.targetKey || key === navigationTargetKey) {
+      if (cellElement) focusTargetsRef.current.set(key, cellElement);
+      else focusTargetsRef.current.delete(key);
     }
-  }
+  }, [focusIntent?.targetKey, navigationTargetKey]);
   useEffect(() => {
     if (!revealEnabled || !focusIntent || editingCell) return;
     if (document.activeElement?.closest('form, [role="dialog"]')) return;
@@ -415,13 +229,13 @@ export function SheetGrid({
     // focus or acknowledge the old request. Grid-entry intents are local and do
     // not have an application request ID to compare.
     if (focusIntent.requestId !== undefined && keyboardFocusRequest?.id !== focusIntent.requestId) return;
-    const registeredTarget = focusTargetRef.current;
-    if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
+    const registeredTarget = focusTargetsRef.current.get(focusIntent.targetKey);
+    if (!registeredTarget) return;
     const completedIntent = focusIntent;
-    registeredTarget.element.focus({ preventScroll: true });
+    registeredTarget.focus({ preventScroll: true });
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
-        registeredTarget.element,
+        registeredTarget,
         scrollContainerRef.current,
         columnHeaderRef.current,
         rowHeaderRef.current,
@@ -492,10 +306,8 @@ export function SheetGrid({
     if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationFocusIntent.generation))) return;
     const scrollContainer = scrollContainerRef.current;
     if (requireMeasuredViewport && (!scrollContainer?.clientWidth || !scrollContainer.clientHeight)) return;
-    const registeredTarget = focusTargetRef.current;
-    const targetElement = registeredTarget.key === navigationFocusIntent.targetKey
-      ? registeredTarget.element
-      : [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])]
+    const targetElement = focusTargetsRef.current.get(navigationFocusIntent.targetKey)
+      ?? [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])]
         .find((element) => element.dataset.cellKey === navigationFocusIntent.targetKey) ?? null;
     if (!scrollContainer || !targetElement) return;
     // This is deliberately after the virtualizer and regular focus effects.
@@ -606,40 +418,7 @@ export function SheetGrid({
     setGridEntryFocusIntent({ id: `entry-${nextGridFocusRequestId.current++}`, targetKey: key });
   }
 
-  function isNativeEditorEvent(event: ClipboardEvent<HTMLDivElement>) {
-    return isNativeEditorTarget(event.target);
-  }
-
-  function copySelection(event: ClipboardEvent<HTMLDivElement>) {
-    if (isNativeEditorEvent(event)) return;
-    const copied = clipboardInteraction?.copy();
-    if (!copied) return;
-    event.clipboardData.setData('text/plain', copied.text);
-    event.clipboardData.setData('application/x-sheetspace-clipboard', copied.marker);
-    event.clipboardData.setData('text/html', clipboardHtml(copied));
-    event.preventDefault();
-  }
-
-  function cutSelection(event: ClipboardEvent<HTMLDivElement>) {
-    if (isNativeEditorEvent(event)) return;
-    const cut = clipboardInteraction?.cut?.();
-    if (!cut) return;
-    event.clipboardData.setData('text/plain', cut.text);
-    event.clipboardData.setData('application/x-sheetspace-clipboard', cut.marker);
-    event.clipboardData.setData('text/html', clipboardHtml(cut));
-    event.preventDefault();
-  }
-
-  function pasteSelection(event: ClipboardEvent<HTMLDivElement>) {
-    if (isNativeEditorEvent(event)) return;
-    const text = event.clipboardData.getData('text/plain');
-    if (!text && !event.clipboardData.types.includes('text/plain')) return;
-    clipboardInteraction?.paste({
-      text,
-      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || clipboardMarkerFromHtml(event.clipboardData.getData('text/html')),
-    });
-    event.preventDefault();
-  }
+  const { copySelection, cutSelection, pasteSelection } = gridClipboardHandlers(clipboardInteraction);
 
   const blockDisabledInteraction = (event: SyntheticEvent) => {
     if (interactionsEnabled) return;
@@ -718,13 +497,13 @@ export function SheetGrid({
         columnLabels={columnLabels}
         virtualColumns={virtualColumns}
         resize={onWriteAxisSizes ? resize : undefined}
-        gather={onGatherAxis && allowColumnGather ? gather : undefined}
         selectedColumnIndices={(selectionPresentation.mode ?? selectionMode) === 'columns' ? selectionPresentation.columns : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, gridRef, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, gather: onGatherAxis ? gather : undefined, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
-      {gather.preview && <div aria-hidden="true" data-testid="axis-gather-preview" className="sheet-grid-gather-preview" style={gather.preview.axis === 'row'
-        ? { top: GRID_COLUMN_HEADER_HEIGHT + gather.preview.start, height: gather.preview.size, left: 0, right: 0 }
-        : { left: GRID_ROW_HEADER_WIDTH + gather.preview.start, width: gather.preview.size, top: 0, bottom: 0 }} />}
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, gridRef, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
+      {gather.preview && <div aria-hidden="true" data-testid="axis-gather-line" className={`sheet-grid-gather-line sheet-grid-gather-line-${gather.preview.axis}`} style={gather.preview.axis === 'row'
+        ? { top: GRID_COLUMN_HEADER_HEIGHT + gather.preview.line - 1, left: 0, right: 0, height: 2 }
+        : { left: GRID_ROW_HEADER_WIDTH + gather.preview.line - 1, top: 0, bottom: 0, width: 2 }} />}
+      <AxisGatherOverlay deck={gather.deck} flight={gather.flight} />
       {entryRow && <ModelEntryRow {...entryRow} editorInteraction={editorInteraction} sheetId={sheet.id} sheetName={sheet.name} onNavigateUp={(columnIndex) => {
         if (!sheet.rows.length || columnIndex >= sheet.columns.length) return;
         const key = cellKey({ columnIndex, rowIndex: sheet.rows.length - 1 });

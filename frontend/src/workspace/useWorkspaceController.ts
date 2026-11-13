@@ -6,6 +6,7 @@ import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import { useDisplayedWorkspaceViewport } from './useDisplayedWorkspaceViewport';
 import { navigationViewportMotion } from './navigationViewportMotion';
+import { drawWorkspaceGrid } from './workspaceGrid';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
@@ -48,12 +49,11 @@ export function useWorkspaceController({
   const zoomPreview = useRef<WorkspaceViewport | null>(null);
   const zoomFrame = useRef<number>();
   const zoomTimer = useRef<number>();
-  const zoomPublication = useRef(0);
   const creationSequence = useRef<{ position?: WorkspacePosition; revision: number }>({ revision: 0 });
   const creationMotionSample = useRef<{ animation: Animation; time: CSSNumberish | null } | undefined>(undefined);
   const viewportRef = useRef(viewport);
   viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
-  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
+  const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport, shouldRenderPanViewport, paintWorkspaceGrid);
   const navigationMayBeMoving = useRef(false);
   const activeViewportMotion = useRef<{ animation: Animation; motion: ReturnType<typeof navigationViewportMotion> }>();
   const viewportMovementIsUser = useRef(false);
@@ -85,9 +85,8 @@ export function useWorkspaceController({
   }, interactionsEnabled);
 
   useLayoutEffect(() => {
-    if (zoomPreview.current) paintPanViewport(zoomPreview.current);
-    else if (panPreview.current) paintPanViewport(panPreview.current);
-  });
+    paintPanViewport(zoomPreview.current ?? panPreview.current ?? viewport);
+  }, [viewport, workspaceSurfaceSize]);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -241,18 +240,14 @@ export function useWorkspaceController({
     plane.style.transform = viewportTransform(next);
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
-    const grid = surface.querySelector<HTMLElement>('.workspace-grid');
-    const size = 40 * 2 ** Math.ceil(Math.log2(1 / next.scale)) * next.scale;
-    if (surface.dataset.viewportScale !== String(next.scale)) {
-      const phase = Math.max(0, Math.min(1, (size - 40) / 40));
-      surface.dataset.viewportScale = String(next.scale);
-      surface.style.setProperty('--workspace-grid-major-size', `${size}px`);
-      surface.style.setProperty('--workspace-grid-minor-size', `${size / 2}px`);
-      surface.style.setProperty('--workspace-grid-fine-size', `${size / 4}px`);
-      surface.style.setProperty('--workspace-grid-minor-opacity', String(0.35 + 0.65 * phase));
-      surface.style.setProperty('--workspace-grid-fine-opacity', String(0.35 * phase));
-    }
-    if (grid && size > 0) grid.style.transform = `translate(${next.x % size}px, ${next.y % size}px)`;
+    surface.dataset.viewportScale = String(next.scale);
+    const grid = surface.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
+    if (grid) drawWorkspaceGrid(grid, activeViewportMotion.current ? displayedWorkspaceViewport(plane) ?? next : next);
+  }
+
+  function paintWorkspaceGrid(next: WorkspaceViewport) {
+    const grid = workspaceSurfaceRef.current?.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
+    if (grid) drawWorkspaceGrid(grid, next);
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
@@ -274,26 +269,25 @@ export function useWorkspaceController({
     if (!zoomPreview.current) {
       if (gestureGeneration === undefined && !interruptNavigation()) return;
       zoomPreview.current = viewportRef.current;
-      zoomPublication.current = performance.now();
     }
     const current = zoomPreview.current;
     zoomPreview.current = zoomViewportAt(current, zoomScaleBy(current.scale, factor), zoomOrigin(origin));
     if (zoomPreview.current.scale !== current.scale) invalidateCreationSequence();
     viewportRef.current = zoomPreview.current;
     const generation = previewGeneration.current;
-    if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame((time) => {
+    if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame(() => {
       if (generation !== previewGeneration.current) return;
       zoomFrame.current = undefined;
       const next = zoomPreview.current;
       if (!next) return;
+      // The canvas grid is cheap to redraw per frame, so the preview moves the
+      // plane and the grid together without re-rasterizing scaled content.
       paintPanViewport(next);
-      if (time - zoomPublication.current >= 150) {
-        zoomPublication.current = time;
-        viewportMovementIsUser.current = true;
-        setViewport(next);
-      }
     });
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    // Commit once the wheel or pinch gesture settles. A React commit per
+    // preview frame re-renders every mounted grid while the pointer moves,
+    // which is the hitch this preview exists to avoid.
     zoomTimer.current = window.setTimeout(() => {
       if (generation === previewGeneration.current) finishZoomPreview();
     }, 150);
@@ -379,7 +373,7 @@ export function useWorkspaceController({
   }
   function freezeDisplayedViewport(programmatic = false) { return freezeDisplayedViewportOwned(programmatic).viewport; }
 
-  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void) { return animateViewport(nextViewport, onSettled, onCancelled); }
+  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void, duration?: number) { return animateViewport(nextViewport, onSettled, onCancelled, duration); }
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
@@ -402,7 +396,7 @@ export function useWorkspaceController({
     return animateViewport(nextViewport, options.onSettled, options.onCancelled);
   }
 
-  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void): () => void {
+  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void, duration?: number): () => void {
     if (unmounted.current) { onCancelled?.(); return () => {}; }
     finishZoomPreview();
     const active = activeViewportMotion.current;
@@ -428,7 +422,9 @@ export function useWorkspaceController({
       || (incoming && Object.values(incoming.velocity).some((speed) => Math.abs(speed) > 1e-6));
     if (changed) invalidateCreationSequence();
     if (!reducedMotion && changed && workspacePlaneRef.current?.animate) {
-      const motion = navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration);
+      const motion = duration === undefined
+        ? navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration)
+        : navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration, duration);
       const timing = { duration: motion.duration, easing: 'linear', fill: 'both' as const };
       let animation: Animation;
       if (active?.animation.effect instanceof KeyframeEffect) {

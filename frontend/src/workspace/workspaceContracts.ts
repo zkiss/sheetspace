@@ -1,3 +1,4 @@
+import type { WorkbookOperationResult } from '@application/core/userActions';
 import type { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 
 export type PendingSheetMenu = {
@@ -7,8 +8,8 @@ export type PendingSheetMenu = {
 };
 
 export type SheetFrameLayoutCommands = {
-  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
-  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult | void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult | void;
   setSheetVisualScale: (sheetId: string, visualScale: number) => void;
 };
 

@@ -5,7 +5,6 @@ import { columnIndexToLabel } from '@workbook/core/address';
 import { type ColumnId } from '@workbook/core/model';
 import './SheetGrid.css';
 import { AxisResizeHandle } from './AxisResizeHandle';
-import type { useAxisGather } from './useAxisGather';
 import type { useAxisResize } from './useAxisResize';
 
 export function SheetGridHeaders({
@@ -15,10 +14,8 @@ export function SheetGridHeaders({
   selectedColumnIndices,
   virtualColumns,
   resize,
-  gather,
 }: {
   resize?: ReturnType<typeof useAxisResize>;
-  gather?: ReturnType<typeof useAxisGather>;
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
   columnLabels?: ReadonlyMap<ColumnId, string>;
@@ -51,6 +48,7 @@ export function SheetGridHeaders({
               column.kind === 'saved' && selectedColumnIndices?.has(column.durableIndex) ? ' sheet-grid-axis-selected' : ''
             }`}
             data-axis-selection-mode={column.kind === 'saved' ? 'columns' : undefined}
+            data-axis-id={column.kind === 'saved' ? column.id : undefined}
             data-motion-column={column.kind === 'saved' ? column.id : undefined}
             data-axis-durable-index={column.kind === 'saved' ? column.durableIndex : undefined}
             key={column.kind === 'creating' ? column.operationId : column.id}
@@ -68,7 +66,6 @@ export function SheetGridHeaders({
             } as CSSProperties}
           >
             {column.kind === 'creating' ? 'Creating…' : columnLabels?.get(column.id) ?? columnIndexToLabel(column.durableIndex)}
-            {column.kind === 'saved' && gather && <button type="button" className="sheet-grid-gather-handle" aria-label={`Drag column ${columnIndexToLabel(column.durableIndex)}`} onPointerDown={(event) => gather.start(event, 'column', column.id)}>⋮⋮</button>}
             {column.kind === 'saved' && resize && <AxisResizeHandle axis="column" id={column.id}
               label={columnIndexToLabel(column.durableIndex)} size={virtualColumn.size} resize={resize} />}
           </div>

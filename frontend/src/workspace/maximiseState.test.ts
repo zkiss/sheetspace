@@ -20,7 +20,7 @@ describe('maximise geometry', () => {
     expect(source).toEqual(displayed);
     expect(sampleMaximise(state, 0)).toEqual(displayed);
     expect(sampleMaximise(state, MAXIMISE_TRANSITION_MS)).toEqual({ frame: { left: 0, top: 0, ...size }, body: { left: 0, top: 0, ...size }, tableScale: 1, chrome: 0 });
-    expect(sampleMaximise(state, 150)?.chrome).toBe(.5);
+    expect(sampleMaximise(state, MAXIMISE_TRANSITION_MS / 2)?.chrome).toBe(.5);
   });
 
   it('restores the unchanged frame centered at native scale including body offsets', () => {
@@ -29,7 +29,7 @@ describe('maximise geometry', () => {
     expect(target).toEqual({ x: 250, y: 225, scale: .5 });
     expect(canvasPresentation(frame, target)).toEqual({ frame: { left: 300, top: 200, width: 400, height: 300 }, body: { left: 301, top: 233, width: 398, height: 266 }, tableScale: 1, chrome: 1 });
     const restoring = toggleMaximise(completeMaximise(enter(), 1), 400);
-    expect(sampleMaximise(restoring, 700)).toEqual(canvasPresentation(frame, target));
+    expect(sampleMaximise(restoring, 400 + MAXIMISE_TRANSITION_MS)).toEqual(canvasPresentation(frame, target));
     expect(frame).toEqual(original);
   });
 });
@@ -50,13 +50,13 @@ describe('maximise transition ownership', () => {
     const entering = enter();
     const resized = resizeMaximise(entering, { width: 800, height: 600 }, 100);
     expect(sampleMaximise(resized, 100)).toEqual(sampleMaximise(entering, 100));
-    expect(sampleMaximise(resized, 400)?.body.width).toBe(800);
+    expect(sampleMaximise(resized, 100 + MAXIMISE_TRANSITION_MS)?.body.width).toBe(800);
     const stable = completeMaximise(resized, resized.identity);
     expect(sampleMaximise(resizeMaximise(stable, size, 500), 500)?.body.width).toBe(1000);
     const restoring = toggleMaximise(stable, 500);
     const retargeted = resizeMaximise(restoring, size, 600);
     expect(sampleMaximise(retargeted, 600)).toEqual(sampleMaximise(restoring, 600));
-    expect(sampleMaximise(retargeted, 900)).toEqual(canvasPresentation(frame, restoredViewport(frame, size)));
+    expect(sampleMaximise(retargeted, 600 + MAXIMISE_TRANSITION_MS)).toEqual(canvasPresentation(frame, restoredViewport(frame, size)));
   });
 
   it('cancels and invalidates pending callbacks when the sheet disappears', () => {

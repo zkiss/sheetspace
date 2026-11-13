@@ -18,7 +18,7 @@ it.each([
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const sourceFrame = screen.getByRole('article', { name: 'Sheet Source' });
   fireEvent.click(within(sourceFrame).getByRole('cell', { name: 'Source A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.keyDown(document.body, { key, code, altKey: true, shiftKey: true });
   fireEvent.click(screen.getByRole('button', { name: /Target/ }));
   await waitFor(() => expect(screen.getByRole('article', { name: 'Sheet Target' })).toHaveAttribute('data-presented', 'true'));

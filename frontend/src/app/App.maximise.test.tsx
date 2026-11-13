@@ -19,7 +19,7 @@ it('maximises the existing grid, isolates zoom and restores the unchanged frame'
   const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
   fireEvent.click(cell);
   const grid = within(frame).getByTestId('sheet-grid');
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(frame).toHaveAttribute('data-presented', 'true');
   expect(within(frame).getByTestId('sheet-grid')).toBe(grid);
   expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ height: '0px' });
@@ -47,7 +47,7 @@ it.each(['toolbar', 'keyboard', 'palette'] as const)('restores the canvas before
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   await user.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  await user.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  await user.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!);
   expect(source).toHaveAttribute('data-presented', 'true');
 
   if (action === 'toolbar') fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
@@ -83,7 +83,7 @@ it('leaves the restored canvas in place when maximised creation is cancelled', a
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
   await screen.findByLabelText('Sheet name');
 
@@ -101,7 +101,7 @@ it('keeps the creation dialog open when validation fails on the restored canvas'
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
   await screen.findByLabelText('Sheet name');
 
@@ -120,14 +120,14 @@ it('retains a created sheet without stealing selection when a presentation actio
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
   await screen.findByLabelText('Sheet name');
   fireEvent.change(screen.getByLabelText('Sheet name'), { target: { value: 'Budget' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
   // The newer presentation owns the visible editor while the request is in flight.
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(source).toHaveAttribute('data-presented', 'true');
 
   await act(async () => {
@@ -149,7 +149,7 @@ it('retains selection and supports keyboard editing and scrolling through a roun
   const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
   const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
   await user.click(cell);
-  await user.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  await user.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!);
   expect(cell).toHaveAttribute('data-active-cell', 'true');
   await user.click(cell);
   await user.keyboard('hello');
@@ -174,7 +174,7 @@ it('preserves a live cell draft when the sheet is maximised and restored', async
   await user.click(screen.getByRole('cell', { name: 'Inputs A1 empty cell' }));
   await user.keyboard('draft');
   const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(screen.getByRole('textbox', { name: 'Inputs A1 editor' })).toBe(editor);
   expect(editor).toHaveValue('draft');
   fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
@@ -189,7 +189,7 @@ it('forces an overview sheet into a detailed editor without changing its saved v
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
   expect(within(frame).getByTestId('sheet-grid')).toBeInTheDocument();
   expect(frame).toHaveAttribute('data-visual-scale', '0.3');
@@ -201,7 +201,7 @@ it('pins the maximised grid when the workspace becomes too small for ordinary cu
   const geometry = measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   const grid = within(frame).getByTestId('sheet-grid');
   act(() => { geometry.resize({ width: 0, height: 0 }); });
   expect(within(frame).getByTestId('sheet-grid')).toBe(grid);
@@ -214,7 +214,7 @@ it('recovers the workspace when the maximised sheet is deleted', async () => {
   render(<App apiClient={autosaveClient()} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   fireEvent.click(screen.getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Delete sheet/ }));
   await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
@@ -230,7 +230,7 @@ it('routes palette zoom to the maximised grid without moving the workspace', () 
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.sheet-frame-active .sheet-frame-maximise')!, { detail: 1 });
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Zoom in/ }));
   expect(within(frame).getByTestId('sheet-frame-body').style.transform).toBe('scale(1.2)');
