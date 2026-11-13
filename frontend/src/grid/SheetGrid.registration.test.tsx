@@ -38,3 +38,28 @@ it('keeps cell registration stable until a focus target changes and registers th
   expect(view.container.querySelector('[data-cell-key="B2"]')).toHaveFocus();
   expect(consumed).toHaveBeenCalledWith(1);
 });
+
+it('keeps concurrent focus targets independent across detach and replacement', () => {
+  const sheet = tabularProjection(sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 }));
+  const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+  const ref = createRef<HTMLDivElement>();
+  const consumed = vi.fn();
+  const props = {
+    sheet, axisProjection, activeCellKey: 'A1', editingCell: null, formulaResults: {}, navigationHighlightCellKey: null,
+    cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
+    editorInteraction: { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
+    scrollContainerRef: ref, onKeyboardFocusRequestConsumed: consumed,
+    navigationRequestGeneration: 1, navigationRequestCellKey: 'B2',
+  };
+  const view = render(<div ref={ref}><SheetGrid {...props} keyboardFocusRequest={{ id: 1, targetKey: 'A1' }} /></div>);
+  expect(consumed).toHaveBeenCalledWith(1);
+  const register = registrations.get('B2') as (key: string, element: HTMLElement | null) => void;
+  const b2 = view.container.querySelector<HTMLElement>('[data-cell-key="B2"]')!;
+  register('B2', null);
+  view.rerender(<div ref={ref}><SheetGrid {...props} keyboardFocusRequest={{ id: 2, targetKey: 'A1' }} /></div>);
+  expect(consumed).toHaveBeenCalledWith(2);
+  register('B2', b2);
+  view.rerender(<div ref={ref}><SheetGrid {...props} keyboardFocusRequest={{ id: 3, targetKey: 'B2' }} /></div>);
+  expect(consumed).toHaveBeenCalledWith(3);
+  expect(b2).toHaveFocus();
+});

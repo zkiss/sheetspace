@@ -99,7 +99,7 @@ export function SheetGrid({
   onNavigationSettled,
   onReferenceViewport,
 }: SheetGridProps) {
-  const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
+  const focusTargetsRef = useRef(new Map<string, HTMLElement>());
   // Remember acknowledgements because virtualization can rerun a live request effect.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
   const revealedHistoryIdentity = useRef<string>();
@@ -211,7 +211,8 @@ export function SheetGrid({
     && nativeColumns.some((virtualColumn) => hasDurableIndex(columns[virtualColumn.index], focusIntentAddress.columnIndex)));
   const registerCell = useCallback((key: string, cellElement: HTMLElement | null) => {
     if (key === focusIntent?.targetKey || key === navigationTargetKey) {
-      focusTargetRef.current = { element: cellElement, key };
+      if (cellElement) focusTargetsRef.current.set(key, cellElement);
+      else focusTargetsRef.current.delete(key);
     }
   }, [focusIntent?.targetKey, navigationTargetKey]);
   useEffect(() => {
@@ -232,13 +233,13 @@ export function SheetGrid({
     // focus or acknowledge the old request. Grid-entry intents are local and do
     // not have an application request ID to compare.
     if (focusIntent.requestId !== undefined && keyboardFocusRequest?.id !== focusIntent.requestId) return;
-    const registeredTarget = focusTargetRef.current;
-    if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
+    const registeredTarget = focusTargetsRef.current.get(focusIntent.targetKey);
+    if (!registeredTarget) return;
     const completedIntent = focusIntent;
-    registeredTarget.element.focus({ preventScroll: true });
+    registeredTarget.focus({ preventScroll: true });
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
-        registeredTarget.element,
+        registeredTarget,
         scrollContainerRef.current,
         columnHeaderRef.current,
         rowHeaderRef.current,
@@ -309,10 +310,8 @@ export function SheetGrid({
     if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationFocusIntent.generation))) return;
     const scrollContainer = scrollContainerRef.current;
     if (requireMeasuredViewport && (!scrollContainer?.clientWidth || !scrollContainer.clientHeight)) return;
-    const registeredTarget = focusTargetRef.current;
-    const targetElement = registeredTarget.key === navigationFocusIntent.targetKey
-      ? registeredTarget.element
-      : [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])]
+    const targetElement = focusTargetsRef.current.get(navigationFocusIntent.targetKey)
+      ?? [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])]
         .find((element) => element.dataset.cellKey === navigationFocusIntent.targetKey) ?? null;
     if (!scrollContainer || !targetElement) return;
     // This is deliberately after the virtualizer and regular focus effects.
