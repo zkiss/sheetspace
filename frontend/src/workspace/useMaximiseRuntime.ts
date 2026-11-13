@@ -49,9 +49,9 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     publishPresentation(sampleMaximise(next, now), next);
   }
   function update(next: MaximiseState, now: number, restoreCompleted = false, retargetRestore = false, retargetEntry = false, restoreSize?: SheetFrameSize) {
-    const owner = ++transaction.current;
     const previous = current.current;
     if (next === previous) return;
+    const owner = ++transaction.current;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
     cancelFlyover.current?.();
@@ -78,7 +78,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     publish(next, now);
     if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); releaseTarget(next.mode === 'maximised' ? 'settled' : 'cancelled'); return; }
     if (next.mode === 'restoring' && next.frame && next.size) {
-      cancelFlyover.current = options.current.handoff.restoreViewport?.(restoredViewport(next.frame, next.size), undefined, undefined, MAXIMISE_TRANSITION_MS);
+      const cancel = options.current.handoff.restoreViewport?.(restoredViewport(next.frame, next.size), undefined, () => {
+        if (transaction.current !== owner) return;
+        presentationOwner.current++;
+        update(cancelMaximise(current.current), performance.now());
+      }, MAXIMISE_TRANSITION_MS);
+      if (owner !== transaction.current) return;
+      cancelFlyover.current = cancel;
     }
     const identity = next.identity;
     const tick = (time: number) => {
