@@ -4,8 +4,8 @@ import { App } from './App';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { openCellEditor, workspaceSurface } from '@test-support/appScreen';
 import { workspaceRect } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
-import type { SheetDocument } from '@workbook/core/model';
+import { creationReceipt, positionedSheet, sheetDocument, smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
+import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
 import { panWorkspace, zoomWorkspace, setSheetScale } from '@test-support/workspaceActions';
@@ -33,7 +33,7 @@ describe('viewport-aware sheet creation', () => {
   });
 
   it('retains the toolbar viewport scale through the dialog and replaces an equal pending frame without a scale save', async () => {
-    const create = deferred<SheetDocument>();
+    const create = deferred<ReturnType<typeof creationReceipt>>();
     const updateSheetVisualScale = vi.fn();
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockReturnValue(create.promise),
@@ -62,9 +62,9 @@ describe('viewport-aware sheet creation', () => {
     expect(pending).toHaveStyle({ transform: `scale(${expectedScale})`, zIndex: '10' });
 
     await act(async () => {
-      create.resolve(sheetDocument({
-        id: 'inputs', name: 'Inputs', position: { x: 500, y: 400 }, visualScale: expectedScale, zIndex: 10,
-      }));
+      create.resolve(creationReceipt(sheetDocument({
+        id: 'inputs', ...vi.mocked(apiClient.createSheet).mock.calls[0][0],
+      }), workbookWithLegacyFormulaFixtures([{ ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }), frame: { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }).frame, zIndex: 9 } }])));
       await create.promise;
     });
 
@@ -77,7 +77,7 @@ describe('viewport-aware sheet creation', () => {
   });
 
   it('preserves a later selection and edit when a pending creation resolves', async () => {
-    const create = deferred<SheetDocument>();
+    const create = deferred<ReturnType<typeof creationReceipt>>();
     const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(create.promise) });
     render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([
       positionedSheet('existing', 'Existing', { x: 0, y: 0 }),
@@ -92,7 +92,7 @@ describe('viewport-aware sheet creation', () => {
     const editor = await openCellEditor(user, cellAt(existing, 'A1'));
     await user.type(editor, 'draft');
     await act(async () => {
-      create.resolve(sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 500, y: 400 } }));
+      create.resolve(creationReceipt(sheetDocument({ id: 'inputs', ...vi.mocked(apiClient.createSheet).mock.calls[0][0] }), workbookWithLegacyFormulaFixtures([positionedSheet('existing', 'Existing', { x: 0, y: 0 })])));
       await create.promise;
     });
 
@@ -104,7 +104,7 @@ describe('viewport-aware sheet creation', () => {
   it('uses the empty-workspace action zoom captured before the dialog and removes a rejected pending frame', async () => {
     const updateSheetVisualScale = vi.fn();
     const apiClient = autosaveClient({
-      createSheet: vi.fn().mockRejectedValue(new Error('create failed')),
+      createSheet: vi.fn().mockRejectedValue(new WorkbookApiError('create failed', 400, 'sheet-name-duplicate')),
       updateSheetVisualScale,
     });
     render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([])} />);

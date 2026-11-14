@@ -27,6 +27,77 @@ class SqliteWorkbookStore internal constructor(
 
     override fun close() = database.close()
 
+    override fun admitFunction(request: PreparedFunctionMutation, transform: (WorkbookState) -> FunctionMutationResult): StoredFunctionMutation = synchronized(updateLock) {
+        database.transaction { conn ->
+            val reader = reader(conn)
+            val history = SqliteFunctionReceipts(conn, reader)
+            history.receipt(request) ?: run {
+                val current = reader.loadWorkbookBundle()
+                val result = persistFunction(conn, reader, current, transform)
+                history.capture(request, result.committedIdentity)
+            }
+        }
+    }
+
+    override fun updateFunction(transform: (WorkbookState) -> FunctionMutationResult): WorkbookState = synchronized(updateLock) {
+        database.transaction { conn ->
+            val reader = reader(conn)
+            persistFunction(conn, reader, reader.loadWorkbookBundle(), transform)
+            reader.loadWorkbookBundle()
+        }
+    }
+
+    private fun persistFunction(conn: Connection, reader: SqliteWorkbookReader, current: WorkbookState, transform: (WorkbookState) -> FunctionMutationResult): FunctionMutationResult {
+        val result = transform(current)
+        validateModelMetadata(result.workbook)
+        calculatedAdmission(current, result.workbook)
+        SqliteReplayBindingProvenance(conn).advanceMutation(current, result)
+        SqliteWorkbookWriter(conn, reader).persistChanges(current, result.workbook)
+        return result
+    }
+
+    override fun replayLifecycle(replay: PreparedLifecycleReplay): StoredLifecycleAdmission = synchronized(updateLock) {
+        database.transaction { conn ->
+            val reader = reader(conn)
+            val history = SqliteLifecycleHistory(conn, reader)
+            history.receipt(replay.operationId, replay.fingerprint) ?: run {
+                val endpoints = history.endpoints(replay)
+                val current = reader.loadWorkbookBundle()
+                val updated = try {
+                    val candidate = replayLifecycleWorkbook(current, endpoints.first, endpoints.second, SqliteReplayBindingProvenance(conn).list(replay.transitionId))
+                    validateLifecycleWorkbook(candidate)
+                    validateModelMetadata(candidate)
+                    calculatedAdmission(current, candidate)
+                    candidate
+                } catch (exception: WorkbookApplicationException) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)
+                } catch (exception: IllegalArgumentException) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)
+                }
+                SqliteReplayBindingProvenance(conn).refreshRemoved(current, current.documents.keys - updated.documents.keys)
+                val restored = endpoints.second.documents.keys - endpoints.first.documents.keys
+                SqliteWorkbookWriter(conn, reader).persistChanges(current, updated, restored)
+                history.recordReplay(replay, reader.loadWorkbookBundle())
+            }
+        }
+    }
+
+    override fun admitLifecycle(request: PreparedLifecycleAdmission, transform: (WorkbookState) -> WorkbookState): StoredLifecycleAdmission = synchronized(updateLock) {
+        database.transaction { conn ->
+            val reader = reader(conn)
+            val history = SqliteLifecycleHistory(conn, reader)
+            history.receipt(request.operationId, request.fingerprint) ?: run {
+                val current = reader.loadWorkbookBundle()
+                val updated = transform(current)
+                validateModelMetadata(updated)
+                calculatedAdmission(current, updated)
+                SqliteReplayBindingProvenance(conn).refreshRemoved(current, current.documents.keys - updated.documents.keys)
+                SqliteWorkbookWriter(conn, reader).persistChanges(current, updated)
+                history.capture(request.operationId, request.fingerprint, current, reader.loadWorkbookBundle())
+            }
+        }
+    }
+
     override fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission = synchronized(updateLock) {
         database.transaction { conn ->
             val reader = reader(conn)

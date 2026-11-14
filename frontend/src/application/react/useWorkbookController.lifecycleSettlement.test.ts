@@ -7,11 +7,64 @@ import { cellTargetAt } from '@grid/cellInteraction';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 describe('lifecycle settlement', () => {
+  it('installs and returns the authoritative lifecycle receipt workbook', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', cells: { A1: '=ServerFunction()' } });
+    const workbook = workbookWithSheets([sheet]);
+    const committed: Workbook = {
+      ...workbook,
+      manifest: { ...workbook.manifest, revision: 42 },
+      documents: { one: { ...sheet, revision: 17, modelId: 'server', modelColumnBindings: { input: sheet.content.columns[0]! } } },
+      dataModels: { server: { id: 'server', name: 'Server', columns: [{ id: 'input', name: 'Input', kind: 'manual', type: 'int' }] } },
+      functions: [{ identity: 'server-lineage', name: 'ServerFunction', parameters: [], body: '=42', bodyBindings: { one: '=42' as never } }],
+    };
+    const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (operationId: string) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook: committed })) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] }); });
+    let completion: Awaited<typeof submission.completion>;
+    await act(async () => { completion = await submission!.completion; });
+    expect(completion!).toEqual({ ok: true, value: committed });
+    expect(result.current.commands.currentWorkbook()).toEqual(committed);
+    expect(result.current.workbook).toEqual(committed);
+    expect(result.current.formulaResults.one.A1?.display).toBe('42');
+  });
+  it('recovers a lost response with the same operation and the current authoritative workbook', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One' });
+    const workbook = workbookWithSheets([sheet]);
+    const current = { ...workbook, manifest: { ...workbook.manifest, revision: 9 } };
+    const admit = vi.fn().mockRejectedValueOnce(new Error('lost response')).mockImplementation(async (operationId: string) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: true, workbook: current }));
+    const api = autosaveClient({ admitModelLifecycle: admit });
+    const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] }); });
+    await act(async () => { expect(await submission!.completion).toMatchObject({ ok: false }); });
+    expect(result.current.commands.currentWorkbook()).toEqual(workbook);
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
+    expect(admit).toHaveBeenCalledTimes(2);
+    expect(admit.mock.calls[0]![0]).toBe(admit.mock.calls[1]![0]);
+    expect(result.current.commands.currentWorkbook()).toEqual(current);
+    rerender();
+    expect(result.current.commands.currentWorkbook()).toEqual(current);
+  });
+  it('rolls back an invalid receipt without recording success history', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async () => receipt('wrong-operation', workbook)) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] }); });
+    await act(async () => { expect(await submission!.completion).toMatchObject({ ok: false }); });
+    expect(result.current.commands.currentWorkbook()).toEqual(workbook);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRetryFailedSaves).toBe(true);
+  });
   it('does not publish or save an unchanged unbind', async () => {
     const sheet = sheetDocument({ id: 'one', name: 'One' });
     const workbook = workbookWithSheets([sheet]);
-    const api = autosaveClient();
+    const api = autosaveClient({ admitModelLifecycle: vi.fn() });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const publication = vi.fn();
     let submission: ReturnType<typeof result.current.commands.unbindSheetFromModel>;
@@ -19,14 +72,14 @@ describe('lifecycle settlement', () => {
     expect(await submission!.completion).toEqual({ ok: true, value: workbook });
     expect(result.current.commands.currentWorkbook()).toBe(workbook);
     expect(publication).not.toHaveBeenCalled();
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
   });
 
   it('does not renew a retired selection lease when an ambiguous deletion recovers', async () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
     const save = deferred<Workbook>();
-    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValueOnce(save.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+    const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementationOnce(async (id: string) => receipt(id, await save.promise)).mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
     const { result } = renderHook(() => {
       const controller = useWorkbookController({ initialWorkbook: workbook, apiClient: api });
       const editing = useCellEditing({ commands: controller.commands, workbook: controller.workbook, currentWorkbook: controller.commands.currentWorkbook });
@@ -49,7 +102,7 @@ describe('lifecycle settlement', () => {
     const newerSelection = result.current.editing.queuedSelection();
     act(() => result.current.controller.commands.retryFailedSaves());
     await waitFor(() => expect(result.current.controller.canRetryFailedSaves).toBe(false));
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2);
     expect(phases).toEqual(['optimistic', 'rollback']);
     expect(result.current.editing.ownsSelectionSettlement(token)).toBe(false);
     expect(result.current.editing.queuedSelection()).toEqual(newerSelection);
@@ -58,7 +111,7 @@ describe('lifecycle settlement', () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
     const save = deferred<Workbook>();
-    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const api = autosaveClient({ admitModelLifecycle: async (id: string) => receipt(id, await save.promise) });
     const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const phases: string[] = [];
     let rollback: Workbook | undefined;
@@ -89,7 +142,7 @@ describe('lifecycle settlement', () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
     const save = deferred<Workbook>();
-    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const api = autosaveClient({ admitModelLifecycle: async (id: string) => receipt(id, await save.promise) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const publication = vi.fn();
     let pending: ReturnType<typeof result.current.commands.deleteRow>;
@@ -107,7 +160,7 @@ describe('lifecycle settlement', () => {
     const workbook = workbookWithSheets([sheet]);
     const write = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const save = deferred<Workbook>();
-    const api = autosaveClient({ writeCells: vi.fn().mockReturnValue(write.promise), saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    const api = autosaveClient({ writeCells: vi.fn().mockReturnValue(write.promise), admitModelLifecycle: vi.fn().mockImplementation(async (id: string) => receipt(id, await save.promise)) });
     const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const publications: { before: Workbook; after: Workbook; phase: string }[] = [];
     let completed = false;
@@ -125,7 +178,7 @@ describe('lifecycle settlement', () => {
     rerender();
     expect(publications).toHaveLength(1);
     await act(async () => write.resolve({ sheets: [{ sheetId: 'one', revision: 7 }] }));
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledOnce());
     await act(async () => {
       save.reject(new Error('offline'));
       await submission!.completion;
@@ -144,7 +197,7 @@ describe('lifecycle settlement', () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
     const save = deferred<Workbook>();
-    const api = autosaveClient({ saveModelLifecycle: () => save.promise, loadSheet: vi.fn().mockResolvedValue(sheet) });
+    const api = autosaveClient({ admitModelLifecycle: async (id: string) => receipt(id, await save.promise), loadSheet: vi.fn().mockResolvedValue(sheet) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     let submission: ReturnType<typeof result.current.commands.addDataModel>;
     act(() => { submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] }); });
@@ -165,7 +218,7 @@ describe('lifecycle settlement', () => {
   it('keeps history locked until successful settlement and resets it only once across rerenders', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const save = deferred<Workbook>();
-    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const api = autosaveClient({ admitModelLifecycle: async (id: string) => receipt(id, await save.promise) });
     const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => result.current.commands.updateCellContent('one', 'A1', '1'));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
@@ -190,9 +243,9 @@ describe('lifecycle settlement', () => {
     const save = deferred<Workbook>();
     const api = autosaveClient({
       writeCells: vi.fn().mockReturnValueOnce(write.promise).mockResolvedValue({ sheets: [{ sheetId: 'one', revision: 8 }] }),
-      saveModelLifecycle: vi.fn()
-        .mockReturnValueOnce(save.promise)
-        .mockImplementation(async (_before: Workbook, after: Workbook) => ({
+      admitModelLifecycle: vi.fn()
+        .mockImplementationOnce(async (id: string) => receipt(id, await save.promise))
+        .mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, {
           ...after,
           documents: Object.fromEntries(Object.entries(after.documents).map(([id, sheet]) => [id,
             { ...sheet, revision: _before.documents[id] ? 7 : 0 }])),
@@ -205,7 +258,7 @@ describe('lifecycle settlement', () => {
       submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] });
     });
     await act(async () => write.resolve({ sheets: [{ sheetId: 'one', revision: 7 }] }));
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledOnce());
     await act(async () => { save.reject(new Error('offline')); await submission!.completion; });
     expect(result.current.workbook.documents.one!.revision).toBe(7);
     // Admission and history are held while the exact operation is unresolved.
@@ -215,10 +268,10 @@ describe('lifecycle settlement', () => {
     expect(result.current.commands.updateCellContent('one', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
     expect(api.writeCells).toHaveBeenCalledTimes(1);
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![1]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![1]);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![0]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![0]);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![1]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![1]);
     act(() => result.current.commands.updateCellContent('one', 'A1', '2'));
     await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.writeCells).mock.calls[1]![0]).toEqual([{ sheetId: 'one', revision: 7 }]);

@@ -10,6 +10,8 @@ import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/work
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 const source = positionedSheet('source', 'Source', { x: 0, y: 0 });
 const target = { ...positionedSheet('target', 'Target', { x: 200, y: 0 }), revision: 9 };
 const before = workbookWithSheets([source, target]);
@@ -39,7 +41,7 @@ describe('shared recreation boundaries', () => {
   it('rejects an unrelated missing sheet during recreation', async () => {
     const pending = deferred<Workbook>();
     const appendRow = vi.fn();
-    const { result, coordinator } = renderShared({ saveModelLifecycle: vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(pending.promise), appendRow });
+    const { result, coordinator } = renderShared({ admitModelLifecycle: vi.fn().mockImplementationOnce(async (id: string) => receipt(id, removed)).mockImplementationOnce(async (id: string) => receipt(id, await pending.promise)), appendRow });
     await removeAndRecreate(result);
     act(() => coordinator.confirmSheetMissing(source.id, {}));
     act(() => result.current.setWorkbook(before));
@@ -51,10 +53,10 @@ describe('shared recreation boundaries', () => {
   });
   it('blocks successors on failure and retries the exact lifecycle payload', async () => {
     const first = deferred<Workbook>(); const retry = deferred<Workbook>();
-    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(first.promise).mockReturnValueOnce(retry.promise);
+    const admitModelLifecycle = vi.fn().mockImplementationOnce(async (id: string) => receipt(id, removed)).mockImplementationOnce(async (id: string) => receipt(id, await first.promise)).mockImplementationOnce(async (id: string) => ({ ...receipt(id, await retry.promise), alreadyCommitted: true }));
     const appendRow = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1, rowCount: 21, rowId: 'row' });
     const renameSheet = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 2 }); const loadSheet = vi.fn();
-    const { result } = renderShared({ saveModelLifecycle, appendRow, renameSheet, loadSheet });
+    const { result } = renderShared({ admitModelLifecycle, appendRow, renameSheet, loadSheet });
     await removeAndRecreate(result);
     act(() => { result.current.axis.appendRow(target.id); result.current.autosave.enqueue('later', rename); });
     await act(async () => first.reject(new Error('offline')));
@@ -65,8 +67,8 @@ describe('shared recreation boundaries', () => {
     expect(result.current.axis.creatingAxes[target.id].rows).toHaveLength(1);
     expect(appendRow).not.toHaveBeenCalled(); expect(renameSheet).not.toHaveBeenCalled();
     act(() => result.current.autosave.retryFailedSaves());
-    await waitFor(() => expect(saveModelLifecycle).toHaveBeenCalledTimes(3));
-    expect(saveModelLifecycle.mock.calls[2]).toEqual(saveModelLifecycle.mock.calls[1]);
+    await waitFor(() => expect(admitModelLifecycle).toHaveBeenCalledTimes(3));
+    expect(admitModelLifecycle.mock.calls[2]).toEqual(admitModelLifecycle.mock.calls[1]);
     expect(result.current.autosave.outboxSnapshot.find((entry) => entry.operationId === 'recreate')?.status).toBe('running');
     expect(loadSheet).not.toHaveBeenCalled(); expect(appendRow).not.toHaveBeenCalled(); expect(renameSheet).not.toHaveBeenCalled();
     await act(async () => retry.resolve(recreated));
@@ -77,7 +79,7 @@ describe('shared recreation boundaries', () => {
   it('settles missing successors after rollback and discard without discarding unrelated work', async () => {
     const first = deferred<Workbook>();
     const appendRow = vi.fn(); const renameSheet = vi.fn().mockResolvedValue({ sheetId: source.id, revision: 1 });
-    const { result } = renderShared({ saveModelLifecycle: vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(first.promise), appendRow, renameSheet });
+    const { result } = renderShared({ admitModelLifecycle: vi.fn().mockImplementationOnce(async (id: string) => receipt(id, removed)).mockImplementationOnce(async (id: string) => receipt(id, await first.promise)), appendRow, renameSheet });
     await removeAndRecreate(result);
     act(() => { result.current.axis.appendRow(target.id); result.current.autosave.enqueue('later', rename); result.current.autosave.enqueue('live', { ...rename, sheetId: source.id }); });
     await act(async () => first.reject(new Error('offline')));
@@ -93,7 +95,7 @@ describe('shared recreation boundaries', () => {
     const renameSheet = vi.fn().mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
     const loadSheet = vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found'));
     const appendRow = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1, rowCount: 21, rowId: 'row' });
-    const { result } = renderShared({ saveModelLifecycle: vi.fn().mockReturnValue(pending.promise), renameSheet, loadSheet, appendRow });
+    const { result } = renderShared({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string) => receipt(id, await pending.promise)), renameSheet, loadSheet, appendRow });
     act(() => result.current.autosave.enqueue('old', rename));
     await waitFor(() => expect(result.current.workbook.manifest.sheetIds).not.toContain(target.id));
     act(() => { result.current.setWorkbook(before); result.current.autosave.enqueue('recreate', { kind: 'model-lifecycle', before: removed, after: before }); });
@@ -107,7 +109,7 @@ describe('shared recreation boundaries', () => {
   });
   it('retains deletion preparation during recreation admission', async () => {
     const pending = deferred<Workbook>(); const appendRow = vi.fn();
-    const { result } = renderShared({ saveModelLifecycle: vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(pending.promise), appendRow });
+    const { result } = renderShared({ admitModelLifecycle: vi.fn().mockImplementationOnce(async (id: string) => receipt(id, removed)).mockImplementationOnce(async (id: string) => receipt(id, await pending.promise)), appendRow });
     await removeAndRecreate(result);
     act(() => { result.current.axis.prepareSheetDeletion(target.id); result.current.axis.appendRow(target.id); });
     expect(result.current.axis.hasUnsettled()).toBe(false); expect(appendRow).not.toHaveBeenCalled();

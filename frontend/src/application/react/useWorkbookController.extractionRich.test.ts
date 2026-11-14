@@ -8,6 +8,8 @@ import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection'
 import type { Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 describe('rich persisted extraction', () => {
   it('round-trips names, formatting and canonical inbound references in lifecycle snapshots', async () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 1 });
@@ -28,10 +30,21 @@ describe('rich persisted extraction', () => {
       frame: { position: { x: 3, y: 4 }, size: { width: 100, height: 100 }, zIndex: 2 },
     };
     const snapshots: Workbook[] = [];
-    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
-      snapshots.push(structuredClone(after));
-      return after;
-    }) });
+    let before = workbook;
+    let after = workbook;
+    const api = autosaveClient({
+      admitModelLifecycle: vi.fn().mockImplementation(async (operationId: string, source: Workbook, target: Workbook) => {
+        before = structuredClone(source);
+        after = structuredClone(target);
+        snapshots.push(after);
+        return receipt(operationId, after);
+      }),
+      replayModelLifecycle: vi.fn().mockImplementation(async (operationId: string, _transitionId: string, direction: 'undo' | 'redo') => {
+        const current = structuredClone(direction === 'undo' ? before : after);
+        snapshots.push(current);
+        return receipt(operationId, current);
+      }),
+    });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const assertExtracted = (current: Workbook) => {
       const document = current.documents[target]!;

@@ -2,7 +2,8 @@ import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { DataModel, Workbook } from '@workbook/core/model';
+import type { DataModel } from '@workbook/core/model';
+import type { LifecycleReceipt } from '@infrastructure/persistence/workbookApi';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { DataModelDialog } from './DataModelDialog';
 import { App } from './App';
@@ -203,8 +204,8 @@ describe('DataModelDialog', () => {
   });
 
   it('closes the App modal after a deferred model submission succeeds', async () => {
-    const persisted = deferred<Workbook>();
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(() => persisted.promise) });
+    const persisted = deferred<LifecycleReceipt>();
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(() => persisted.promise) });
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Data models' }));
@@ -213,9 +214,10 @@ describe('DataModelDialog', () => {
     await user.type(within(form).getByLabelText('Model name'), 'Deferred success');
     await user.type(within(form).getByLabelText('Property 1 name'), 'Input');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledOnce());
 
-    await persisted.resolve(vi.mocked(apiClient.saveModelLifecycle).mock.calls[0]![1]);
+    const [operationId, , workbook] = vi.mocked(apiClient.admitModelLifecycle!).mock.calls[0]!;
+    persisted.resolve({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Data models' })).not.toBeInTheDocument());
   });
@@ -363,7 +365,7 @@ describe('DataModelDialog', () => {
   });
 
   it('retains the ordered draft after the App controller reports persistence failure', async () => {
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
     fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
@@ -379,7 +381,7 @@ describe('DataModelDialog', () => {
   });
 
   it('removes a rejected create from the list when its retained draft is cancelled', async () => {
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
     fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
@@ -395,7 +397,7 @@ describe('DataModelDialog', () => {
   });
 
   it('restores a rejected edit when its retained draft is cancelled', async () => {
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
     const workbook = { ...workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })]), dataModels: { invoice: savedModel } };
     render(<App apiClient={apiClient} initialWorkbook={workbook} />);
     fireEvent.click(screen.getByRole('button', { name: 'Data models' }));

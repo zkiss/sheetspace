@@ -1,3 +1,7 @@
+CREATE TABLE workbook_functions (singleton_key INTEGER PRIMARY KEY CHECK (singleton_key = 1), definitions TEXT NOT NULL);
+INSERT INTO workbook_functions (singleton_key, definitions) VALUES (1, '[]');
+CREATE TABLE function_receipts (operation_id BLOB PRIMARY KEY, fingerprint TEXT NOT NULL, committed_identity TEXT NOT NULL);
+
 CREATE TABLE workbook_metadata (
     singleton_key INTEGER PRIMARY KEY CHECK (singleton_key = 1),
     schema_version INTEGER NOT NULL,
@@ -101,6 +105,11 @@ CREATE TABLE record_deletions (
     after_workbook TEXT NOT NULL
 );
 
+CREATE TABLE sheet_identity_history (
+    sheet_id BLOB PRIMARY KEY NOT NULL,
+    retired INTEGER NOT NULL CHECK (retired IN (0, 1))
+);
+
 CREATE TABLE cells (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,
@@ -125,4 +134,25 @@ CREATE TABLE column_presentation (
     width REAL NOT NULL CHECK (width >= 24 AND width <= 2000),
     PRIMARY KEY (sheet_id, column_id),
     FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
+);
+
+CREATE TABLE lifecycle_transitions (
+    transition_id BLOB PRIMARY KEY,
+    before_workbook TEXT NOT NULL,
+    after_workbook TEXT NOT NULL,
+    applied INTEGER NOT NULL CHECK (applied IN (0, 1))
+);
+
+CREATE TABLE lifecycle_receipts (
+    operation_id BLOB PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    transition_id BLOB NOT NULL REFERENCES lifecycle_transitions(transition_id)
+);
+
+CREATE TABLE lifecycle_binding_provenance (
+    transition_id BLOB NOT NULL REFERENCES lifecycle_transitions(transition_id),
+    caller_id TEXT NOT NULL,
+    identity TEXT NOT NULL,
+    state TEXT NOT NULL,
+    PRIMARY KEY (transition_id, caller_id, identity)
 );

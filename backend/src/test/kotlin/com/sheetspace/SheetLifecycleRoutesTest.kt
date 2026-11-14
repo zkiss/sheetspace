@@ -19,7 +19,7 @@ class SheetLifecycleRoutesTest {
             }
 
             assertEquals(HttpStatusCode.Created, response.status)
-            val created = response.decodeBody<SheetDocumentResponse>()
+            val created = response.decodeBody<SheetCreationResponse>().createdDocument()
             UUID.fromString(created.id)
             val workbook = client.loadWorkbook()
             assertEquals(listOf(created.toTestSheet()), workbook.sheets)

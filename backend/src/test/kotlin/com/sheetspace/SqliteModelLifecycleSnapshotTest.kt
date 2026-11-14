@@ -102,28 +102,9 @@ class SqliteModelLifecycleSnapshotTest {
             val undone = application.saveModelLifecycle(extracted, initial)
             val historical = withUniformRevision(extractedFrom(initial), 99)
 
-            val redone = application.saveModelLifecycle(undone, historical)
-
-            assertEquals(0, redone.documents.getValue(SheetId(EXTRACTION_TARGET)).revision)
-            assertEquals(undone.manifest.revision + 1, redone.manifest.revision)
-            assertEquals(extracted.let(::semanticSnapshot), redone.let(::semanticSnapshot))
-
-            val written = application.writeCells(
-                CellPatchCommand(
-                    listOf(ExpectedSheetRevision(EXTRACTION_TARGET, 0)),
-                    listOf(
-                        SheetCellWrite(
-                            EXTRACTION_TARGET,
-                            EXTRACTION_ROW_ONE.value,
-                            EXTRACTION_MOVING.value,
-                            "rewritten",
-                        ),
-                    ),
-                ),
-            ).single()
-
-            assertEquals(1, written.revision)
-            assertEquals("rewritten", store.loadSheet(SheetId(EXTRACTION_TARGET))!!.tabularContent.cells["A1"])
+            assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
+                assertFailsWith<WorkbookApplicationException> { application.saveModelLifecycle(undone, historical) }.error)
+            assertEquals(undone, store.loadWorkbookBundle())
         }
 
     @Test
@@ -166,10 +147,8 @@ class SqliteModelLifecycleSnapshotTest {
                 ),
             )
 
-            assertEquals(
-                WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT,
-                assertFailsWith<WorkbookApplicationException> { application.saveModelLifecycle(initial, after) }.error,
-            )
+            val retry = application.saveModelLifecycle(initial, after)
+            assertEquals(store.loadWorkbookBundle(), retry)
             assertEquals("concurrent", store.loadSheet(SheetId(EXTRACTION_SOURCE))!!.tabularContent.cells["A1"])
             assertEquals(listOf(EXTRACTION_STAYING, EXTRACTION_REMAINING), store.loadSheet(SheetId(EXTRACTION_SOURCE))!!.tabularContent.columns)
             assertEquals("moved-1", store.loadSheet(SheetId(EXTRACTION_TARGET))!!.tabularContent.cells["A1"])

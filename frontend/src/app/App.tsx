@@ -9,6 +9,7 @@ import {
 } from './sheetDialogContracts';
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
 import { DataModelDialog } from './DataModelDialog';
+import { FunctionDialog } from './FunctionDialog';
 import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from '@application/react/useWorkbookController';
@@ -25,6 +26,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const presentation = useRef<PresentationSnapshot>({ canvas: true, generation: 0 });
   const handlePresentationChange = useCallback((snapshot: PresentationSnapshot) => { presentation.current = snapshot; }, []);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
+  const [functionsOpen, setFunctionsOpen] = useState(false);
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
   const [dataModelPropertyId, setDataModelPropertyId] = useState<string | undefined>(undefined);
@@ -164,7 +166,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
-        sheetDialogOpen={Boolean(pendingCreation || pendingRename || dataModelsOpen)}
+        sheetDialogOpen={Boolean(pendingCreation || pendingRename || dataModelsOpen || functionsOpen)}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
@@ -179,6 +181,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
+        onOpenFunctions={() => setFunctionsOpen(true)}
         onOpenDataModels={(modelId, propertyId, onClose) => { dataModelCloseFocus.current = onClose; setDataModelEditId(modelId); setDataModelPropertyId(propertyId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
         onPresentationChange={handlePresentationChange}
@@ -219,6 +222,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         </> : null}
       </div> : null}
 
+      {functionsOpen ? <FunctionDialog functions={workbook.functions ?? []} saveStatus={saveStatus} onClose={() => { setFunctionsOpen(false); queueMicrotask(() => document.getElementById('functions-button')?.focus()); }} onRetry={commands.retryFailedSaves} onSave={async (draft, previousName) => { const submission = commands.setFunction(draft, previousName); return submission.result.ok ? submission.completion : submission.result; }} onDelete={async (name) => { const submission = commands.deleteFunction(name); return submission.result.ok ? submission.completion : submission.result; }} /> : null}
       {dataModelsOpen ? (
         <DataModelDialog
           formulaResults={formulaResults}

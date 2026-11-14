@@ -78,8 +78,8 @@ class WorkbookMutationContractRoutesTest {
             val createOutputs = client.post("/api/sheets") {
                 jsonBody("""{"name":"Outputs","position":{"x":420.0,"y":260.0}}""")
             }
-            val inputsId = createInputs.decodeBody<SheetDocumentResponse>().id
-            val outputsId = createOutputs.decodeBody<SheetDocumentResponse>().id
+            val inputsId = createInputs.decodeBody<SheetCreationResponse>().createdDocument().id
+            val outputsId = createOutputs.decodeBody<SheetCreationResponse>().createdDocument().id
             val renameAndMoveInputs = client.patch("/api/sheets/$inputsId") {
                 revisionHeader(workbookApplication, inputsId)
                 jsonBody(

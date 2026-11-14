@@ -23,7 +23,7 @@ describe('structural deletion controller', () => {
   it.each(['row', 'column'] as const)('rolls back a failed persisted %s deletion', async (axis) => {
     const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 2, columnCount: 2 });
     const save = vi.fn().mockRejectedValue(new Error('offline'));
-    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ admitModelLifecycle: save }) }));
     let completion!: Promise<{ ok: boolean; reason?: string }>;
     await act(async () => {
       const submission = axis === 'row'

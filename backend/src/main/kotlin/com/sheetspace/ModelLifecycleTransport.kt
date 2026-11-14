@@ -3,7 +3,10 @@ package com.sheetspace
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class ModelLifecycleRequest(val before: WorkbookBundleResponse, val after: WorkbookBundleResponse)
+data class ModelLifecycleRequest(val operationId: String, val before: WorkbookBundleResponse, val after: WorkbookBundleResponse)
+
+@Serializable
+data class ModelLifecycleResponse(val operationId: String, val transitionId: String, val alreadyCommitted: Boolean, val workbook: WorkbookBundleResponse)
 
 internal fun WorkbookBundleResponse.toLifecycleWorkbook(): WorkbookState = try {
     require(documents.map { it.id }.distinct().size == documents.size && dataModels.map { it.id }.distinct().size == dataModels.size)
@@ -30,6 +33,7 @@ internal fun WorkbookBundleResponse.toLifecycleWorkbook(): WorkbookState = try {
             requireNotNull(converted)
             model.id to converted
         },
+        functions = functions,
     )
 } catch (invalid: IllegalArgumentException) {
     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)

@@ -54,7 +54,8 @@ internal suspend fun HttpClient.createSheet(): SheetDocumentResponse {
         jsonBody("""{"name":"Inputs","position":{"x":0.0,"y":0.0}}""")
     }
     assertEquals(HttpStatusCode.Created, response.status)
-    return response.decodeBody()
+    val receipt = response.decodeBody<SheetCreationResponse>()
+    return receipt.createdDocument()
 }
 
 internal suspend fun HttpClient.loadWorkbook(): TestWorkbook {
@@ -135,3 +136,5 @@ internal suspend fun HttpClient.patchSingleCell(
         )
     }
 }
+
+internal fun SheetCreationResponse.createdDocument(): SheetDocumentResponse = workbook.documents.single { it.id == sheetId }

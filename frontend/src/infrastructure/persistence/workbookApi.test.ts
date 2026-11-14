@@ -13,7 +13,7 @@ import {
   type WorkbookBundleResponse,
 } from '@infrastructure/persistence/workbookApi';
 
-const contractFixture = workbookReadContract as WorkbookBundleResponse;
+const contractFixture: WorkbookBundleResponse = { ...workbookReadContract, functions: [] } as WorkbookBundleResponse;
 const inputsResponse = contractFixture.documents[1];
 const outputsResponse = contractFixture.documents[0];
 
@@ -116,6 +116,7 @@ describe('workbook API read decoding', () => {
     const workbook = await workbookApi.loadWorkbook();
 
     expect(workbook).toEqual({
+      functions: [],
       manifest: {
         version: 1,
         revision: 7,
@@ -243,6 +244,7 @@ describe('workbook API read decoding', () => {
       manifest: { ...contractFixture.manifest, sheetIds: documents.map((document) => document.id) },
       documents,
       dataModels: contractFixture.dataModels,
+      functions: [],
     });
 
     const workbook = await workbookApi.loadWorkbook();
@@ -338,14 +340,14 @@ describe('workbook API read decoding', () => {
 
 describe('workbook API mutations', () => {
   it('creates sheets from focused frame input and decodes returned stable document', async () => {
-    const fetchMock = mockFetch(inputsResponse);
+    const fetchMock = mockFetch({ sheetId: inputsResponse.id, workbook: contractFixture });
 
     await expect(workbookApi.createSheet({
       name: 'Inputs',
       position: { x: 12, y: 24 },
       frameSize: { width: 240, height: 160 },
       zIndex: 1,
-    })).resolves.toEqual(inputsDocument);
+    })).resolves.toEqual({ sheetId: inputsResponse.id, workbook: decodeWorkbookBundle(contractFixture) });
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
       body: JSON.stringify({
@@ -359,7 +361,7 @@ describe('workbook API mutations', () => {
   });
 
   it('keeps local-only identity and content out of creation requests', async () => {
-    const fetchMock = mockFetch(inputsResponse);
+    const fetchMock = mockFetch({ sheetId: inputsResponse.id, workbook: contractFixture });
     await workbookApi.createSheet({
       id: 'pending:local-only-id',
       name: 'Inputs',
@@ -461,7 +463,7 @@ describe('workbook API mutations', () => {
     const fetchMock = mockFetch({ error: 'invalid-model-record' }, { status: 400 });
     await expect(workbookApi.admitRecord('sheet 1', request)).rejects.toMatchObject({ status: 400, code: 'invalid-model-record' });
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201/records', {
-      method: 'POST', body: JSON.stringify({ rowId: 'row-1', values: { price: '12' }, before: { manifest: before.manifest, dataModels: [], documents: [] }, rowOrders: [] }),
+      method: 'POST', body: JSON.stringify({ rowId: 'row-1', values: { price: '12' }, before: { manifest: before.manifest, dataModels: [], functions: [], documents: [] }, rowOrders: [] }),
       headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
     });
   });

@@ -151,7 +151,7 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
     const save = vi.fn().mockRejectedValue(new Error('offline'));
     const onFeedback = vi.fn();
     const result = mountAndMeasure(renderComposition({
-      apiClient: autosaveClient({ saveModelLifecycle: save }),
+      apiClient: autosaveClient({ admitModelLifecycle: save }),
       onFeedback,
     }));
     const { surface, api } = result;

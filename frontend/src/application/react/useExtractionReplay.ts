@@ -8,11 +8,13 @@ type ReplayResult = { ok: true; value: Workbook } | Extract<ExtractionReplayResu
 
 export function useExtractionReplay(options: {
   history: ContentHistory;
+  current: () => Workbook;
+  requireAuthority: boolean;
   hasPending: () => boolean;
   clearFeedback: () => void;
   publishHistory: () => void;
   clearOtherFailures?: () => void;
-  submit: (transform: (current: Workbook) => ReplayResult, success: () => void) => { result: ReplayResult; completion: Promise<ReplayResult> };
+  submit: (transform: (current: Workbook) => ReplayResult, success: () => void, replay?: { transitionId: string; direction: 'undo' | 'redo' }) => { result: ReplayResult; completion: Promise<ReplayResult> };
 }) {
   const [failure, setFailure] = useState<ExtractionReplayFailure>();
   function replay(transaction: ContentTransaction, direction: 'undo' | 'redo') {
@@ -22,15 +24,14 @@ export function useExtractionReplay(options: {
       setFailure('pending-model-transition');
       return;
     }
-    const submission = options.submit((current) => {
-      const prepared = prepareExtractionReplay(current, transaction, direction);
-      return prepared.ok ? { ok: true, value: prepared.workbook } : prepared;
-    }, () => {
+    const prepared = prepareExtractionReplay(options.current(), transaction, direction, options.requireAuthority);
+    if (!prepared.ok) { setFailure(prepared.reason); return; }
+    const replay = prepared.persistence.kind === 'model-lifecycle' ? prepared.persistence.replay : undefined;
+    const submission = options.submit(() => ({ ok: true, value: prepared.workbook }), () => {
       setFailure(undefined);
       options.clearOtherFailures?.();
-      if (direction === 'undo') options.history.commitUndo(); else options.history.commitRedo();
-      options.publishHistory();
-    });
+      if (options.history.commitGuarded(direction, transaction.identity)) options.publishHistory();
+    }, replay);
     if (!submission.result.ok) setFailure(submission.result.reason);
     else void submission.completion.then((result) => {
       if (!result.ok) setFailure(result.reason);

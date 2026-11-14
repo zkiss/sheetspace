@@ -17,9 +17,9 @@ export type StoredFormulaAnalysis = {
 };
 
 /** Opaque payloads are never decoded into the parser or resolver on passive reads. */
-export function analyzeStoredFormula(content: string, workbook: Workbook, currentSheetId = ''): StoredFormulaAnalysis {
+export function analyzeStoredFormula(content: string, workbook: Workbook, currentSheetId = '', parameters?: readonly string[]): StoredFormulaAnalysis {
   requireStoredFormula(content);
-  const syntax = analyzeFormulaSyntax(content, workbookFormulaReferenceResolver(workbook, currentSheetId), true);
+  const syntax = analyzeFormulaSyntax(content, workbookFormulaReferenceResolver(workbook, currentSheetId), true, parameters);
   const rowLexemes = syntax.referenceLexemes.filter((lexeme) => lexeme.endpoints.some((endpoint) => endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical'));
   const retainedDiagnostics = syntax.diagnostics.filter((diagnostic) => diagnostic.kind !== 'reference' || !rowLexemes.some((lexeme) => lexeme.sourceSpan.start === diagnostic.sourceSpan.start));
   const replacementDiagnostics: FormulaDiagnostic[] = [];

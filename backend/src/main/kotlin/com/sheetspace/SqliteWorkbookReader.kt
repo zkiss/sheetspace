@@ -20,7 +20,13 @@ internal class SqliteWorkbookReader(
         require(documents.values.all { it.modelId == null || it.modelId in dataModels }) {
             "Unknown sheet model"
         }
-        return WorkbookState(manifest, documents, dataModels)
+        val functions = connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT definitions FROM workbook_functions WHERE singleton_key = 1").use { rs ->
+                check(rs.next())
+                Json.decodeFromString<List<CustomFunction>>(rs.getString(1))
+            }
+        }
+        return WorkbookState(manifest, documents, dataModels, functions)
     }
 
     fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->

@@ -1,9 +1,13 @@
+import { decodeSheetCreationReceipt, type SheetCreationReceipt, type SheetCreationWireReceipt } from './sheetCreationReceipt';
+import { validAuthoritativeFunctions, validLifecycleBundle } from '@application/core/lifecycleFunctionValidation';
+import { functionTransport } from './workbookFunctionTransport';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { DEFAULT_SHEET_FRAME_SIZE, isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type AxisSizeWrite, type DataModel, type ModelColumnType, type FormatWrite, type SheetDocument, type SheetFrameSize, type SheetPresentation, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { validSorting } from '@workbook/core/sorting';
+import { modelBindingError } from '@workbook/core/modelBindingValidation';
 import type { SortCriterion } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import type { RecordAdmissionRequest, RecordAdmissionResult } from '@application/core/recordAdmission';
@@ -57,7 +61,21 @@ export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
   dataModels: DataModelResponse[];
+  functions: NonNullable<Workbook['functions']>;
 };
+
+export type LifecycleReceipt = { operationId: string; transitionId: string; alreadyCommitted: boolean; workbook: Workbook };
+type LifecycleWireReceipt = Omit<LifecycleReceipt, 'workbook'> & { workbook: WorkbookBundleResponse };
+
+function decodeLifecycleReceipt(result: LifecycleWireReceipt, operationId: string, transitionId?: string): LifecycleReceipt {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!result || typeof result.operationId !== 'string' || result.operationId.toLowerCase() !== operationId.toLowerCase()
+    || typeof result.transitionId !== 'string' || !uuid.test(result.transitionId)
+    || (transitionId !== undefined && result.transitionId.toLowerCase() !== transitionId.toLowerCase())
+    || typeof result.alreadyCommitted !== 'boolean' || !result.workbook) throw new Error('Invalid lifecycle receipt.');
+  if (!validLifecycleBundle(result.workbook)) throw new Error('Invalid lifecycle receipt.');
+  return { ...result, workbook: decodeWorkbookBundle(result.workbook) };
+}
 
 export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
 export type ModelColumnResponse = { id: string; name: string; kind: 'manual' | 'calculated'; type: ModelColumnType; formula?: string };
@@ -166,6 +184,17 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  ...functionTransport(requestJson, encodeWorkbookBundle, decodeWorkbookBundle),
+  admitModelLifecycle(operationId: string, before: Workbook, after: Workbook): Promise<LifecycleReceipt> {
+    return requestJson<LifecycleWireReceipt>('/api/workbook/model-lifecycle', {
+      method: 'PUT', body: JSON.stringify({ operationId, before: encodeWorkbookBundle(before), after: encodeWorkbookBundle(after) }),
+    }).then((result) => decodeLifecycleReceipt(result, operationId));
+  },
+  replayModelLifecycle(operationId: string, transitionId: string, direction: 'undo' | 'redo'): Promise<LifecycleReceipt> {
+    return requestJson<LifecycleWireReceipt>(`/api/workbook/model-lifecycle/${encodePathSegment(transitionId)}/replay`, {
+      method: 'POST', body: JSON.stringify({ operationId, direction }),
+    }).then((result) => decodeLifecycleReceipt(result, operationId, transitionId));
+  },
   deleteRecord(sheetId: string, rowId: string, request: RecordDeletionRequest): Promise<RecordDeletionResult> {
     return requestJson<Omit<RecordDeletionResult, 'workbook'> & { workbook: WorkbookBundleResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records/${encodePathSegment(rowId)}/deletions`, {
       method: 'POST', body: JSON.stringify({ ...request, before: encodeWorkbookBundle(request.before) }),
@@ -214,17 +243,13 @@ export const workbookApi = {
     });
   },
 
-  loadWorkbook(): Promise<Workbook> {
-    return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(decodeWorkbookBundle);
-  },
+  loadWorkbook(): Promise<Workbook> { return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(decodeWorkbookBundle); },
 
-  loadSheet(sheetId: string): Promise<SheetDocument> {
-    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}`).then(decodeSheetDocument);
-  },
+  loadSheet(sheetId: string): Promise<SheetDocument> { return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}`).then(decodeSheetDocument); },
 
   createSheet(
     sheet: { name: string; position: WorkspacePosition; frameSize?: SheetFrameSize; visualScale?: number; zIndex?: number },
-  ): Promise<SheetDocument> {
+  ): Promise<SheetCreationReceipt> {
     const requestBody = {
       name: sheet.name,
       position: sheet.position,
@@ -233,10 +258,10 @@ export const workbookApi = {
       ...(sheet.zIndex === undefined ? {} : { zIndex: sheet.zIndex }),
     };
 
-    return requestJson<SheetDocumentResponse>('/api/sheets', {
+    return requestJson<SheetCreationWireReceipt<WorkbookBundleResponse>>('/api/sheets', {
       method: 'POST',
       body: JSON.stringify(requestBody),
-    }).then(decodeSheetDocument);
+    }).then((receipt) => decodeSheetCreationReceipt(receipt, decodeWorkbookBundle));
   },
 
   deleteSheet(sheetId: string, options: RevisionedMutationOptions = {}): Promise<void> {
@@ -343,6 +368,7 @@ function revisionHeaders(options: RevisionedMutationOptions): HeadersInit {
 }
 
 export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
+  if (!validAuthoritativeFunctions(bundle.functions, bundle.manifest.sheetIds)) invalidReadContract('invalid function declarations');
   const documents = new Map<string, SheetDocumentResponse>();
   for (const document of bundle.documents) {
     if (documents.has(document.id)) invalidReadContract(`duplicate sheet document ${document.id}`);
@@ -374,20 +400,15 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   }
   const dataModels = Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)]));
   for (const document of decodedDocuments) {
-    if (document.modelId !== undefined && !Object.prototype.hasOwnProperty.call(dataModels, document.modelId)) {
-      invalidReadContract(`sheet ${document.id} references unknown data model ${document.modelId}`);
-    }
-    const bindings = document.modelColumnBindings ?? {};
-    const model = document.modelId === undefined ? undefined : dataModels[document.modelId];
-    if (Object.keys(bindings).some((propertyId) => !model?.columns.some((property) => property.id === propertyId))) {
-      invalidReadContract(`invalid model column bindings for sheet ${document.id}`);
-    }
+    const error = modelBindingError(document, dataModels);
+    if (error) invalidReadContract(error);
   }
 
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
     dataModels,
+    functions: structuredClone(bundle.functions),
   };
 }
 
@@ -500,6 +521,7 @@ export function encodeWorkbookBundle(workbook: Workbook): WorkbookBundleResponse
   return {
     manifest: workbook.manifest,
     dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, columns: [...model.columns] })),
+    functions: structuredClone(workbook.functions ?? []),
     documents: workbook.manifest.sheetIds.map((id) => {
       const sheet = workbook.documents[id]!;
       return { ...sheet, content: { ...sheet.content, cells: Object.entries(sheet.content.cells).map(([key, content]) => ({ ...cellIdentityFromKey(key)!, content })) } };

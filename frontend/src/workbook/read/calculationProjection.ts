@@ -17,6 +17,7 @@ export type CalculationSheet = {
 
 export type CalculationProjection = {
   readonly sheets: readonly CalculationSheet[];
+  readonly functionSource?: Workbook;
 };
 
 export type CalculationCellChange = {
@@ -36,6 +37,7 @@ export function calculationProjection(
   source: Workbook,
 ): CalculationProjection {
   return {
+    functionSource: source,
     sheets: sheetsInOrder(source).map((sheet) => ({
       id: sheet.id,
       rows: sheet.content.rows,

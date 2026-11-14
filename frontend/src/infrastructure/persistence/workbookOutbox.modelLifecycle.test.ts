@@ -12,6 +12,17 @@ function boundary(outbox: WorkbookOutbox) {
 }
 
 describe('structural persistence barriers', () => {
+  it('associates a receipt with its operation and protects it from external mutation', async () => {
+    const outbox = new WorkbookOutbox();
+    const workbook = boundary(outbox);
+    const receipt = { operationId: 'boundary', transitionId: '12345678-1234-1234-1234-123456789abc', alreadyCommitted: false, workbook };
+    await outbox.executeNext({ execute: async () => ({ kind: 'saved', revisions: [], receipt }) });
+    receipt.workbook.documents.one!.name = 'changed';
+    const observed = outbox.inspect('boundary')!;
+    expect(observed.receipt!.workbook.documents.one!.name).toBe('One');
+    observed.receipt!.workbook.documents.one!.name = 'also changed';
+    expect(outbox.inspect('boundary')!.receipt!.workbook.documents.one!.name).toBe('One');
+  });
   it('reserves the union of created and removed sheet identities', () => {
     const outbox = new WorkbookOutbox();
     const before = workbookWithSheets([sheetDocument({ id: 'old', name: 'Old' })]);
@@ -25,18 +36,22 @@ describe('structural persistence barriers', () => {
     const original = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 9 })]);
     const empty = workbookWithSheets([]);
     const recreated = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 0 })]);
-    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(empty).mockResolvedValueOnce(recreated);
-    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle }, coordinator);
+    const admitModelLifecycle = vi.fn().mockResolvedValue({ operationId: 'undo', transitionId: '12345678-1234-1234-1234-123456789abc', alreadyCommitted: false, workbook: empty });
+    const replayModelLifecycle = vi.fn().mockResolvedValue({ operationId: 'redo', transitionId: '12345678-1234-1234-1234-123456789abc', alreadyCommitted: false, workbook: recreated });
+    const transport = new WorkbookPersistenceTransport({ admitModelLifecycle, replayModelLifecycle }, coordinator);
     coordinator.recordRevision('one', 9);
     const outbox = new WorkbookOutbox();
     outbox.enqueue('undo', { kind: 'model-lifecycle', before: original, after: empty });
     await outbox.executeNext(transport);
     expect(coordinator.isSheetMissing('one')).toBe(true);
-    outbox.enqueue('redo', { kind: 'model-lifecycle', before: empty, after: recreated });
+    outbox.enqueue('redo', { kind: 'model-lifecycle', before: empty, after: recreated, replay: { transitionId: '12345678-1234-1234-1234-123456789abc', direction: 'undo' } });
     await outbox.executeNext(transport);
     expect(outbox.inspect('redo')!.status).toBe('succeeded');
     expect(coordinator.isSheetMissing('one')).toBe(false);
     expect(coordinator.revision('one')).toBe(0);
+    expect(admitModelLifecycle).toHaveBeenCalledWith('undo', original, empty);
+    expect(replayModelLifecycle).toHaveBeenCalledWith('redo', '12345678-1234-1234-1234-123456789abc', 'undo');
+    expect(outbox.inspect('redo')!.receipt!.transitionId).toBe('12345678-1234-1234-1234-123456789abc');
   });
 
   it('preserves pre-boundary writes and frame coalescing when a later deletion supersedes newer work', () => {
@@ -92,26 +107,27 @@ describe('structural persistence barriers', () => {
     outbox.supersedeMissingSheetOperations('one');
     const coordinator = new WorkbookPersistenceCoordinator();
     coordinator.confirmSheetMissing('one');
-    const saveModelLifecycle = vi.fn();
+    const admitModelLifecycle = vi.fn();
 
-    const result = await outbox.executeNext(new WorkbookPersistenceTransport({ saveModelLifecycle }, coordinator));
+    const result = await outbox.executeNext(new WorkbookPersistenceTransport({ admitModelLifecycle }, coordinator));
 
     expect(result!.status).toBe('blocked');
-    expect(saveModelLifecycle).not.toHaveBeenCalled();
+    expect(admitModelLifecycle).not.toHaveBeenCalled();
   });
 
   it('retries an ambiguous lifecycle response with the exact original compare-and-swap', async () => {
     const before = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const after = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' }), sheetDocument({ id: 'new', name: 'New' })]);
-    const saveModelLifecycle = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce(after);
+    const admitModelLifecycle = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({ operationId: 'extract', transitionId: '12345678-1234-1234-1234-123456789abc', alreadyCommitted: true, workbook: after });
     const outbox = new WorkbookOutbox();
-    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle });
+    const transport = new WorkbookPersistenceTransport({ admitModelLifecycle });
     outbox.enqueue('extract', { kind: 'model-lifecycle', before, after });
 
     expect((await outbox.executeNext(transport))!.status).toBe('failed');
     outbox.retry('extract');
     expect((await outbox.executeNext(transport))!.status).toBe('succeeded');
-    expect(saveModelLifecycle.mock.calls).toEqual([[before, after], [before, after]]);
+    expect(admitModelLifecycle.mock.calls).toEqual([['extract', before, after], ['extract', before, after]]);
+    expect(outbox.inspect('extract')!.receipt!.alreadyCommitted).toBe(true);
   });
 
   it('blocks a lifecycle transition behind a failed ordinary prerequisite until explicitly retried', async () => {

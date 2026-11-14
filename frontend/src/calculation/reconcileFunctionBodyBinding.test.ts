@@ -1,0 +1,34 @@
+import { expect, it } from 'vitest';
+import { reconcileFunctionBodyBinding, setCustomFunction } from './customFunctions';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { projectStoredFormula } from '../workbook/formula/storedFormulaProjection';
+
+it('reconciles each body edit with the caller and current target contexts', () => {
+  const caller = sheetDocument({ id: 'caller', name: 'Caller', rowCount: 2, columnCount: 3 });
+  const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 2, columnCount: 3 });
+  const workbook = workbookWithSheets([caller, target]);
+  const first = { name: 'f', parameters: [], body: '=@Target!A[1]+@B[1]' };
+  const initial = setCustomFunction(workbook, first);
+  if (!initial.ok) throw new Error(initial.error);
+  const binding = initial.workbook.functions![0].bodyBindings![caller.id];
+  const reordered = { ...workbook, documents: { ...workbook.documents, target: { ...target, content: { ...target.content, rows: [...target.content.rows].reverse() } } } };
+  const second = { ...first, body: '=@Target!A[1]+@C[1]' };
+  const edited = reconcileFunctionBodyBinding(reordered, caller.id, first, binding, second)!;
+  expect(edited).toContain(target.content.rows[0]);
+  expect(edited).toContain(caller.content.columns[2]);
+  const away = { ...second, body: '=@Target!B[1]+@C[1]' };
+  const awayBinding = reconcileFunctionBodyBinding(reordered, caller.id, second, edited, away)!;
+  const back = reconcileFunctionBodyBinding(reordered, caller.id, away, awayBinding, second)!;
+  expect(back).toContain(target.content.rows[1]);
+  expect(back).not.toContain(target.content.rows[0]);
+  const invalid = { ...second, body: '=@Target!A[1]+(' };
+  const invalidBinding = reconcileFunctionBodyBinding(reordered, caller.id, second, edited, invalid)!;
+  expect(invalidBinding).toContain(target.content.rows[0]);
+  expect(projectStoredFormula(invalidBinding, workbook, caller.id).text).toBe(invalid.body);
+  const corrected = { ...second, body: '=@Target!A[1]+(1)  ' };
+  const correctedBinding = reconcileFunctionBodyBinding(reordered, caller.id, invalid, invalidBinding, corrected)!;
+  expect(correctedBinding).toContain(target.content.rows[0]);
+  expect(projectStoredFormula(correctedBinding, workbook, caller.id).text).toBe(corrected.body);
+  expect(reconcileFunctionBodyBinding(reordered, caller.id, second, edited, { ...second, body: 'draft' })).toBeUndefined();
+  expect(reconcileFunctionBodyBinding(reordered, caller.id, second, edited, { ...second, parameters: [{ name: 'x', type: 'int' as const }] })).toContain(target.content.rows[1]);
+});

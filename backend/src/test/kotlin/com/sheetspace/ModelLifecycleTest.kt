@@ -95,7 +95,7 @@ class ModelLifecycleTest {
         val changedModels = before.copy(dataModels = emptyMap())
 
         assertEquals(changedMembership, reconcileModelLifecycle(before, before, changedMembership))
-        assertEquals(changedMembership, reconcileModelLifecycle(changedMembership, before, changedMembership))
+        assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(changedMembership, before, changedMembership) }.error)
         val concurrent = before.replaceSheet(sheet.copy(name = "Concurrent"))
         assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(concurrent, before, changedMembership) }.error)
         assertEquals(changedModels, reconcileModelLifecycle(before, before, changedModels))
@@ -112,7 +112,7 @@ class ModelLifecycleTest {
 
         assertEquals(removed.manifest.revision + 1, result.manifest.revision)
         assertEquals(0, result.documents.getValue(original.id).revision)
-        assertEquals(result, reconcileModelLifecycle(result, removed, requested))
+        assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(result, removed, requested) }.error)
     }
 
     @Test

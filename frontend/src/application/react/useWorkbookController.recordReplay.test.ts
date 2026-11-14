@@ -27,7 +27,8 @@ function fixture(loseFirstReplay = false, sorting = true) {
   const api = persistedWorkbookClient(initial);
   const admit = api.admitRecord.getMockImplementation()!;
   let current = initial;
-  api.saveModelLifecycle.mockImplementation(async (_before, after) => { current = after; return current; });
+  const admitLifecycle = api.admitModelLifecycle.getMockImplementation()!;
+  api.admitModelLifecycle.mockImplementation(async (...args) => { const receipt = await admitLifecycle(...args); current = receipt.workbook; return receipt; });
   let admitted: Workbook;
   let revision = 1;
   const receipts = new Map<string, { sheetId: string; rowId: string; request: Parameters<typeof api.replayRecord>[2]; workbook: Workbook }>();
@@ -108,7 +109,7 @@ function assertEndpoint(result: { current: ReturnType<typeof useWorkbookControll
 function assertNoSubstituteWrites(api: ReturnType<typeof persistedWorkbookClient>) {
   expect(api.admitRecord).toHaveBeenCalledOnce();
   expect(api.writeCells).not.toHaveBeenCalled();
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.admitModelLifecycle).not.toHaveBeenCalled();
   expect(api.writeSorting).not.toHaveBeenCalled();
   expect(api.writeAxisOrder).not.toHaveBeenCalled();
 }
@@ -232,7 +233,7 @@ describe('persisted record replay integration', () => {
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
     act(() => expect(result.current.commands.updateCellContent('other', 'A1', '42')).toEqual({ ok: false, reason: 'pending-model-transition' }));
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
   });
@@ -250,14 +251,14 @@ describe('persisted record replay integration', () => {
       expect(result.current.commands.configureSorting('sheet', []).result).toEqual({ ok: false, reason: 'pending-model-transition' });
     });
     expect(result.current.workbook).toEqual(before);
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));
     expect(api.replayRecord.mock.calls[1]).toEqual(api.replayRecord.mock.calls[0]);
     expect(result.current.workbook.documents.sheet!.content.rows).toEqual(initial.documents.sheet!.content.rows);
     expect(result.current.canRedo).toBe(true);
     act(() => { expect(result.current.commands.configureSorting('sheet', []).result.ok).toBe(true); });
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledOnce());
   });
 
   it('blocks edits while a lost redo retains its cursor and identity', async () => {
@@ -306,7 +307,7 @@ describe('persisted record replay integration', () => {
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(true));
     act(() => { result.current.commands.deleteSheet('sheet'); });
     expect(api.deleteSheet).not.toHaveBeenCalled();
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(result.current.workbook.documents.sheet).toBeDefined();
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.recordReplay.unresolved).toBe(false));

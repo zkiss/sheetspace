@@ -1,11 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { smallSheetDocument, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { creationReceipt, smallSheetDocument, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 import userEvent from '@testing-library/user-event';
 import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
-import type { SheetDocument } from '@workbook/core/model';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -41,8 +40,8 @@ it('maximises the existing grid, isolates zoom and restores the unchanged frame'
 it.each(['toolbar', 'keyboard', 'palette'] as const)('restores the canvas before creating a sheet via %s while maximised', async (action) => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
   const user = userEvent.setup();
-  const apiClient = persistedWorkbookClient();
   const inputs = smallSheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 48, y: 96 }, visualScale: 0.8, frameSize: { width: 310, height: 220 }, zIndex: 7 });
+  const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
   render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([inputs])} />);
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -114,7 +113,7 @@ it('keeps the creation dialog open when validation fails on the restored canvas'
 
 it('retains a created sheet without stealing selection when a presentation action supersedes it', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
-  const create = deferred<SheetDocument>();
+  const create = deferred<ReturnType<typeof creationReceipt>>();
   const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(create.promise) });
   render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
@@ -131,7 +130,8 @@ it('retains a created sheet without stealing selection when a presentation actio
   expect(source).toHaveAttribute('data-presented', 'true');
 
   await act(async () => {
-    create.resolve(sheetDocument({ id: 'budget', name: 'Budget', position: { x: 200, y: 100 }, zIndex: 8 }));
+    const request = vi.mocked(apiClient.createSheet).mock.calls[0][0];
+    create.resolve(creationReceipt(sheetDocument({ id: 'budget', ...request }), workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])));
     await create.promise;
   });
 

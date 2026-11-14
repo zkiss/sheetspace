@@ -52,8 +52,8 @@ function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
  * Syntax recognition remains exclusively owned by formulaSyntax; this only asks
  * the existing resolver for stable named targets and target validity.
  */
-export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver, stored = false): FormulaSyntaxResult {
-  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: stored ? undefined : namedColumnPredicate(resolver), stored });
+export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver, stored = false, parameters?: readonly string[]): FormulaSyntaxResult {
+  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: stored ? undefined : namedColumnPredicate(resolver), stored, parameters });
   const diagnostics = analysis.referenceLexemes.map(matchFromLexeme)
     .filter((match) => {
       const rowReference = analysis.references.find((reference) => reference.kind === 'row-reference' && reference.sourceSpan.start === match.sourceSpan.start);

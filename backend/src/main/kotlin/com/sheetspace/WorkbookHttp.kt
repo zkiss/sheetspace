@@ -135,13 +135,8 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             call.respond(WorkbookReadTransportAdapter.bundle(workbookApplication.loadWorkbookBundle()))
         }
 
-        put("/api/workbook/model-lifecycle") {
-            val request = call.receiveRequest<ModelLifecycleRequest>() ?: return@put
-            call.respondApplicationResult {
-                val result = workbookApplication.saveModelLifecycle(request.before.toLifecycleWorkbook(), request.after.toLifecycleWorkbook())
-                call.respond(WorkbookReadTransportAdapter.bundle(result))
-            }
-        }
+        functionRoutes(workbookApplication)
+        lifecycleRoutes(workbookApplication)
 
         get("/api/sheets/{sheetId}") {
             val sheetId = call.parameters["sheetId"] ?: return@get call.respondError(
@@ -183,7 +178,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
         post("/api/sheets") {
             val request = call.receiveRequest<CreateSheetRequest>() ?: return@post
             call.respondApplicationResult {
-                val sheet = workbookApplication.createSheet(
+                val result = workbookApplication.createSheetWithReceipt(
                     CreateSheetCommand(
                         name = request.name,
                         position = request.position,
@@ -194,7 +189,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                 )
                 call.respond(
                     HttpStatusCode.Created,
-                    WorkbookReadTransportAdapter.sheetDocument(sheet),
+                    SheetCreationResponse(result.sheetId.value, WorkbookReadTransportAdapter.bundle(result.workbook)),
                 )
             }
         }
@@ -386,7 +381,7 @@ private suspend fun ApplicationCall.requireExistingSheet(
     }
 }
 
-private suspend fun ApplicationCall.respondApplicationResult(response: suspend () -> Unit) {
+internal suspend fun ApplicationCall.respondApplicationResult(response: suspend () -> Unit) {
     try {
         response()
     } catch (conflict: SheetRevisionConflict) {
@@ -433,6 +428,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_MODEL_RECORD -> HttpStatusCode.BadRequest to "invalid-model-record"
         WorkbookApplicationError.INVALID_AXIS_ORDER -> HttpStatusCode.BadRequest to "invalid-axis-order"
         WorkbookApplicationError.INVALID_SORTING -> HttpStatusCode.BadRequest to "invalid-sorting"
+        WorkbookApplicationError.INVALID_FUNCTION -> HttpStatusCode.BadRequest to "invalid-function"
     }
     respondError(status, code)
 }
@@ -449,7 +445,7 @@ internal fun DataModelWriteRequest.toDataModel(id: String): DataModel? {
     return DataModel(id, name, convertedColumns)
 }
 
-private suspend fun ApplicationCall.respondError(status: HttpStatusCode, error: String) {
+internal suspend fun ApplicationCall.respondError(status: HttpStatusCode, error: String) {
     respond(status, ErrorResponse(error))
 }
 
@@ -465,11 +461,11 @@ private suspend fun ApplicationCall.expectedSheetRevision(): Long? {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T? {
+internal suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(error: String = "invalid-request"): T? {
     return try {
         receive<T>()
     } catch (exception: Exception) {
-        respondError(HttpStatusCode.BadRequest, "invalid-request")
+        respondError(HttpStatusCode.BadRequest, error)
         null
     }
 }

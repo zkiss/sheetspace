@@ -7,6 +7,26 @@ import kotlin.test.assertNotEquals
 
 class ModelLifecycleReconciliationTest {
     @Test
+    fun `lifecycle validates sorting directions columns and uniqueness`() {
+        val before = lifecycleWorkbook()
+        val sheet = before.sheetsInOrder.first()
+        val column = sheet.tabularContent.columns.first().value
+        val valid = SortCriterion(column, "ascending")
+        val sorted = before.replaceSheet(sheet.copy(sorting = listOf(valid)))
+        assertEquals(sorted, reconcileModelLifecycle(before, before, sorted))
+        val invalid = listOf(
+            listOf(valid, valid),
+            listOf(SortCriterion(column, "sideways")),
+            listOf(SortCriterion("missing", "ascending")),
+        )
+        invalid.forEach { sorting ->
+            assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> {
+                reconcileModelLifecycle(before, before, before.replaceSheet(sheet.copy(sorting = sorting)))
+            }.error)
+        }
+    }
+
+    @Test
     fun `recreating a historical identity ignores the requested revision and starts at zero`() {
         val workbook = lifecycleWorkbook()
         val original = workbook.sheetsInOrder.first()
@@ -101,7 +121,7 @@ class ModelLifecycleReconciliationTest {
         val after = before.addSheet(created)
         val current = after
 
-        assertEquals(current, reconcileModelLifecycle(current, before, after))
+        assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(current, before, after) }.error)
     }
 
     @Test

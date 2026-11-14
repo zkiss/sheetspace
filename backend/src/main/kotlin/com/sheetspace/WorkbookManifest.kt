@@ -1,5 +1,13 @@
 package com.sheetspace
 
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class CustomFunctionParameter(val name: String, val type: String)
+
+@Serializable
+data class CustomFunction(val name: String, val parameters: List<CustomFunctionParameter>, val body: String, val bodyBindings: Map<String, String> = emptyMap(), val identity: String = "")
+
 data class WorkbookManifest(
     val version: Int = WORKBOOK_SCHEMA_VERSION,
     val revision: Long = 0,
@@ -26,6 +34,7 @@ data class WorkbookState(
     val manifest: WorkbookManifest = WorkbookManifest(),
     val documents: Map<SheetId, SheetDocument> = emptyMap(),
     val dataModels: Map<String, DataModel> = emptyMap(),
+    val functions: List<CustomFunction> = emptyList(),
 ) {
     init {
         require(manifest.sheetIds.toSet() == documents.keys) {

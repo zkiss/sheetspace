@@ -197,7 +197,7 @@ class PreparedCalculatedTransitionTest {
         )))
 
         assertEquals(after, reconcileCalculatedLifecycle(before, before, after, rules))
-        assertEquals(after, reconcileCalculatedLifecycle(after, before, after, rules))
+        assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileCalculatedLifecycle(after, before, after, rules) }.error)
         val forged = after.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, emptyMap())))
         assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE,
             assertFailsWith<WorkbookApplicationException> { reconcileCalculatedLifecycle(before, before, forged, rules) }.error)

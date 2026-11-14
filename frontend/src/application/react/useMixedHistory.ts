@@ -11,6 +11,7 @@ type ExtractionOptions = Parameters<typeof useExtractionReplay>[0];
 
 export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 'clearOtherFailures'> & {
   submit: ExtractionOptions['submit'];
+  requireAuthority: boolean;
   applyResult: (result: WorkbookOperationResult) => AppliedWorkbookOperation | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   setCellFeedback: (feedback: WorkbookController['contentHistoryFeedback']) => void;
@@ -19,7 +20,7 @@ export function useMixedHistory(options: Omit<AxisOptions, 'setReplayFailure' | 
 }) {
   const [orderFailure, setOrderFailure] = useState<WorkbookController['orderReplayFailure']>();
   const extraction = useExtractionReplay({
-    history: options.history, hasPending: options.hasPending, submit: options.submit,
+    history: options.history, current: () => options.current.current, requireAuthority: options.requireAuthority, hasPending: options.hasPending, submit: options.submit,
     clearFeedback: () => options.setCellFeedback(undefined), publishHistory: options.publishHistory,
     clearOtherFailures: () => setOrderFailure(undefined),
   });

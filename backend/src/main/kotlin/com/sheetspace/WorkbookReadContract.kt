@@ -2,6 +2,11 @@ package com.sheetspace
 
 import kotlinx.serialization.Serializable
 
+data class SheetCreationResult(val sheetId: SheetId, val workbook: WorkbookState)
+
+@Serializable
+data class SheetCreationResponse(val sheetId: String, val workbook: WorkbookBundleResponse)
+
 @Serializable
 data class WorkbookManifestResponse(
     val version: Int,
@@ -14,6 +19,7 @@ data class WorkbookBundleResponse(
     val manifest: WorkbookManifestResponse,
     val documents: List<SheetDocumentResponse>,
     val dataModels: List<DataModelResponse>,
+    val functions: List<CustomFunction>,
 )
 
 @Serializable
@@ -84,6 +90,7 @@ internal object WorkbookReadTransportAdapter {
         manifest = manifest(workbook.manifest),
         documents = workbook.sheetsInOrder.map(::sheetDocument),
         dataModels = workbook.dataModels.values.map(::dataModel),
+        functions = workbook.functions,
     )
 
     fun sheetDocument(document: SheetDocument): SheetDocumentResponse {

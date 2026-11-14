@@ -44,6 +44,7 @@ import { sheetCellNodeId } from './nodeIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { resolveRowReference } from './rowReference';
 import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
+import { CustomFunctionEvaluator } from './customFunctionEvaluator';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 
@@ -55,7 +56,7 @@ export function evaluateFormulaCells<T extends CalculationProjection>(
 
 /** Evaluate a projection whose formula cells contain trusted stored formulas. */
 export function evaluateStoredFormulaCells(projection: CalculationProjection, workbook: Workbook): FormulaEvaluationSnapshot {
-  return new FormulaEvaluator(projection, new Map(), undefined, builtInFormulaFunctions,
+  return new FormulaEvaluator({ ...projection, functionSource: workbook }, new Map(), undefined, builtInFormulaFunctions,
     (content, sheetId) => analyzeStoredFormula(content, workbook, sheetId).result).evaluate();
 }
 
@@ -63,6 +64,7 @@ export class FormulaEvaluator {
   private readonly results: Map<string, FormulaScalarValue>;
   private readonly visiting = new Set<string>();
   private readonly stack: { nodeId: string; sheet: CalculationSheet; key: CellKey }[] = [];
+  private readonly custom: CustomFunctionEvaluator;
 
   constructor(
     private readonly workbook: CalculationProjection,
@@ -72,6 +74,7 @@ export class FormulaEvaluator {
     private readonly parse: (content: string, sheetId: string) => ReturnType<typeof parseFormula> = parseFormula,
   ) {
     this.results = new Map(initialResults);
+    this.custom = new CustomFunctionEvaluator(workbook.functionSource, (expression, sheet) => this.evaluateExpression(expression, sheet));
   }
 
   formulaResults(): Map<string, FormulaScalarValue> {
@@ -168,6 +171,7 @@ export class FormulaEvaluator {
   }
 
   private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
+    if (expression.kind === 'parameter') return this.custom.parameter(expression.name);
     if (expression.kind === 'invalid-reference') return diagnosticError('#REF!', 'Invalid reference.');
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
@@ -190,12 +194,14 @@ export class FormulaEvaluator {
       return this.evaluateBinary(expression, currentSheet);
     }
     if (expression.kind === 'function') {
+      if (!this.functions.has(expression.functionName.toUpperCase())) return this.custom.call(expression, currentSheet);
       return evaluateFunctionCall(
         expression,
         {
           evaluateExpression: (argument) => this.evaluateExpression(argument, currentSheet),
+          resolveSyntax: (argument) => this.custom.resolveSyntax(argument),
           evaluateReferenceArgument: (argument) =>
-            this.evaluateFunctionReferenceArgument(argument, currentSheet),
+            this.custom.reference(argument, currentSheet, (reference, sheet) => this.evaluateFunctionReferenceArgument(reference, sheet)),
         },
         this.functions,
       );
@@ -361,7 +367,7 @@ export class FormulaEvaluator {
       return { kind: 'blank' };
     }
     return cell.startsWith('=')
-      ? this.evaluateFormulaCell(sheet, key)
+      ? this.custom.evaluateCell(() => this.evaluateFormulaCell(sheet, key))
       : this.evaluateLiteralCell(sheet, key);
   }
 

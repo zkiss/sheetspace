@@ -484,7 +484,7 @@ describe('calculated row persistence', () => {
     act(() => { result.current.commands.bindSheetToModel('sheet', 'model'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
 
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
     expect(api.writeCells).not.toHaveBeenCalled();
     const persisted = await api.loadWorkbook();
     expect(projectStoredFormula(persisted.documents.sheet!.modelFormulaBindings!.output.content, persisted, 'sheet').text).toBe('=SUM(@A[1])');

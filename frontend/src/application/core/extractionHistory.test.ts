@@ -24,6 +24,74 @@ function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
 }
 
 describe('extraction history', () => {
+  it.each([false, true])('accounts for the exact UTF-8 capacity boundary (online: %s)', (online) => {
+    const { before, after } = extraction('cells');
+    before.documents.source!.content.cells.padding = 'é';
+    const sample = new ContentHistory();
+    expect(sample.recordExtraction(before, after, online ? ids[5] : undefined).ok).toBe(true);
+    const initialBytes = sample.peekUndo()!.bytes;
+    before.documents.source!.content.cells.padding += 'x'.repeat(EXTRACTION_HISTORY_MAX_BYTES - initialBytes - (String(EXTRACTION_HISTORY_MAX_BYTES).length - String(initialBytes).length));
+    const history = new ContentHistory();
+    const prepared = history.prepareExtraction(before, after, online);
+    expect(prepared).toBeDefined();
+    prepared!(online ? ids[5] : undefined);
+    const entry = history.peekUndo()!;
+    expect(entry.bytes).toBe(EXTRACTION_HISTORY_MAX_BYTES);
+    expect(entry.bytes).toBe(new TextEncoder().encode(JSON.stringify(entry)).byteLength);
+    before.documents.source!.content.cells.padding += 'x';
+    expect(new ContentHistory().prepareExtraction(before, after, online)).toBeUndefined();
+  });
+  it('preflights the complete UTF-8 representation and retains immutable bounded entries', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    const prepare = history.prepareExtraction(before, after, true)!;
+    before.documents.source!.name = 'changed after preparation';
+    expect(() => prepare('x'.repeat(37))).toThrow('Invalid extraction transition identity');
+    prepare(ids[5]);
+    prepare(ids[5]);
+    const entry = history.peekUndo()!;
+    expect(entry.snapshots!.before.documents.source!.name).toBe('Source');
+    expect(entry.transitionId).toBe(ids[5]);
+    expect(entry.bytes).toBe(new TextEncoder().encode(JSON.stringify(entry)).byteLength);
+    expect(entry).not.toHaveProperty('extractionAfter');
+    history.commitUndo();
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(true);
+    expect(history.commitGuarded('redo', entry.identity + 1)).toBe(false);
+    expect(history.commitGuarded('redo', entry.identity)).toBe(true);
+  });
+
+  it('rejects metadata overflow at the byte boundary without consuming redo', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after);
+    history.commitUndo();
+    const baseline = new ContentHistory();
+    baseline.recordExtraction(before, after, ids[5]);
+    const bytes = baseline.peekUndo()!.bytes;
+    before.documents.source!.content.cells.padding = 'é' + 'x'.repeat(EXTRACTION_HISTORY_MAX_BYTES - bytes - 21);
+    const exact = new ContentHistory();
+    expect(exact.recordExtraction(before, after, ids[5]).ok).toBe(true);
+    expect(exact.peekUndo()!.bytes).toBeLessThanOrEqual(EXTRACTION_HISTORY_MAX_BYTES);
+    before.documents.source!.content.cells.padding += 'x'.repeat(EXTRACTION_HISTORY_MAX_BYTES - exact.peekUndo()!.bytes + 1);
+    expect(new TextEncoder().encode(JSON.stringify({ before, after })).byteLength).toBeLessThan(EXTRACTION_HISTORY_MAX_BYTES);
+    expect(history.prepareExtraction(before, after, true)).toBeUndefined();
+    expect(history.canRedo).toBe(true);
+  });
+
+  it('retains authority with its extraction through undo and redo and rejects missing authority when required', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const undo = prepareExtractionReplay(after, history.peekUndo()!, 'undo', true);
+    expect(undo.ok && undo.persistence).toMatchObject({ replay: { transitionId: ids[5], direction: 'undo' } });
+    if (!undo.ok) throw new Error(undo.reason);
+    history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo', true);
+    expect(redo.ok && redo.persistence).toMatchObject({ replay: { transitionId: ids[5], direction: 'redo' } });
+    history.recordExtraction(before, after);
+    expect(prepareExtractionReplay(after, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'missing-extraction-authority' });
+  });
   it('replays retargeted ordinary formulas on model sheets while protecting calculated cells', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
     const model = sheetDocument({ id: 'modelSheet', name: 'ModelSheet', rowCount: 1, columnCount: 2 });
@@ -46,6 +114,23 @@ describe('extraction history', () => {
     expect(redo.ok && redo.workbook).toEqual(result.workbook);
     const changed = structuredClone(result.workbook);
     changed.documents.modelSheet!.content.cells[cellIdentityKey(cellIdentityAt(model.content, 'A1')!)] = '=2';
+    history.recordExtraction(before, changed);
+    expect(prepareExtractionReplay(changed, history.peekUndo()!, 'undo')).toEqual({ ok: false, reason: 'protected-model' });
+  });
+
+  it('permits model-bound row ordering while rejecting structural row changes', () => {
+    const { before, after } = extraction('cells');
+    const model = sheetDocument({ id: 'modelSheet', name: 'Model', rowCount: 2, columnCount: 1 });
+    model.modelId = 'model';
+    model.sorting = [{ columnId: model.content.columns[0]!, direction: 'ascending' }];
+    before.documents.modelSheet = structuredClone(model);
+    after.documents.modelSheet = structuredClone(model);
+    after.documents.modelSheet.content.rows.reverse();
+    const history = new ContentHistory();
+    history.recordExtraction(before, after);
+    expect(prepareExtractionReplay(after, history.peekUndo()!, 'undo').ok).toBe(true);
+    const changed = structuredClone(after);
+    changed.documents.modelSheet!.content.rows[0] = 'unexpected';
     history.recordExtraction(before, changed);
     expect(prepareExtractionReplay(changed, history.peekUndo()!, 'undo')).toEqual({ ok: false, reason: 'protected-model' });
   });
@@ -145,6 +230,36 @@ describe('extraction history', () => {
     const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo');
     expect(redo.ok).toBe(true); if (!redo.ok) return;
     expect(redo.workbook).toEqual(current);
+  });
+
+  it('preserves independently edited functions instead of replaying captured binding changes', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    before.functions = [{ name: 'F', parameters: [], body: '=1', bodyBindings: { source: '=1' as never } }];
+    after.functions = [{ name: 'F', parameters: [], body: '=1', bodyBindings: { source: '=2' as never } }];
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    current.functions = [{ name: 'F', parameters: [], body: '=3', bodyBindings: { source: '=3' as never } }, { name: 'G', parameters: [], body: '=4' }];
+
+    const undo = prepareExtractionReplay(current, history.peekUndo()!, 'undo', true);
+
+    expect(undo.ok).toBe(true); if (!undo.ok) return;
+    expect(undo.workbook.functions).toEqual(current.functions);
+    expect(undo.persistence).toMatchObject({ replay: { transitionId: ids[5], direction: 'undo' } });
+    history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo', true);
+    expect(redo.ok && redo.workbook.functions).toEqual(current.functions);
+  });
+
+  it('rejects stale extraction-owned cells despite independent function edits', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    current.functions = [{ name: 'F', parameters: [], body: '=3' }];
+    const target = current.documents[ids[0]!]!;
+    target.content.cells[cellIdentityKey(cellIdentityAt(target.content, 'A1')!)] = 'overlap';
+
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
+    expect(history.canUndo).toBe(true);
   });
 
   it('preserves live opposite-axis order, sizes and formats while reverting extraction-owned cells', () => {

@@ -119,3 +119,7 @@ function normalizeLegacyTestOverrides(sheet: SheetDocument): SheetDocument {
     visualScale: overrides.visualScale ?? sheet.frame.visualScale,
   });
 }
+
+export function creationReceipt(sheet: SheetDocument, workbook: Workbook = workbookWithSheets([])) {
+  return { sheetId: sheet.id, workbook: { ...workbook, manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds, sheet.id] }, documents: { ...workbook.documents, [sheet.id]: sheet } } };
+}

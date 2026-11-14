@@ -1,13 +1,18 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { autosaveClient, deferred } from '@test-support/apiClients';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { creationReceipt, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { tabularCellsByA1 } from '@workbook/read/queries';
 import type { Workbook } from '@workbook/core/model';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import { useWorkbookController } from './useWorkbookController';
+import { ContentHistory, EXTRACTION_HISTORY_MAX_BYTES } from '@application/core/contentHistory';
+import { declaration, manualProperty } from '@test-support/modelLifecycleFixtures';
+import { expectBoundedExtraction } from '@test-support/extractionHistoryAssertions';
+
+const receipt = (operationId: string, workbook: Workbook, alreadyCommitted = false) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted, workbook });
 
 function sameContent(left: Workbook, right: Workbook): boolean {
   const strip = (w: Workbook) => JSON.stringify({
@@ -21,9 +26,11 @@ function sameContent(left: Workbook, right: Workbook): boolean {
 /** Stands in for the backend lifecycle compare-and-swap: commits atomically, then drops the response. */
 function committingLifecycleBackend(initial: Workbook, loseResponse = true) {
   let durable = structuredClone(initial);
-  const saveModelLifecycle = vi.fn().mockImplementation((before: Workbook, after: Workbook) => {
+  const committed = new Set<string>();
+  let transition: { before: Workbook; after: Workbook } | undefined;
+  const admitModelLifecycle = vi.fn().mockImplementation((operationId: string, before: Workbook, after: Workbook) => {
     // The exact retry is accepted because current durable state already matches after.
-    if (sameContent(durable, after)) return Promise.resolve(structuredClone(durable));
+    if (committed.has(operationId)) return Promise.resolve(receipt(operationId, structuredClone(durable), true));
     if (!sameContent(durable, before)) return Promise.reject(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'));
     const sameSheetIds = durable.manifest.sheetIds.join('\0') === after.manifest.sheetIds.join('\0');
     durable = {
@@ -32,16 +39,27 @@ function committingLifecycleBackend(initial: Workbook, loseResponse = true) {
       documents: Object.fromEntries(Object.entries(after.documents).map(([id, sheet]) => [id,
         { ...sheet, revision: durable.documents[id]?.revision ?? 0 }])),
     };
-    return loseResponse ? Promise.reject(new TypeError('response lost')) : Promise.resolve(structuredClone(durable));
+    transition = { before, after };
+    committed.add(operationId);
+    return loseResponse ? Promise.reject(new TypeError('response lost')) : Promise.resolve(receipt(operationId, structuredClone(durable)));
   });
-  return { saveModelLifecycle, durable: () => durable };
+  const replayModelLifecycle = vi.fn().mockImplementation((operationId: string, _transitionId: string, direction: 'undo' | 'redo') => {
+    if (committed.has(operationId)) return Promise.resolve(receipt(operationId, structuredClone(durable), true));
+    if (!transition || !sameContent(durable, direction === 'undo' ? transition.after : transition.before))
+      return Promise.reject(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'));
+    durable = structuredClone(direction === 'undo' ? transition.before : transition.after);
+    committed.add(operationId);
+    return loseResponse ? Promise.reject(new TypeError('response lost')) : Promise.resolve(receipt(operationId, structuredClone(durable)));
+  });
+  return { admitModelLifecycle, replayModelLifecycle, durable: () => durable, setDurable: (value: Workbook) => { durable = value; } };
 }
 
-function setup(withNeighbor = false) {
+function setup(withNeighbor = false, sorted = false) {
   const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
   sheet.frame.zIndex = 1;
   const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1 });
   neighbor.frame.zIndex = 1;
+  if (sorted) neighbor.sorting = [{ columnId: neighbor.content.columns[0]!, direction: 'ascending' }];
   const cell = cellIdentityAt(sheet.content, 'A1')!;
   const request: ExtractionRequest = {
     sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
@@ -49,13 +67,19 @@ function setup(withNeighbor = false) {
     frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
   };
   const saves: Array<{ before: Workbook; after: Workbook; pending: ReturnType<typeof deferred<Workbook>> }> = [];
-  const save = vi.fn().mockImplementation((before: Workbook, after: Workbook) => {
+  const save = vi.fn().mockImplementation((operationId: string, before: Workbook, after: Workbook) => {
     const pending = deferred<Workbook>();
     saves.push({ before, after, pending });
-    return pending.promise;
+    return pending.promise.then((workbook) => receipt(operationId, workbook));
   });
-  const hook = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets(withNeighbor ? [sheet, neighbor] : [sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
-  return { ...hook, request, saves, save };
+  const replay = vi.fn().mockImplementation((operationId: string, _transitionId: string, direction: 'undo' | 'redo') => {
+    const first = saves[0]!;
+    const pending = deferred<Workbook>();
+    saves.push({ before: direction === 'undo' ? first.after : first.before, after: direction === 'undo' ? first.before : first.after, pending });
+    return pending.promise.then((workbook) => receipt(operationId, workbook));
+  });
+  const hook = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets(withNeighbor ? [sheet, neighbor] : [sheet]), apiClient: autosaveClient({ admitModelLifecycle: save, replayModelLifecycle: replay }) }));
+  return { ...hook, request, saves, save, replay };
 }
 
 async function settle(saves: ReturnType<typeof setup>['saves'], index: number, fail = false) {
@@ -67,6 +91,48 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 }
 
 describe('online extraction replay', () => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])('installs oversized CURRENT without retaining it (recovery: %s, sorted: %s)', async (recover, sorted) => {
+    const prepare = vi.spyOn(ContentHistory.prototype, 'prepareExtraction'); const { result, request, saves, save, replay } = setup(true, sorted);
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    await waitFor(() => expect(saves).toHaveLength(1));
+    expect(JSON.stringify(saves[0]!.after).length).toBeLessThan(EXTRACTION_HISTORY_MAX_BYTES);
+    if (recover) {
+      await act(async () => { saves[0]!.pending.reject(new TypeError('response lost')); await submission.completion; });
+      expect(result.current.canUndo).toBe(false);
+      act(() => result.current.commands.retryFailedSaves());
+      await waitFor(() => expect(saves).toHaveLength(2));
+      expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
+    }
+    const pending = saves[recover ? 1 : 0]!;
+    const neighbor = pending.after.documents.neighbor!;
+    const cell = cellIdentityKey(cellIdentityAt(neighbor.content, 'A1')!);
+    const independentModel = declaration([manualProperty('independent')]);
+    const authoritative = { ...pending.after, dataModels: { model: independentModel }, documents: { ...pending.after.documents, neighbor: { ...neighbor, content: { ...neighbor.content, cells: { ...neighbor.content.cells, [cell]: 'x'.repeat(EXTRACTION_HISTORY_MAX_BYTES) } } } } };
+    await act(async () => { pending.pending.resolve(authoritative); if (!recover) await submission.completion; });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    expectBoundedExtraction(prepare.mock.contexts[0] as ContentHistory, saves[0]!.before, saves[0]!.after); prepare.mockRestore(); expect(result.current.workbook.documents.neighbor!.content.cells[cell]).toHaveLength(EXTRACTION_HISTORY_MAX_BYTES);
+    const firstReplay = recover ? 2 : 1;
+    for (const [index, direction] of (['undo', 'redo', 'undo'] as const).entries()) {
+      act(() => result.current.commands[direction]());
+      expect(result.current.workbook.documents.neighbor!.content.cells[cell]).toHaveLength(EXTRACTION_HISTORY_MAX_BYTES);
+      expect(result.current.workbook.dataModels?.model).toEqual(independentModel);
+      await waitFor(() => expect(replay).toHaveBeenCalledTimes(index + 1));
+      expect(replay.mock.calls[index]![1]).toBe('dd36b1da-89af-4d7d-b81e-17a9c426f6e4');
+      expect(replay.mock.calls[index]![2]).toBe(direction);
+      await waitFor(() => expect(saves).toHaveLength(firstReplay + index + 1));
+      const optimistic = result.current.workbook;
+      await act(async () => { saves[firstReplay + index]!.pending.resolve(optimistic); });
+      await waitFor(() => expect(direction === 'undo' ? result.current.canRedo : result.current.canUndo).toBe(true));
+      expect(result.current.workbook.documents.neighbor!.content.cells[cell]).toHaveLength(EXTRACTION_HISTORY_MAX_BYTES);
+      expect(result.current.workbook.dataModels?.model).toEqual(independentModel);
+    }
+    expect(save).toHaveBeenCalledTimes(recover ? 2 : 1);
+    expect(new Set(replay.mock.calls.map((call) => call[0])).size).toBe(3);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+  });
+
   it('reloads atomic stacking and data after extraction, undo and redo', async () => {
     const source = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' }, zIndex: 1 });
     const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1, zIndex: 1 });
@@ -79,7 +145,7 @@ describe('online extraction replay', () => {
       frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
     };
     const server = committingLifecycleBackend(initial, false);
-    const api = autosaveClient({ saveModelLifecycle: server.saveModelLifecycle });
+    const api = autosaveClient({ admitModelLifecycle: server.admitModelLifecycle, replayModelLifecycle: server.replayModelLifecycle });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
     const reload = () => {
       const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: structuredClone(server.durable()), apiClient: api }));
@@ -98,15 +164,15 @@ describe('online extraction replay', () => {
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { submission = result.current.commands.extractSelection(request); });
     await act(async () => { expect((await submission.completion).ok).toBe(true); });
-    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(1);
-    const [before, after] = server.saveModelLifecycle.mock.calls[0]!;
+    expect(server.admitModelLifecycle).toHaveBeenCalledTimes(1);
+    const [, before, after] = server.admitModelLifecycle.mock.calls[0]!;
     expect(before.documents.neighbor.frame).toEqual(neighbor.frame);
     expectExtracted(after);
     expectExtracted(reload());
 
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.canRedo).toBe(true));
-    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(server.replayModelLifecycle).toHaveBeenCalledTimes(1);
     const undone = reload();
     expect(undone.documents[request.targetSheetId]).toBeUndefined();
     expect(undone.documents.neighbor!.frame).toEqual(neighbor.frame);
@@ -115,7 +181,7 @@ describe('online extraction replay', () => {
 
     act(() => result.current.commands.redo());
     await waitFor(() => expect(result.current.canUndo).toBe(true));
-    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(3);
+    expect(server.replayModelLifecycle).toHaveBeenCalledTimes(2);
     expectExtracted(reload());
     expect(api.updateSheetZOrder).not.toHaveBeenCalled();
   });
@@ -146,11 +212,16 @@ describe('online extraction replay', () => {
     const write = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const saves: Array<{ after: Workbook; pending: ReturnType<typeof deferred<Workbook>> }> = [];
     const api = autosaveClient({
+      replayModelLifecycle: vi.fn().mockImplementation((operationId: string) => {
+        const pending = deferred<Workbook>();
+        saves.push({ after: workbookWithSheets([sheet]), pending });
+        return pending.promise.then((workbook) => receipt(operationId, workbook));
+      }),
       writeCells: vi.fn().mockReturnValueOnce(write.promise),
-      saveModelLifecycle: vi.fn().mockImplementation((_before: Workbook, after: Workbook) => {
+      admitModelLifecycle: vi.fn().mockImplementation((operationId: string, _before: Workbook, after: Workbook) => {
         const pending = deferred<Workbook>();
         saves.push({ after, pending });
-        return pending.promise;
+        return pending.promise.then((workbook) => receipt(operationId, workbook));
       }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
@@ -159,7 +230,7 @@ describe('online extraction replay', () => {
       result.current.commands.updateCellContent('s', 'A1', '1');
       submission = result.current.commands.extractSelection(request);
     });
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     await act(async () => write.resolve({ sheets: [{ sheetId: 's', revision: 7 }] }));
     await waitFor(() => expect(saves).toHaveLength(1));
     await act(async () => { saves[0]!.pending.resolve(saves[0]!.after); await submission.completion; });
@@ -184,7 +255,7 @@ describe('online extraction replay', () => {
     const save = deferred<Workbook>();
     const api = autosaveClient({
       writeCells: vi.fn().mockReturnValueOnce(write.promise).mockResolvedValue({ sheets: [{ sheetId: 's', revision: 8 }] }),
-      saveModelLifecycle: vi.fn().mockReturnValueOnce(save.promise).mockImplementation(async (_before: Workbook, after: Workbook) => ({
+      admitModelLifecycle: vi.fn().mockImplementationOnce(async (operationId: string, _before: Workbook, _after: Workbook) => { void _before; void _after; return receipt(operationId, await save.promise); }).mockImplementation(async (operationId: string, _before: Workbook, after: Workbook) => receipt(operationId, {
         ...after,
         documents: Object.fromEntries(Object.entries(after.documents).map(([id, sheet]) => [id,
           { ...sheet, revision: _before.documents[id] ? 7 : 0 }])),
@@ -199,9 +270,9 @@ describe('online extraction replay', () => {
       expect(result.current.commands.updateCellContent('s', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
       result.current.commands.undo();
     });
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     await act(async () => write.resolve({ sheets: [{ sheetId: 's', revision: 7 }] }));
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledOnce());
     await act(async () => { save.reject(new Error('offline')); await submission.completion; });
     expect(result.current.workbook.documents.s!.revision).toBe(7);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
@@ -211,9 +282,9 @@ describe('online extraction replay', () => {
     expect(result.current.commands.updateCellContent('s', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
     expect(api.writeCells).toHaveBeenCalledTimes(1);
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![1]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![1]);
+    await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![0]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![0]);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![1]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![1]);
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
     act(() => result.current.commands.updateCellContent('s', 'A1', '2'));
     await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
@@ -221,7 +292,7 @@ describe('online extraction replay', () => {
   });
 
   it('persists forward, inverse and redo atomically with stable identity and frame', async () => {
-    const { result, request, saves, save } = setup();
+    const { result, request, saves, save, replay } = setup();
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { submission = result.current.commands.extractSelection(request); });
     expect(submission.result).toMatchObject({ ok: true, targetSheetId: request.targetSheetId, origin: { row: 0, column: 0 }, extents: { rowCount: 1, columnCount: 1 } });
@@ -240,7 +311,8 @@ describe('online extraction replay', () => {
     await settle(saves, 2);
     expect(result.current.canUndo).toBe(true);
     expect(saves[2]!.after.documents['00000000-0000-0000-0000-000000000001']!.frame).toMatchObject({ ...request.frame, zIndex: 1 });
-    expect(save).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(replay).toHaveBeenCalledTimes(2);
   });
 
   it('holds sheet and axis creation behind extraction settlement', async () => {
@@ -253,8 +325,8 @@ describe('online extraction replay', () => {
     };
     const save = deferred<Workbook>();
     const api = autosaveClient({
-      saveModelLifecycle: () => save.promise,
-      createSheet: vi.fn().mockResolvedValue(sheetDocument({ id: 'new', name: 'New' })),
+      admitModelLifecycle: async (operationId: string) => receipt(operationId, await save.promise),
+      createSheet: vi.fn().mockImplementation(async () => creationReceipt(sheetDocument({ id: 'new', name: 'New', zIndex: 2 }), result.current.commands.currentWorkbook())),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
@@ -316,11 +388,11 @@ describe('online extraction replay', () => {
       frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
     };
     const server = committingLifecycleBackend(workbookWithSheets([sheet]));
-    const api = autosaveClient({ saveModelLifecycle: server.saveModelLifecycle });
+    const api = autosaveClient({ admitModelLifecycle: server.admitModelLifecycle, replayModelLifecycle: server.replayModelLifecycle });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { submission = result.current.commands.extractSelection(request); });
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(server.admitModelLifecycle).toHaveBeenCalledTimes(1));
     await act(async () => { await submission.completion; });
     // The server committed atomically before its response was lost.
     expect(server.durable().documents[request.targetSheetId]).toBeDefined();
@@ -329,10 +401,13 @@ describe('online extraction replay', () => {
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
     expect(result.current.commands.updateCellContent('s', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
+    server.setDurable({ ...server.durable(), manifest: { ...server.durable().manifest, revision: 87 } });
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(server.admitModelLifecycle).toHaveBeenCalledTimes(2));
+    expect(server.admitModelLifecycle.mock.calls[1]).toEqual(server.admitModelLifecycle.mock.calls[0]);
     // The exact retry recognizes the already-committed snapshot.
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
+    expect(result.current.workbook.manifest.revision).toBe(87);
     expect(result.current.workbook.documents[request.targetSheetId]!.revision)
       .toBe(server.durable().documents[request.targetSheetId]!.revision);
     expect(result.current.canUndo).toBe(true);
@@ -340,15 +415,18 @@ describe('online extraction replay', () => {
     expect(result.current.extractionReplayFailure).toBeUndefined();
     // The inverse replay also commits atomically with its response lost.
     act(() => result.current.commands.undo());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(1));
     expect(server.durable().documents[request.targetSheetId]).toBeUndefined();
     await waitFor(() => expect(result.current.extractionReplayFailure).toBe('persistence-failed'));
     expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
+    server.setDurable({ ...server.durable(), manifest: { ...server.durable().manifest, revision: 88 } });
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(2));
+    expect(server.replayModelLifecycle.mock.calls[1]).toEqual(server.replayModelLifecycle.mock.calls[0]);
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined());
+    expect(result.current.workbook.manifest.revision).toBe(88);
     expect(result.current.extractionReplayFailure).toBeUndefined();
     expect(result.current.canRedo).toBe(true);
     expect(result.current.canUndo).toBe(false);
@@ -364,38 +442,39 @@ describe('online extraction replay', () => {
       frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
     };
     const server = committingLifecycleBackend(workbookWithSheets([sheet]));
-    const api = autosaveClient({ saveModelLifecycle: server.saveModelLifecycle });
+    const api = autosaveClient({ admitModelLifecycle: server.admitModelLifecycle, replayModelLifecycle: server.replayModelLifecycle });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
     act(() => { result.current.commands.extractSelection(request); });
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(server.admitModelLifecycle).toHaveBeenCalledTimes(1));
     act(() => result.current.commands.retryFailedSaves());
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
     // The inverse replay commits atomically; the response is lost.
     act(() => result.current.commands.undo());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(1));
     expect(server.durable().documents[request.targetSheetId]).toBeUndefined();
     await waitFor(() => expect(result.current.extractionReplayFailure).toBe('persistence-failed'));
     expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
     act(() => result.current.commands.undo());
-    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(3);
+    expect(server.replayModelLifecycle).toHaveBeenCalledTimes(1);
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(2));
+    expect(server.replayModelLifecycle.mock.calls[1]).toEqual(server.replayModelLifecycle.mock.calls[0]);
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined());
     expect(result.current.extractionReplayFailure).toBeUndefined();
     expect(result.current.canRedo).toBe(true);
     expect(result.current.canUndo).toBe(false);
     // The redo commits atomically; the response is lost.
     act(() => result.current.commands.redo());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(3));
     expect(server.durable().documents[request.targetSheetId]).toBeDefined();
     await waitFor(() => expect(result.current.extractionReplayFailure).toBe('persistence-failed'));
     expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
     act(() => result.current.commands.retryFailedSaves());
-    await waitFor(() => expect(server.saveModelLifecycle).toHaveBeenCalledTimes(6));
+    await waitFor(() => expect(server.replayModelLifecycle).toHaveBeenCalledTimes(4));
     await waitFor(() => expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined());
     expect(result.current.extractionReplayFailure).toBeUndefined();
     expect(result.current.canUndo).toBe(true);
@@ -413,5 +492,40 @@ describe('online extraction replay', () => {
     expect(result.current.canUndo).toBe(true);
     expect(result.current.workbook.documents['00000000-0000-0000-0000-000000000001']!.frame.position).toEqual({ x: 99, y: 99 });
     expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not consume extraction history or admit a replacement when replay conflicts', async () => {
+    const { result, request, saves, save, replay } = setup();
+    act(() => { result.current.commands.extractSelection(request); });
+    await settle(saves, 0);
+    replay.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'));
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.extractionReplayFailure).toBeDefined());
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(replay).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['missing', 'malformed'])('does not record extraction for a %s admission receipt', async (kind) => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
+    const cell = cellIdentityAt(sheet.content, 'A1')!;
+    const admit = vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) =>
+      kind === 'missing' ? undefined : { ...receipt(id, after), transitionId: 'invalid' });
+    const replay = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ admitModelLifecycle: admit, replayModelLifecycle: replay }) }));
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection({
+      sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
+      targetSheetId: '00000000-0000-0000-0000-000000000001', targetName: 'Target',
+      targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'],
+      frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
+    }); });
+    await act(async () => { expect((await submission.completion).ok).toBe(false); });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.workbook.documents['00000000-0000-0000-0000-000000000001']).toBeUndefined();
+    expect(replay).not.toHaveBeenCalled();
   });
 });

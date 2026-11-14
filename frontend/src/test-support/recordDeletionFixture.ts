@@ -35,9 +35,9 @@ export function deletionFixture(sorting = false, prepared?: Workbook) {
   };
   api.loadWorkbook.mockImplementation(async () => current);
   api.loadSheet.mockImplementation(async (id) => current.documents[id]!);
-  api.saveModelLifecycle.mockImplementation(async (before: Workbook, after: Workbook) => {
+  api.admitModelLifecycle.mockImplementation(async (operationId: string, before: Workbook, after: Workbook) => {
     expect(before).toEqual(current);
-    return adopt(structuredClone(after));
+    return { operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook: adopt(structuredClone(after)) };
   });
   api.writeCells.mockImplementation(async (expected: Parameters<WorkbookApi['writeCells']>[0], writes: Parameters<WorkbookApi['writeCells']>[1]) => {
     for (const { sheetId, revision: expectedRevision } of expected) expect(current.documents[sheetId]!.revision).toBe(expectedRevision);

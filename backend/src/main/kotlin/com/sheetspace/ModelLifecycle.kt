@@ -5,26 +5,38 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 
 /** Compare complete semantic snapshots so stale structural writes cannot erase concurrent edits. */
-internal fun reconcileModelLifecycle(current: WorkbookState, before: WorkbookState, after: WorkbookState): WorkbookState {
-    return reconcileModelLifecycle(current, before, after, ::validateLifecycleWorkbook)
+internal fun reconcileModelLifecycle(current: WorkbookState, before: WorkbookState, after: WorkbookState, admission: FunctionAdmission = SharedFunctionAdmission): WorkbookState {
+    return reconcileModelLifecycle(current, before, after, admission, ::validateLifecycleWorkbook)
 }
 
 internal fun reconcileModelLifecycle(
     current: WorkbookState,
     before: WorkbookState,
     after: WorkbookState,
+    admission: FunctionAdmission = SharedFunctionAdmission,
     validate: (WorkbookState) -> Unit,
 ): WorkbookState {
     validate(before)
     validate(after)
-    if (sameWorkbookContent(current, after)) return current
+    requireLifecycle(before.functions == after.functions)
     if (!sameWorkbookContent(current, before)) {
         throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)
     }
-    return after.copy(
+    val reconciled = reconcileFunctionMembership(current, after, admission)
+    return reconciled.copy(
         manifest = after.manifest.copy(revision = current.manifest.revision + if (current.manifest.sheetIds == after.manifest.sheetIds) 0 else 1),
         documents = after.documents.mapValues { (id, sheet) -> sheet.copy(revision = current.documents[id]?.revision ?: 0) },
     )
+}
+
+private fun reconcileFunctionMembership(before: WorkbookState, after: WorkbookState, admission: FunctionAdmission): WorkbookState {
+    val removedIds = (before.documents.keys - after.documents.keys).map { it.value }.toSet()
+    val addedIds = after.documents.keys - before.documents.keys
+    var reconciled = after.copy(functions = before.functions.map { it.copy(bodyBindings = it.bodyBindings - removedIds) })
+    if (reconciled.functions.isNotEmpty()) {
+        addedIds.forEach { id -> reconciled = reconciled.copy(functions = admission.bindSheet(reconciled, id)) }
+    }
+    return reconciled
 }
 
 internal fun sameWorkbookContent(left: WorkbookState, right: WorkbookState): Boolean =

@@ -9,6 +9,7 @@ import { instantiateModelFormula } from '@workbook/formula/modelTemplate';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type SheetDocument, type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import { replayDelta, semantic } from '@application/core/extractionHistory';
 import { sheetDocument, workbookWithSheets } from './workbookFactories';
 
 export function deferred<T>() {
@@ -52,6 +53,9 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
 export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
   let persistedWorkbook = initialWorkbook;
   let nextSheetId = sheetsInOrder(initialWorkbook).length + 1;
+  let nextTransitionId = 1;
+  const receipts = new Map<string, string>();
+  const transitions = new Map<string, { before: Workbook; after: Workbook }>();
 
   const updateSheet = (sheetId: string, update: (sheet: SheetDocument) => SheetDocument) => {
     const sheet = findSheetById(persistedWorkbook, sheetId);
@@ -92,8 +96,8 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         visualScale: sheet.visualScale,
         zIndex: sheet.zIndex ?? Math.max(0, ...existingSheets.map((existing) => existing.frame.zIndex)) + 1,
       });
-      persistedWorkbook = workbookWithSheets([...existingSheets, created]);
-      return created;
+      persistedWorkbook = { ...persistedWorkbook, manifest: { ...persistedWorkbook.manifest, sheetIds: [...persistedWorkbook.manifest.sheetIds, created.id] }, documents: { ...persistedWorkbook.documents, [created.id]: created } };
+      return { sheetId: created.id, workbook: persistedWorkbook };
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       if (!findSheetById(persistedWorkbook, sheetId)) throw new Error('sheet-not-found');
@@ -201,6 +205,28 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       };
       return model;
     }),
+    admitModelLifecycle: vi.fn().mockImplementation(async (operationId: string, before: Workbook, after: Workbook) => {
+      const existing = receipts.get(operationId);
+      if (existing) return { operationId, transitionId: existing, alreadyCommitted: true, workbook: structuredClone(persistedWorkbook) };
+      const transitionId = deterministicSheetId(nextTransitionId++);
+      receipts.set(operationId, transitionId);
+      transitions.set(transitionId, { before: structuredClone(before), after: structuredClone(after) });
+      persistedWorkbook = structuredClone(after);
+      return { operationId, transitionId, alreadyCommitted: false, workbook: structuredClone(persistedWorkbook) };
+    }),
+    replayModelLifecycle: vi.fn().mockImplementation(async (operationId: string, transitionId: string, direction: 'undo' | 'redo') => {
+      const existing = receipts.get(operationId);
+      if (existing) return { operationId, transitionId: existing, alreadyCommitted: true, workbook: structuredClone(persistedWorkbook) };
+      const transition = transitions.get(transitionId);
+      if (!transition) throw new Error('Unknown lifecycle transition');
+      const expected = direction === 'undo' ? transition.after : transition.before;
+      const target = direction === 'undo' ? transition.before : transition.after;
+      const replay = replayDelta(semantic(persistedWorkbook), semantic(expected), semantic(target));
+      if (!replay.ok) throw new Error('Stale lifecycle transition');
+      persistedWorkbook = replay.value as Workbook;
+      receipts.set(operationId, transitionId);
+      return { operationId, transitionId, alreadyCommitted: false, workbook: structuredClone(persistedWorkbook) };
+    }),
     setSheetModel: vi.fn().mockImplementation(async (sheetId: string, modelId?: string) => {
       updateSheet(sheetId, (sheet) => {
         const { modelId: previousModelId, ...withoutModel } = sheet;
@@ -209,6 +235,8 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       });
       return findSheetById(persistedWorkbook, sheetId)!;
     }),
+    setFunction: vi.fn(),
+    deleteFunction: vi.fn(),
   } satisfies WorkbookApi;
 }
 

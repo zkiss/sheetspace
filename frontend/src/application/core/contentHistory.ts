@@ -13,6 +13,7 @@ export type ContentTransaction = {
   affected: AffectedWorkbookEntities;
   bytes: number;
   snapshots?: { before: Workbook; after: Workbook };
+  transitionId?: string;
   order?: { sheetId: string; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] };
   record?: { sheetId: string; rowId: string; deletionId?: string };
   localRecord?: LocalRecordDelta;
@@ -33,6 +34,7 @@ function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
     },
     bytes: transaction.bytes,
     ...(transaction.snapshots && { snapshots: structuredClone(transaction.snapshots) }),
+    ...(transaction.transitionId && { transitionId: transaction.transitionId }),
     ...(transaction.order && { order: structuredClone(transaction.order) }),
     ...(transaction.record && { record: { ...transaction.record } }),
     ...(transaction.localRecord && { localRecord: structuredClone(transaction.localRecord) }),
@@ -67,19 +69,44 @@ export class ContentHistory {
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
     this.trimUndo();
   }
-  /** Check before applying an extraction; serialize edits until it is recorded. */
-  canRecordExtraction(before: Workbook, after: Workbook) {
-    return extractionBytes(before, after) + this.identityBytes() <= EXTRACTION_HISTORY_MAX_BYTES;
-  }
-  recordExtraction(before: Workbook, after: Workbook) {
-    const bytes = extractionBytes(before, after) + this.identityBytes();
-    if (bytes > EXTRACTION_HISTORY_MAX_BYTES) return { ok: false, reason: 'extraction-history-too-large' } as const;
+  /** Prepare the exact bounded replay entry before dispatch; preparation leaves stacks unchanged. */
+  prepareExtraction(before: Workbook, after: Workbook, requireAuthority = false) {
     const transaction: ContentTransaction = {
-      identity: this.nextIdentity++, kind: 'extraction', writes: [], affected: { sheetIds: [...new Set([...before.manifest.sheetIds, ...after.manifest.sheetIds])], cells: [] },
-      bytes, snapshots: structuredClone({ before, after }),
+      identity: this.nextIdentity++, kind: 'extraction', writes: [],
+      affected: { sheetIds: [...new Set([...before.manifest.sheetIds, ...after.manifest.sheetIds])], cells: [] },
+      bytes: 0, snapshots: structuredClone({ before, after }),
+      ...(requireAuthority && { transitionId: '00000000-0000-0000-0000-000000000000' }),
     };
-    this.clearRedo();
-    this.pushUndo(transaction);
+    // Account for the serialized byte count itself as well as reserved authority metadata.
+    const updateBytes = () => {
+      let previous: number;
+      do {
+        previous = transaction.bytes;
+        transaction.bytes = new TextEncoder().encode(JSON.stringify(transaction)).byteLength;
+      } while (transaction.bytes !== previous);
+    };
+    updateBytes();
+    if (transaction.bytes > EXTRACTION_HISTORY_MAX_BYTES) return undefined;
+    let recorded = false;
+    return (transitionId?: string) => {
+      if (recorded) return;
+      if (requireAuthority ? !transitionId || new TextEncoder().encode(JSON.stringify(transitionId)).byteLength > 38 : !!transitionId) throw new Error('Invalid extraction transition identity');
+      recorded = true;
+      if (transitionId) { transaction.transitionId = transitionId; updateBytes(); }
+      this.clearRedo();
+      this.pushUndo(transaction);
+    };
+  }
+  canRecordExtraction(before: Workbook, after: Workbook) {
+    const identity = this.nextIdentity;
+    const prepared = this.prepareExtraction(before, after);
+    this.nextIdentity = identity;
+    return !!prepared;
+  }
+  recordExtraction(before: Workbook, after: Workbook, transitionId?: string) {
+    const prepared = this.prepareExtraction(before, after, !!transitionId);
+    if (!prepared) return { ok: false, reason: 'extraction-history-too-large' } as const;
+    prepared(transitionId);
     return { ok: true } as const;
   }
   canRecordSemantic(before: Workbook, after: Workbook) {
@@ -111,7 +138,8 @@ export class ContentHistory {
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
 
   commitGuarded(direction: 'undo' | 'redo', identity: number) {
-    const current = direction === 'undo' ? this.peekUndo() : this.peekRedo();
+    const stack = direction === 'undo' ? this.undoStack : this.redoStack;
+    const current = stack[stack.length - 1];
     if (!current || current.identity !== identity) return false;
     if (direction === 'undo') this.commitUndo(); else this.commitRedo();
     return true;
@@ -123,7 +151,7 @@ export class ContentHistory {
   private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; }
   private trimUndo() {
     const bytesFor = (kind: ContentTransaction['kind']) => this.undoStack.reduce((sum, entry) => sum + (entry.kind === kind ? entry.bytes : 0), 0);
-    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') + bytesFor('model-record') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') + bytesFor('semantic') > EXTRACTION_HISTORY_MAX_BYTES) {
+    while (this.undoStack.length > 0 && (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') + bytesFor('axis-order') + bytesFor('model-record') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') + bytesFor('semantic') > EXTRACTION_HISTORY_MAX_BYTES)) {
       const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes;
     }
   }

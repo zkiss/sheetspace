@@ -12,7 +12,7 @@ class WorkbookErrorMappingRoutesTest {
     @Test
     fun `command validation errors map to stable client codes`() = testWorkbookApplication { application ->
         val first = client.createSheet()
-        val second = client.post("/api/sheets") { jsonBody("""{"name":"Second"}""") }.decodeBody<SheetDocumentResponse>()
+        val second = client.post("/api/sheets") { jsonBody("""{"name":"Second"}""") }.decodeBody<SheetCreationResponse>().createdDocument()
         fun HttpRequestBuilder.patchCells(body: String) = jsonBody(body)
         val cases = listOf(
             client.post("/api/sheets") { jsonBody("""{"name":"Inputs"}""") } to "sheet-name-duplicate",

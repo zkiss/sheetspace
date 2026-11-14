@@ -14,6 +14,7 @@ import {
 import type { Workbook } from '@workbook/core/model';
 import { resolveRowReference } from './rowReference';
 import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
+import { functionReferences } from './functionReferences';
 
 type FormulaParser = (content: string, sheetId: string) => ReturnType<typeof parseFormula>;
 
@@ -131,7 +132,7 @@ function formulaDependencies(
   currentSheet: CalculationSheet,
 ): Set<string> {
   const dependencies = new Set<string>();
-  for (const reference of collectFormulaReferences(expression)) {
+  for (const reference of functionReferences(expression, projection.functionSource, currentSheet.id)) {
     for (const dependency of referenceDependencies(reference, projection, currentSheet)) {
       dependencies.add(dependency);
     }

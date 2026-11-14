@@ -1,4 +1,5 @@
 import type { ModelFormulaBindings } from './modelFormula';
+import type { StoredFormulaContent } from './storedFormulaContent';
 
 export const WORKBOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_SHEET_FRAME_SIZE: SheetFrameSize = { width: 240, height: 160 };
@@ -20,7 +21,9 @@ export type WorkbookManifest = { version: typeof WORKBOOK_SCHEMA_VERSION; revisi
 export type ModelColumnType = 'string' | 'int' | 'float' | 'boolean';
 export type ModelColumn = { id: string; name: string; kind: 'manual'; type: ModelColumnType; formula?: never } | { id: string; name: string; kind: 'calculated'; type: ModelColumnType; formula: string };
 export type DataModel = { id: string; name: string; columns: readonly ModelColumn[] };
-export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument>; dataModels?: Readonly<Record<string, DataModel>> };
+export type CustomFunctionParameter = { name: string; type: ModelColumnType };
+export type CustomFunction = { name: string; parameters: readonly CustomFunctionParameter[]; body: string; bodyBindings?: Readonly<Record<SheetId, StoredFormulaContent>>; identity?: string };
+export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument>; dataModels?: Readonly<Record<string, DataModel>>; functions?: readonly CustomFunction[] };
 /** Stable declaration-to-grid association. It is deliberately keyed by model property ID, never name or position. */
 export type SortCriterion = { columnId: ColumnId; direction: 'ascending' | 'descending' };
 export type SheetDocument = { sorting?: readonly SortCriterion[]; id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; columnNames?: Readonly<Record<ColumnId, string>>; modelId?: string; modelColumnBindings?: Readonly<Record<string, ColumnId>>; modelFormulaBindings?: ModelFormulaBindings };

@@ -12,10 +12,10 @@ class SheetZOrderRoutesTest {
         testWorkbookApplication {
             val inputs = client.post("/api/sheets") {
                 jsonBody("""{"name":"Inputs"}""")
-            }.decodeBody<SheetDocumentResponse>()
+            }.decodeBody<SheetCreationResponse>().createdDocument()
             val outputs = client.post("/api/sheets") {
                 jsonBody("""{"name":"Outputs"}""")
-            }.decodeBody<SheetDocumentResponse>()
+            }.decodeBody<SheetCreationResponse>().createdDocument()
 
             val response = client.patch("/api/workbook/sheet-z-order") {
                 jsonBody(

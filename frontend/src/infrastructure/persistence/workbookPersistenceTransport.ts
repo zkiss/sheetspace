@@ -4,6 +4,7 @@ import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@applicatio
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import { type OutboxEntry, type PersistenceTransport, type TransportResult } from './workbookOutbox';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
+import { validLifecycleWorkbook } from './lifecycleWorkbookValidation';
 
 /** Concrete HTTP adapter for the framework-independent outbox state machine. */
 export class WorkbookPersistenceTransport implements PersistenceTransport {
@@ -46,7 +47,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
 
   private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
     // A structural snapshot is a compare-and-swap, never a revision-only replay.
-    if (intent.kind === 'model-lifecycle') return this.request(intent);
+    if (intent.kind === 'model-lifecycle') return this.requestLifecycle(operationId, intent);
     if (intent.kind === 'write-sorting') return this.writeSorting(operationId, intent);
     if (intent.kind === 'write-axis-order') return this.writeAxisOrder(operationId, intent);
     if (intent.kind === 'write-cells' && operationId !== undefined && this.unsafeCellWriteFailures.has(operationId)) {
@@ -202,15 +203,25 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       catch (reloadFailure) { if (isMissingSheet(reloadFailure)) return { kind: 'missing' as const, sheetId }; throw reloadFailure; }
     }));
   }
+  private async requestLifecycle(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'model-lifecycle' }>): Promise<TransportResult> {
+    if (!operationId) return { kind: 'blocked', reason: 'Missing operation ID for a model transition.' };
+    const receipt = intent.replay
+      ? await this.method('replayModelLifecycle')(operationId, intent.replay.transitionId, intent.replay.direction)
+      : await this.method('admitModelLifecycle')(operationId, intent.before, intent.after);
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!receipt || receipt.operationId !== operationId || !uuid.test(receipt.transitionId)
+      || (intent.replay && receipt.transitionId !== intent.replay.transitionId)
+      || typeof receipt.alreadyCommitted !== 'boolean' || !validLifecycleWorkbook(receipt.workbook)) {
+      throw new Error('Invalid lifecycle receipt.');
+    }
+    const revisions = Object.values(receipt.workbook.documents).map(({ id, revision }) => ({ sheetId: id, revision }));
+    const removed = intent.before.manifest.sheetIds.filter((id) => !receipt.workbook.manifest.sheetIds.includes(id));
+    return { kind: 'saved', revisions: this.coordinator.recordSnapshot(revisions, removed), receipt };
+  }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
     if (intent.kind === 'write-sorting') throw new Error('Sorting requires guarded execution.');
     if (intent.kind === 'write-axis-order') throw new Error('Axis order requires guarded execution.');
-    if (intent.kind === 'model-lifecycle') {
-      const workbook = await this.method('saveModelLifecycle')(intent.before, intent.after);
-      const revisions = Object.values(workbook.documents).map(({ id, revision }) => ({ sheetId: id, revision }));
-      const removed = intent.before.manifest.sheetIds.filter((id) => !workbook.manifest.sheetIds.includes(id));
-      return { kind: 'saved', revisions: this.coordinator.recordSnapshot(revisions, removed) };
-    }
+    if (intent.kind === 'model-lifecycle') throw new Error('Model transitions require an operation ID.');
     if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-number-formats') return this.record(await this.method('writeNumberFormats')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {

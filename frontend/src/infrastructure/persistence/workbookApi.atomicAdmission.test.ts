@@ -18,7 +18,7 @@ describe('atomic record admission transport', () => {
 
     const result = await workbookApi.admitRecord('first', request);
 
-    expect(result).toEqual({ rowId: 'new', alreadyCommitted: true, workbook: { ...before, dataModels: {} } });
+    expect(result).toEqual({ rowId: 'new', alreadyCommitted: true, workbook: { ...before, dataModels: {}, functions: [] } });
     expect(fetch).toHaveBeenCalledWith('/api/sheets/first/records', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': '3' },
       body: JSON.stringify({ rowId: 'new', values: request.values, before: encodeWorkbookBundle(before), rowOrders: request.rowOrders }),

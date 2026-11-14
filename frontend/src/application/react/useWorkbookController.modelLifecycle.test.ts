@@ -7,8 +7,10 @@ import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cel
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { creationReceipt, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
+
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
 
 const model: DataModel = { id: 'model', name: 'Invoice', columns: [
   { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
@@ -34,19 +36,19 @@ describe('model lifecycle controller wiring', () => {
     const bound = bind(bind(initialWorkbook(), 'one'), 'two');
     const second = bound.documents.two!;
     const workbook = { ...bound, documents: { ...bound.documents, two: { ...second, content: { ...second.content, columns: [...second.content.columns, 'extra'] }, columnNames: { extra: 'Conflict' } } } };
-    const api = autosaveClient();
+    const api = autosaveClient({ admitModelLifecycle: vi.fn() });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const changed: DataModel = { ...model, columns: [...model.columns, { id: 'new', name: 'Conflict', kind: 'manual', type: 'float' }] };
 
     act(() => expect(result.current.commands.replaceModelDeclaration(changed).result).toEqual({ ok: false, reason: 'invalid-model' }));
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(result.current.workbook.dataModels?.model).toEqual(model);
   });
 
   it('persists column renames and recovers on an exact retry of an ambiguous failure', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const column = workbook.documents.one!.content.columns[0]!;
-    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (_before, after) => after) });
+    const api = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (id, _before, after) => receipt(id, after)) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     let first: ReturnType<typeof result.current.commands.renameColumn>;
     act(() => { first = result.current.commands.renameColumn('one', column, ' Revenue '); });
@@ -54,9 +56,9 @@ describe('model lifecycle controller wiring', () => {
     await waitFor(() => expect(result.current.workbook.documents.one!.columnNames).toBeUndefined());
     act(() => result.current.commands.retryFailedSaves());
     await waitFor(() => expect(result.current.workbook.documents.one!.columnNames).toEqual({ [column]: 'Revenue' }));
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![1]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![1]);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![0]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![0]);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![1]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![1]);
   });
 
   it('creates and persists an unbound model through the lifecycle boundary', async () => {
@@ -73,16 +75,16 @@ describe('model lifecycle controller wiring', () => {
     }));
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
     expect((await api.loadWorkbook()).dataModels).toEqual({ 'new-model': declaration });
   });
 
   it('rolls back rejected model declarations so retries and later declarations use the prior workbook', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const api = autosaveClient({
-      saveModelLifecycle: vi.fn()
+      admitModelLifecycle: vi.fn()
         .mockRejectedValueOnce(new Error('offline'))
-        .mockImplementation(async (_before, after) => after),
+        .mockImplementation(async (id, _before, after) => receipt(id, after)),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [
@@ -98,15 +100,15 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.commands.addDataModel(declaration).result).toEqual({ ok: false, reason: 'pending-model-transition' });
     act(() => result.current.commands.retryFailedSaves());
     await waitFor(() => expect(result.current.workbook.dataModels).toEqual({ 'new-model': declaration }));
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[1]![0]).toEqual(vi.mocked(api.admitModelLifecycle!).mock.calls[0]![0]);
   });
 
   it('keeps a failed ordinary save intact and lets a model draft retry after its prerequisite is repaired', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const api = autosaveClient({
       writeCells: vi.fn().mockRejectedValueOnce(new WorkbookApiError('offline', 500, 'offline')).mockResolvedValue({ sheets: [{ sheetId: 'one', revision: 1 }] }),
-      saveModelLifecycle: vi.fn().mockImplementation(async (_before, after) => after),
+      admitModelLifecycle: vi.fn().mockImplementation(async (id, _before, after) => receipt(id, after)),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [] };
@@ -117,7 +119,7 @@ describe('model lifecycle controller wiring', () => {
     act(() => { blocked = result.current.commands.addDataModel(declaration); });
     expect(blocked!.result).toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
     await expect(blocked!.completion).resolves.toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
 
     act(() => { result.current.commands.retryFailedSaves(); });
@@ -125,7 +127,7 @@ describe('model lifecycle controller wiring', () => {
     let retry: ReturnType<typeof result.current.commands.addDataModel>;
     act(() => { retry = result.current.commands.addDataModel(declaration); });
     await expect(retry!.completion).resolves.toMatchObject({ ok: true });
-    expect(api.saveModelLifecycle).toHaveBeenCalledOnce();
+    expect(api.admitModelLifecycle).toHaveBeenCalledOnce();
   });
 
   it('settles a queued model submission when its running ordinary predecessor fails', async () => {
@@ -133,7 +135,7 @@ describe('model lifecycle controller wiring', () => {
     const ordinarySave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const api = autosaveClient({
       writeCells: vi.fn().mockReturnValue(ordinarySave.promise),
-      saveModelLifecycle: vi.fn(),
+      admitModelLifecycle: vi.fn(),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [] };
@@ -143,22 +145,22 @@ describe('model lifecycle controller wiring', () => {
     let submission: ReturnType<typeof result.current.commands.addDataModel>;
     act(() => { submission = result.current.commands.addDataModel(declaration); });
     expect(submission!.result.ok).toBe(true);
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
 
     await act(async () => ordinarySave.reject(new Error('offline')));
     await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
     await waitFor(() => expect(result.current.workbook.dataModels).toBeUndefined());
     expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(result.current.canRetryFailedSaves).toBe(true);
   });
 
   it('restores a rejected edit before a subsequent model operation', async () => {
     const workbook = { ...workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]), dataModels: { model } };
     const api = autosaveClient({
-      saveModelLifecycle: vi.fn()
+      admitModelLifecycle: vi.fn()
         .mockRejectedValueOnce(new Error('offline'))
-        .mockImplementation(async (_before, after) => after),
+        .mockImplementation(async (id, _before, after) => receipt(id, after)),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const rejected = { ...model, name: 'Rejected name' };
@@ -175,7 +177,7 @@ describe('model lifecycle controller wiring', () => {
     let replacement: ReturnType<typeof result.current.commands.replaceModelDeclaration>;
     act(() => { replacement = result.current.commands.replaceModelDeclaration(later); });
     await expect(replacement!.completion).resolves.toMatchObject({ ok: true });
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[2]![0].dataModels).toEqual({ model: rejected });
+    expect(vi.mocked(api.admitModelLifecycle!).mock.calls[2]![1].dataModels).toEqual({ model: rejected });
     expect(result.current.workbook.dataModels).toEqual({ model: later });
   });
 
@@ -195,7 +197,7 @@ describe('model lifecycle controller wiring', () => {
     ] }));
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
     expect(result.current.formulaResults.one.A1?.display).toBe('6');
     expect(result.current.formulaResults.two.A1?.display).toBe('14');
     expect(result.current.formulaResults.dependent.A1?.display).toBe('10');
@@ -216,9 +218,9 @@ describe('model lifecycle controller wiring', () => {
     const api = autosaveClient({
       writeCells: vi.fn().mockImplementationOnce(() => { calls.push('old'); return oldSave.promise; }).mockImplementation(async () => { calls.push('new'); return { sheets: [{ sheetId: 'one', revision: 4 }] }; }),
       updateSheetPosition: vi.fn().mockImplementation(async () => { calls.push('frame'); return { sheetId: 'one', revision: 2 }; }),
-      saveModelLifecycle: vi.fn()
-        .mockImplementationOnce(() => { calls.push('atomic'); return atomicSave.promise; })
-        .mockImplementation(async (_before: Workbook, after: Workbook) => { calls.push('atomic'); return after; }),
+      admitModelLifecycle: vi.fn()
+        .mockImplementationOnce(async (id: string) => { calls.push('atomic'); return receipt(id, await atomicSave.promise); })
+        .mockImplementation(async (id: string, _before: Workbook, after: Workbook) => { calls.push('atomic'); return receipt(id, after); }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => {
@@ -233,7 +235,7 @@ describe('model lifecycle controller wiring', () => {
     expect(cellRawContent(result.current.workbook.documents.one!, 'B1')).toBe('18');
     await act(async () => oldSave.resolve({ sheets: [{ sheetId: 'one', revision: 1 }] }));
     await waitFor(() => expect(calls).toEqual(['old', 'frame', 'atomic']));
-    const snapshot = vi.mocked(api.saveModelLifecycle).mock.calls[0][1];
+    const snapshot = vi.mocked(api.admitModelLifecycle!).mock.calls[0][2];
     expect(snapshot.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
     expect(cellRawContent(snapshot.documents.one!, 'A1')).toBe('9');
     await act(async () => atomicSave.reject(new Error('offline')));
@@ -269,7 +271,7 @@ describe('model lifecycle controller wiring', () => {
   ])('returns and surfaces the pending rejection for every ordinary mutation command: %s', async (_name, submit) => {
     const save = deferred<Workbook>();
     const workbook = bind(initialWorkbook(), 'one');
-    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const api = autosaveClient({ admitModelLifecycle: async (id) => receipt(id, await save.promise) });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
 
     act(() => {
@@ -309,8 +311,8 @@ describe('model lifecycle controller wiring', () => {
   ])('restores the pre-transition workbook after a definite rejection of $name before later lifecycle work', async ({ before: createBefore, submit }) => {
     const save = vi.fn()
       .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'))
-      .mockImplementation(async (_before: Workbook, after: Workbook) => after);
-    const api = autosaveClient({ saveModelLifecycle: save });
+      .mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after));
+    const api = autosaveClient({ admitModelLifecycle: save });
     const workbook = createBefore();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
 
@@ -323,7 +325,7 @@ describe('model lifecycle controller wiring', () => {
     const laterModel: DataModel = { id: 'later', name: 'Later', columns: [] };
     act(() => { later = result.current.commands.addDataModel(laterModel); });
     await expect(later!.completion).resolves.toMatchObject({ ok: true });
-    expect(save.mock.calls[1]?.[0]).toEqual(workbook);
+    expect(save.mock.calls[1]?.[1]).toEqual(workbook);
   });
 
   it('rejects generic row appends to empty bound sheets across reload and model changes', async () => {
@@ -388,7 +390,7 @@ describe('model lifecycle controller wiring', () => {
   it('rejects lifecycle changes while an axis failure remains unresolved', async () => {
     const appendRow = vi.fn().mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce({ sheetId: 'one', revision: 2, rowCount: 3, rowId: 'server-row' });
-    const api = autosaveClient({ appendRow });
+    const api = autosaveClient({ appendRow, admitModelLifecycle: vi.fn() });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initialWorkbook(), apiClient: api }));
     act(() => result.current.commands.updateCellContent('one', 'A1', '8'));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
@@ -397,7 +399,7 @@ describe('model lifecycle controller wiring', () => {
 
     act(() => expect(result.current.commands.bindSheetToModel('one', 'model').result).toEqual({ ok: false, reason: 'pending-axis-creation' }));
     expect(result.current.canUndo).toBe(true);
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
 
     act(() => result.current.commands.appendRow('one'));
@@ -409,8 +411,8 @@ describe('model lifecycle controller wiring', () => {
     const save = deferred<Workbook>();
     const workbook = bind(initialWorkbook(), 'one');
     const api = autosaveClient({
-      saveModelLifecycle: () => save.promise,
-      createSheet: vi.fn().mockResolvedValue(sheetDocument({ id: 'new', name: 'New' })),
+      admitModelLifecycle: async (id) => receipt(id, await save.promise),
+      createSheet: vi.fn().mockImplementation(async () => creationReceipt(sheetDocument({ id: 'new', name: 'New', zIndex: 2 }), result.current.commands.currentWorkbook())),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => {
@@ -431,14 +433,14 @@ describe('model lifecycle controller wiring', () => {
   });
 
   it('rejects structural changes after a same-turn sheet creation and preserves the pending sheet', async () => {
-    const creation = deferred<ReturnType<typeof sheetDocument>>();
+    const creation = deferred<ReturnType<typeof creationReceipt>>();
     const api = autosaveClient({ createSheet: () => creation.promise });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initialWorkbook(), apiClient: api }));
     act(() => {
       result.current.commands.createSheet('New', { x: 0, y: 0 });
       expect(result.current.commands.bindSheetToModel('one', 'model').result).toEqual({ ok: false, reason: 'pending-sheet-creation' });
     });
-    await act(async () => creation.resolve(sheetDocument({ id: 'new', name: 'New' })));
+    await act(async () => creation.resolve(creationReceipt(sheetDocument({ id: 'new', name: 'New', zIndex: 2 }), result.current.workbook)));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     expect(result.current.workbook.documents.new).toBeDefined();
   });

@@ -3,8 +3,44 @@ package com.sheetspace
 class InMemoryWorkbookStore(
     initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
+    private val functionReceipts = mutableMapOf<String, Pair<String, String>>()
+
+    override fun admitFunction(request: PreparedFunctionMutation, transform: (WorkbookState) -> FunctionMutationResult): StoredFunctionMutation = synchronized(this) {
+        val receipt = functionReceipts[request.operationId]
+        if (receipt != null) {
+            if (receipt.first != request.fingerprint) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_FUNCTION)
+            StoredFunctionMutation(workbook, receipt.second, true)
+        } else {
+            val result = transform(workbook)
+            workbook = applyRevisions(workbook, result.workbook, null)
+            functionReceipts[request.operationId] = request.fingerprint to result.committedIdentity
+            StoredFunctionMutation(workbook, result.committedIdentity, false)
+        }
+    }
+    override fun replayLifecycle(replay: PreparedLifecycleReplay): StoredLifecycleAdmission = error("Use SQLite for durable lifecycle history tests")
     private var workbook = initialWorkbook
     private val admissions = mutableMapOf<Pair<SheetId, RowId>, String>()
+
+    private val retiredLifecycleSheets = mutableSetOf<SheetId>()
+    private val lifecycleReceipts = mutableMapOf<String, Pair<String, String>>()
+
+    override fun admitLifecycle(request: PreparedLifecycleAdmission, transform: (WorkbookState) -> WorkbookState): StoredLifecycleAdmission = synchronized(this) {
+        val receipt = lifecycleReceipts[request.operationId]
+        if (receipt != null) {
+            if (receipt.first != request.fingerprint) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            StoredLifecycleAdmission(workbook, receipt.second, true)
+        } else {
+            val updated = transform(workbook)
+            if ((updated.documents.keys - workbook.documents.keys).any { it in retiredLifecycleSheets }) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            }
+            retiredLifecycleSheets.addAll(workbook.documents.keys - updated.documents.keys)
+            workbook = applyRevisions(workbook, updated, null)
+            val transition = java.util.UUID.randomUUID().toString()
+            lifecycleReceipts[request.operationId] = request.fingerprint to transition
+            StoredLifecycleAdmission(workbook, transition, false)
+        }
+    }
 
     override fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission =
         error("Use SQLite for durable record history tests")
@@ -159,3 +195,9 @@ internal fun SheetDocument.cellWrite(address: String, raw: String): SheetCellWri
     val coordinate = tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
     return SheetCellWrite(id.value, coordinate.rowId.value, coordinate.columnId.value, raw)
 }
+
+fun WorkbookApplication.saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
+    saveModelLifecycle(ModelLifecycleRequest(
+        java.util.UUID.nameUUIDFromBytes((before.toString() + after.toString()).toByteArray()).toString(),
+        WorkbookReadTransportAdapter.bundle(before), WorkbookReadTransportAdapter.bundle(after),
+    )).workbook.toLifecycleWorkbook()

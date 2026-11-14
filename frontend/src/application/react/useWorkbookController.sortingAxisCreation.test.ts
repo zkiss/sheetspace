@@ -8,16 +8,18 @@ import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 it('atomically appends a blank sorted row and replays its stable identity', async () => {
   const base = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
   const sheet = { ...base, sorting: [{ columnId: base.content.columns[0]!, direction: 'descending' as const }] };
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
   act(() => result.current.commands.appendRow('s'));
   await waitFor(() => expect(result.current.canUndo).toBe(true));
   const rows = result.current.workbook.documents.s!.content.rows;
   expect(rows.slice(1)).toEqual(sheet.content.rows);
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
   expect(api.appendRow).not.toHaveBeenCalled();
   act(() => result.current.commands.undo());
   await waitFor(() => expect(result.current.canRedo).toBe(true));
@@ -31,14 +33,14 @@ it('aggregates column creation when sorting is active only on another sheet', as
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
   const workbook = workbookWithSheets([a, { ...b, sorting: [{ columnId: b.content.columns[0]!, direction: 'ascending' }] }]);
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.appendColumn('a'));
   await waitFor(() => expect(result.current.canUndo).toBe(true));
   expect(result.current.workbook.documents.a!.content.columns).toHaveLength(2);
   expect(result.current.workbook.documents.b!.content.rows).toEqual([...b.content.rows].reverse());
   expect(api.appendColumn).not.toHaveBeenCalled();
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
 });
 
 it('persists and exactly replays a row append with dependent positional sorting across reload', async () => {
@@ -54,8 +56,8 @@ it('persists and exactly replays a row append with dependent positional sorting 
   act(() => result.current.commands.appendRow('source'));
   await waitFor(() => expect(result.current.canUndo).toBe(true));
   expect(api.appendRow).not.toHaveBeenCalled();
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
-  const [before, after] = vi.mocked(api.saveModelLifecycle).mock.calls[0]!;
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
+  const [, before, after] = vi.mocked(api.admitModelLifecycle).mock.calls[0]!;
   const rows = after.documents.source!.content.rows;
   expect(before.documents.source!.content.rows).toEqual(source.content.rows);
   expect(before.documents.dependent!.content.rows).toEqual(dependent.content.rows);
@@ -78,29 +80,29 @@ it('persists and exactly replays a row append with dependent positional sorting 
   const persisted = await api.loadWorkbook();
   expect(persisted.documents.source!.content.rows).toEqual(rows);
   expect(persisted.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(3);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(3);
   unmount();
   const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: persisted, apiClient: api }));
   expect(reloaded.result.current.workbook.documents.source!.content.rows).toEqual(rows);
   expect(reloaded.result.current.workbook.documents.dependent!.content.rows).toEqual([...dependent.content.rows].reverse());
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(3);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(3);
 });
 
 it('serializes queued axis creations behind an aggregate and admits its queued successor', async () => {
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 1, columnCount: 1 });
   const workbook = workbookWithSheets([{ ...a, sorting: [{ columnId: a.content.columns[0]!, direction: 'ascending' }] }, b]);
-  const first = deferred<Workbook>();
-  const save = vi.fn().mockReturnValueOnce(first.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after);
-  const api = autosaveClient({ saveModelLifecycle: save });
+  const first = deferred<ReturnType<typeof receipt>>();
+  const save = vi.fn().mockReturnValueOnce(first.promise).mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after));
+  const api = autosaveClient({ admitModelLifecycle: save });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => { result.current.commands.appendRow('a'); result.current.commands.appendColumn('b'); });
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   expect(result.current.creatingAxes.b?.columns).toHaveLength(1);
-  const after = save.mock.calls[0]![1] as Workbook;
-  await act(async () => { first.resolve(after); });
+  const after = save.mock.calls[0]![2] as Workbook;
+  await act(async () => { first.resolve(receipt(save.mock.calls[0]![0] as string, after)); });
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  const successorBefore = save.mock.calls[1]![0] as Workbook;
+  const successorBefore = save.mock.calls[1]![1] as Workbook;
   expect(successorBefore.documents.a!.content).toEqual(after.documents.a!.content);
   expect(successorBefore.documents.a!.revision).toEqual(after.documents.a!.revision);
   await waitFor(() => expect(result.current.creatingAxes).toEqual({}));
@@ -112,7 +114,7 @@ it('rolls back both the appended axis and induced ordering on definite rejection
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
   const workbook = workbookWithSheets([a, { ...b, sorting: [{ columnId: b.content.columns[0]!, direction: 'ascending' }] }]);
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new WorkbookApiError('rejected', 400)) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValue(new WorkbookApiError('rejected', 400)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.appendRow('a'));
   await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
@@ -126,26 +128,26 @@ it('rolls back a rejected aggregate before admitting its already queued same-she
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
   const workbook = workbookWithSheets([a, { ...b, sorting: [{ columnId: b.content.columns[0]!, direction: 'ascending' }] }]);
   const api = persistedWorkbookClient(workbook);
-  const persist = api.saveModelLifecycle.getMockImplementation()!;
+  const persist = api.admitModelLifecycle.getMockImplementation()!;
   const first = deferred<void>();
   const second = deferred<void>();
-  api.saveModelLifecycle.mockImplementationOnce(async (before, after) => { await first.promise; return persist(before, after); })
-    .mockImplementationOnce(async (before, after) => { await second.promise; return persist(before, after); });
+  api.admitModelLifecycle.mockImplementationOnce(async (id, before, after) => { await first.promise; return persist(id, before, after); })
+    .mockImplementationOnce(async (id, before, after) => { await second.promise; return persist(id, before, after); });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => { result.current.commands.appendRow('a'); result.current.commands.appendColumn('a'); });
-  await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1));
   const pendingColumn = result.current.creatingAxes.a!.columns[0];
   expect(result.current.creatingAxes.a!.rows).toHaveLength(1);
   expect(pendingColumn).toBeDefined();
-  const [firstBefore, firstAfter] = api.saveModelLifecycle.mock.calls[0]!;
+  const [, firstBefore, firstAfter] = api.admitModelLifecycle.mock.calls[0]!;
   const rejectedId = firstAfter.documents.a!.content.rows[1]!;
   expect(firstBefore.documents.a!.content).toEqual(a.content);
   expect(firstAfter.documents.b!.content.rows).toEqual([...b.content.rows].reverse());
   expect((await api.loadWorkbook()).documents.a!.content).toEqual(a.content);
   await act(async () => first.reject(new WorkbookApiError('rejected', 400)));
-  await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2));
   expect(result.current.creatingAxes.a!.columns[0]).toEqual(pendingColumn);
-  const [before, after] = api.saveModelLifecycle.mock.calls[1]!;
+  const [, before, after] = api.admitModelLifecycle.mock.calls[1]!;
   expect(before.documents.a!.content).toEqual(a.content);
   expect(before.documents.b!.content).toEqual(b.content);
   expect(before.documents.b!.sorting).toEqual(workbook.documents.b!.sorting);
@@ -165,7 +167,7 @@ it('rolls back a rejected aggregate before admitting its already queued same-she
   expect((await api.loadWorkbook()).documents.b!.content).toEqual(after.documents.b!.content);
   expect(result.current.workbook.documents.a!.content).toEqual(after.documents.a!.content);
   expect(result.current.workbook.documents.b!.content).toEqual(after.documents.b!.content);
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(2);
   act(() => result.current.commands.undo());
   await waitFor(() => expect(result.current.canRedo).toBe(true));
   expect(result.current.canUndo).toBe(false);
@@ -181,10 +183,10 @@ it('fences later axis creation behind ambiguous recovery and publishes one histo
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 1, columnCount: 1 });
   const workbook = workbookWithSheets([{ ...a, sorting: [{ columnId: a.content.columns[0]!, direction: 'ascending' }] }, b]);
-  const first = deferred<Workbook>();
-  const recovery = deferred<Workbook>();
-  const save = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(recovery.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after);
-  const api = autosaveClient({ saveModelLifecycle: save });
+  const first = deferred<ReturnType<typeof receipt>>();
+  const recovery = deferred<ReturnType<typeof receipt>>();
+  const save = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(recovery.promise).mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after));
+  const api = autosaveClient({ admitModelLifecycle: save });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => { result.current.commands.appendRow('a'); result.current.commands.appendColumn('a'); result.current.commands.appendColumn('b'); });
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -201,12 +203,12 @@ it('fences later axis creation behind ambiguous recovery and publishes one histo
   expect(save.mock.calls[1]).toEqual(original);
   expect(save).toHaveBeenCalledTimes(2);
   expect(result.current.workbook.documents.b!.content.columns).toHaveLength(1);
-  await act(async () => recovery.resolve(original[1] as Workbook));
+  await act(async () => recovery.resolve(receipt(original[0] as string, original[2] as Workbook)));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(4));
-  const recovered = original[1] as Workbook;
-  const sameSheetBefore = save.mock.calls[2]![0] as Workbook;
-  const sameSheetAfter = save.mock.calls[2]![1] as Workbook;
-  const foreignBefore = save.mock.calls[3]![0] as Workbook;
+  const recovered = original[2] as Workbook;
+  const sameSheetBefore = save.mock.calls[2]![1] as Workbook;
+  const sameSheetAfter = save.mock.calls[2]![2] as Workbook;
+  const foreignBefore = save.mock.calls[3]![1] as Workbook;
   expect(sameSheetBefore.documents.a!.content).toEqual(recovered.documents.a!.content);
   expect(foreignBefore.documents.a!.content).toEqual(sameSheetAfter.documents.a!.content);
   await waitFor(() => expect(result.current.creatingAxes).toEqual({}));
@@ -228,9 +230,9 @@ it('rejects a sorted aggregate behind a foreign failed axis without dispatching 
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 1, columnCount: 1 });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 1, columnCount: 1 });
   const workbook = workbookWithSheets([{ ...a, sorting: [{ columnId: a.content.columns[0]!, direction: 'ascending' }] }, b]);
-  const first = deferred<Workbook>();
+  const first = deferred<ReturnType<typeof receipt>>();
   const save = vi.fn().mockReturnValue(first.promise);
-  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: autosaveClient({ admitModelLifecycle: save }) }));
   act(() => { result.current.commands.appendRow('a'); result.current.commands.appendRow('b'); });
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
   await act(async () => first.reject(new WorkbookApiError('rejected', 400)));

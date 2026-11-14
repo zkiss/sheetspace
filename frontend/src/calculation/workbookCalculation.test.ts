@@ -15,7 +15,12 @@ function workbook(sheet: SheetDocument): Workbook {
 
 describe('workbook calculation boundary', () => {
   it('projects sheet identity, ordered stable axes, and identity-keyed raw cells', () => {
-    expect(calculationProjection(workbook(sheetWithCells({ A1: '=1' })))).toEqual({
+    const source = workbook(sheetWithCells({ A1: '=1' }));
+    const projection = calculationProjection(source);
+
+    expect(projection.functionSource).toBe(source);
+    expect(projection).toEqual({
+      functionSource: source,
       sheets: [{
         id: 'sheet-1',
         rows: Array.from({ length: 20 }, (_, index) => `sheet-1:row:${index + 1}`),

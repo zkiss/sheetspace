@@ -20,6 +20,8 @@ export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'o
 
 export type WorkbookCommands = {
   currentWorkbook: () => Workbook;
+  setFunction: (declaration: import('@application/core/functionCommands').FunctionDeclaration, previousName?: string) => FunctionSubmission;
+  deleteFunction: (name: string) => FunctionSubmission;
   configureSorting: (sheetId: string, criteria: readonly import('@workbook/core/model').SortCriterion[]) => SortingSubmission;
   gatherAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], gap: number) => ReorderCommandResult;
   shiftAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], direction: -1 | 1) => ReorderCommandResult;
@@ -57,6 +59,9 @@ export type WorkbookCommands = {
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
+
+export type FunctionResult = import('@application/core/functionCommands').FunctionCommandResult | TransitionFailure;
+export type FunctionSubmission = Readonly<{ result: FunctionResult; completion: Promise<FunctionResult> }>;
 
 export type RenameSheetResult = MutationResult<Workbook> | TransitionFailure | { ok: false; reason: 'sorting-history-too-large' };
 

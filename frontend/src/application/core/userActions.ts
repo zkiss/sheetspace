@@ -2,6 +2,7 @@ import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSiz
 import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { boundColumnType } from '@workbook/core/modelColumnTypes';
 import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaValue';
+import { removeCustomFunctionSheetBindings } from '@calculation/customFunctions';
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
 import type { AppearanceWrite, AxisSizeWrite, CellAppearance, SortCriterion } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
@@ -49,7 +50,7 @@ export type BackendWorkbookReconciliation =
 
 export type WorkbookPersistenceIntent =
   | { kind: 'write-sorting'; sheetId: SheetId; before: { sorting: readonly SortCriterion[]; rows: readonly RowId[] }; after: { sorting: readonly SortCriterion[]; rows: readonly RowId[] } }
-  | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
+  | { kind: 'model-lifecycle'; before: Workbook; after: Workbook; replay?: { transitionId: string; direction: 'undo' | 'redo' } }
   | { kind: 'write-axis-order'; sheetId: SheetId; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
   | { kind: 'write-number-formats'; sheetId: SheetId; writes: readonly AppearanceWrite[] }
@@ -408,11 +409,8 @@ export function applyBackendWorkbookReconciliation(workbook: Workbook, reconcili
 function applyDeleteSheet(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'delete-sheet' }>): WorkbookOperationResult {
   if (!findSheetById(workbook, operation.sheetId)) return { ok: false, reason: 'unknown-sheet' };
   const documents = { ...workbook.documents }; delete documents[operation.sheetId];
-  const removed = { ...workbook, manifest: { ...workbook.manifest, sheetIds: workbook.manifest.sheetIds.filter((id) => id !== operation.sheetId) }, documents };
-  // A removed sheet invalidates the derived instances that reference it, so the dependent sheets
-  // are refreshed in the same operation.
-  const next = refreshDerivedInstances(removed);
-  return success(next, { kind: 'structure' }, { kind: 'delete-sheet', sheetId: operation.sheetId }, affectedSheets(operation.sheetId));
+  const removed = removeCustomFunctionSheetBindings({ ...workbook, manifest: { ...workbook.manifest, sheetIds: workbook.manifest.sheetIds.filter((id) => id !== operation.sheetId) }, documents }, [operation.sheetId]);
+  return success(refreshDerivedInstances(removed), { kind: 'structure' }, { kind: 'delete-sheet', sheetId: operation.sheetId }, affectedSheets(operation.sheetId));
 }
 
 function applyRenameSheet(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'rename-sheet' }>): WorkbookOperationResult {

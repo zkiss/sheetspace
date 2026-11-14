@@ -16,7 +16,7 @@ describe('mixed history feedback', () => {
     let pending = false;
     const enqueue = vi.fn();
     const { result } = renderHook(() => useMixedHistory({
-      current, history, setWorkbook: vi.fn(), enqueue, hasPending: () => pending,
+      current, history, requireAuthority: false, setWorkbook: vi.fn(), enqueue, hasPending: () => pending,
       admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(),
       setContentHistoryFeedback: vi.fn(), setCellFeedback: vi.fn(), publishHistory: vi.fn(),
       formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(), replayRecord: vi.fn(), replaySemantic: vi.fn(),
@@ -48,7 +48,7 @@ describe('mixed history feedback', () => {
     const history = new ContentHistory();
     let pending = false;
     const { result, rerender } = renderHook(() => useMixedHistory({
-      current, history, setWorkbook: vi.fn(), enqueue: vi.fn(), hasPending: () => pending,
+      current, history, requireAuthority: false, setWorkbook: vi.fn(), enqueue: vi.fn(), hasPending: () => pending,
       admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(),
       setContentHistoryFeedback: vi.fn(), setCellFeedback: vi.fn(), publishHistory: vi.fn(),
       formulaResults: {} as FormulaEvaluationSnapshot, applyResult: vi.fn(), replayRecord: vi.fn(), replaySemantic: vi.fn(),

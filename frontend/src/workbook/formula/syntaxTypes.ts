@@ -91,6 +91,7 @@ export type FunctionFormula = {
 
 export type FormulaExpression =
   | FormulaReference
+  | { kind: 'parameter'; name: string; sourceSpan: FormulaSourceSpan }
   | { kind: 'invalid-reference'; sourceSpan: FormulaSourceSpan }
   | FormulaLiteral
   | GroupFormula

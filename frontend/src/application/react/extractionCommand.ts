@@ -9,26 +9,24 @@ type Prepared = { ok: true; value: Workbook } | Extract<ExtractionCommandResult,
 
 export function extractionCommand(request: ExtractionRequest, options: {
   history: ContentHistory;
+  requireAuthority: boolean;
   current: () => Workbook;
   publish: () => void;
-  submit: (transform: (before: Workbook) => Prepared, success: (before: Workbook, after: Workbook) => void) => { result: Prepared | TransitionFailure; completion: Promise<Prepared | TransitionFailure> };
-  submitOrigin: (candidate: Workbook) => { result: { ok: true; value: Workbook } | TransitionFailure; completion: Promise<{ ok: true; value: Workbook } | TransitionFailure> };
+  submit: (transform: (before: Workbook) => Prepared, success: (before: Workbook, after: Workbook, receipt?: import('@infrastructure/persistence/workbookApi').LifecycleReceipt) => void) => { result: Prepared | TransitionFailure; completion: Promise<Prepared | TransitionFailure> };
+  settleSorted: (before: Workbook, candidate: Workbook) => Workbook;
 }): ExtractionSubmission {
-  const before = options.current();
-  const candidate = extractSelection(before, request);
-  if (candidate.ok && (sheetsInOrder(before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(candidate.workbook).some((sheet) => sheet.sorting?.length))) {
-    const submission = options.submitOrigin(candidate.workbook);
-    const convert = (result: typeof submission.result): ExtractionCommandResult => result.ok ? { ...candidate, workbook: result.value } : result;
-    return { result: convert(submission.result), completion: submission.completion.then(convert) };
-  }
   let extracted: ReturnType<typeof extractSelection> | undefined;
+  let recordPrepared: ((transitionId?: string) => void) | undefined;
   const submission = options.submit((before) => {
     extracted = extractSelection(before, request);
     if (!extracted.ok) return extracted;
-    if (!options.history.canRecordExtraction(before, extracted.workbook)) return { ok: false, reason: 'extraction-history-too-large' };
-    return { ok: true, value: extracted.workbook };
-  }, (before, after) => {
-    options.history.recordExtraction(before, after);
+    const candidate = sheetsInOrder(before).some((sheet) => sheet.sorting?.length) || sheetsInOrder(extracted.workbook).some((sheet) => sheet.sorting?.length)
+      ? options.settleSorted(before, extracted.workbook) : extracted.workbook;
+    recordPrepared = options.history.prepareExtraction(before, candidate, options.requireAuthority);
+    if (!recordPrepared) return { ok: false, reason: 'extraction-history-too-large' };
+    return { ok: true, value: candidate };
+  }, (_before, _after, receipt) => {
+    recordPrepared?.(receipt?.transitionId);
     options.publish();
   });
   const convert = (result: typeof submission.result): ExtractionCommandResult => result.ok && extracted?.ok ? { ...extracted, workbook: result.value } : result.ok ? extracted! : result;

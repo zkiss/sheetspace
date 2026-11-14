@@ -36,6 +36,7 @@ export class FormulaParser {
     private readonly isNamedColumn?: FormulaNamedColumnPredicate,
     private readonly userReferences = false,
     private readonly stored = false,
+    private readonly parameters?: ReadonlySet<string>,
   ) {}
 
   parse(raw: string): FormulaSyntaxResult {
@@ -242,6 +243,11 @@ export class FormulaParser {
       }
       this.skipWhitespace();
       if (this.peek() === '(') return this.readFunction(normalized, identifierStart);
+      if (this.parameters?.has(normalized)) {
+        this.index = identifierStart + identifier.length;
+        this.recordToken('text', identifierStart, this.index);
+        return { ok: true, value: { kind: 'parameter', name: normalized, sourceSpan: this.span(identifierStart) } };
+      }
       this.index = identifierStart;
     }
     return this.readReference();
@@ -253,14 +259,7 @@ export class FormulaParser {
     this.recordToken('punctuation', this.index - 1, this.index);
     const args: FormulaExpression[] = [];
     this.skipWhitespace();
-    if (this.consume(')')) {
-      this.recordToken('punctuation', this.index - 1, this.index);
-      return {
-        ok: true,
-        value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
-      };
-    }
-    while (true) {
+    while (!this.consume(')')) {
       const argument = this.readComparison();
       if (!argument.ok) return argument;
       args.push(argument.value);
@@ -271,13 +270,13 @@ export class FormulaParser {
         if (this.peek() === ')' || this.atEnd()) return this.error();
         continue;
       }
-      if (!this.consume(')')) return this.error();
-      this.recordToken('punctuation', this.index - 1, this.index);
-      return {
-        ok: true,
-        value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
-      };
+      if (this.peek() !== ')') return this.error();
     }
+    this.recordToken('punctuation', this.index - 1, this.index);
+    return {
+      ok: true,
+      value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
+    };
   }
 
   private readNumber(): FormulaLiteral | undefined {

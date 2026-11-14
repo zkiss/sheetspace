@@ -13,20 +13,21 @@ import {
   type TransportResult,
 } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookPersistenceTransport } from '@infrastructure/persistence/workbookPersistenceTransport';
+import { removeCustomFunctionSheetBindings } from '@calculation/customFunctions';
 
 function removeSheets(workbook: Workbook, sheetIds: readonly SheetId[]): Workbook {
   const removed = new Set(sheetIds);
   if (!workbook.manifest.sheetIds.some((sheetId) => removed.has(sheetId))) return workbook;
   const documents = { ...workbook.documents };
   for (const sheetId of removed) delete documents[sheetId];
-  return {
+  return removeCustomFunctionSheetBindings({
     ...workbook,
     manifest: {
       ...workbook.manifest,
       sheetIds: workbook.manifest.sheetIds.filter((sheetId) => !removed.has(sheetId)),
     },
     documents,
-  };
+  }, sheetIds);
 }
 
 /** React integration for the framework-independent, data-only saved-sheet outbox. */
@@ -73,12 +74,12 @@ export function useSavedSheetAutosave({
     operationId: WorkbookOperationId,
   ) => {
     if (result.kind === 'saved') {
-      if (result.revisions.length > 0) {
+      if (intent.kind !== 'model-lifecycle' && result.revisions.length > 0) {
         setWorkbook((current) => {
           let next = current;
           for (const { sheetId, revision } of result.revisions) {
             const sheet = findSheetById(next, sheetId);
-            if (!sheet || (intent.kind === 'model-lifecycle' ? sheet.revision === revision : sheet.revision >= revision)) continue;
+            if (!sheet || sheet.revision >= revision) continue;
             next = {
               ...next,
               documents: { ...next.documents, [sheetId]: { ...sheet, revision } },
@@ -134,6 +135,7 @@ export function useSavedSheetAutosave({
 
   const subscribeOutbox = useCallback((listener: (snapshot: OutboxSnapshot) => void) => outbox.subscribe(listener), [outbox]);
   const revision = useCallback((sheetId: SheetId) => coordinator.revision(sheetId), [coordinator]);
+  const discard = useCallback((operationId: string) => { outbox.remove(operationId); pump(); }, [outbox, pump]);
 
   const hasRetryableFailures = snapshot.some((entry) => entry.status === 'failed' || entry.status === 'blocked');
   const hasPendingSaves = snapshot.some((entry) => entry.status === 'queued' || entry.status === 'running');
@@ -149,7 +151,7 @@ export function useSavedSheetAutosave({
     hasPendingRecreation: (sheetId: SheetId) => outbox.hasPendingRecreation(sheetId),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
     modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),
-    discard: (operationId: string) => { outbox.remove(operationId); pump(); },
+    discard,
     waitFor: (operationId: string) => outbox.waitFor(operationId),
     waitForModelTransitions: () => outbox.waitForModelTransitions(),
     waitForAxisOrders: (sheetId: SheetId) => outbox.waitForAxisOrders(sheetId),

@@ -18,6 +18,7 @@ export function WorkspaceToolbar({
   formatControls,
   onCreateSheet,
   onOpenDataModels,
+  onOpenFunctions,
   onOpenCommandPalette,
   onToggleMaximise,
   onFocusMaximise,
@@ -42,6 +43,7 @@ export function WorkspaceToolbar({
   formatControls: ReactNode;
   onCreateSheet: () => void;
   onOpenDataModels?: () => void;
+  onOpenFunctions?: () => void;
   onOpenCommandPalette?: () => void;
   onToggleMaximise?: () => void;
   onFocusMaximise?: () => void;
@@ -64,6 +66,7 @@ export function WorkspaceToolbar({
         <button aria-label="Back" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoBack} onClick={onGoBack} title={titles.back} type="button">Back</button>
         <button aria-label="Forward" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoForward} onClick={onGoForward} title={titles.forward} type="button">Forward</button>
         <button className="workspace-new-sheet" data-workspace-navigation id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
+        <button className="workspace-new-sheet" data-workspace-navigation id="functions-button" onClick={onOpenFunctions} type="button">Functions</button>
         <button aria-label="Command palette" className="workspace-new-sheet" data-workspace-navigation onClick={onOpenCommandPalette} title={titles.commandPalette} type="button">Commands</button>
         <button aria-pressed={referencesVisible} className="workspace-new-sheet" data-workspace-navigation onClick={onToggleReferences} type="button">{referencesVisible ? 'Hide references' : 'Show references'}</button>
         <div className="workspace-format-slot">{formatControls}</div>

@@ -58,6 +58,7 @@ export type FormulaFunctionRegistry = ReadonlyMap<string, FormulaFunctionDefinit
 export type FormulaFunctionEvaluationContext = {
   evaluateExpression: (expression: FormulaExpression) => FormulaValue;
   evaluateReferenceArgument?: (expression: FormulaExpression) => FormulaReferenceArgumentResult;
+  resolveSyntax?: (expression: FormulaExpression) => FormulaExpression;
 };
 
 export function evaluateFunctionCall(
@@ -74,16 +75,17 @@ export function evaluateFunctionCall(
     return diagnosticError('#VALUE!', `${expression.functionName} expected ${expected} arguments, got ${expression.arguments.length}.`);
   }
 
+  const syntaxArguments = expression.arguments.map((argument, index) => definition.argumentKind(index) === 'reference' && context.resolveSyntax ? context.resolveSyntax(argument) : argument);
   for (let index = 0; index < expression.arguments.length; index += 1) {
     const kind = definition.argumentKind(index);
-    if (kind === 'scalar' && isSyntacticRange(expression.arguments[index])) {
+    if (kind === 'scalar' && isSyntacticRange(syntaxArguments[index])) {
       return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a scalar, got a range.`);
     }
-    if (kind === 'reference' && !isSyntacticReference(expression.arguments[index])) {
+    if (kind === 'reference' && !isSyntacticReference(syntaxArguments[index])) {
       return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a reference.`);
     }
   }
-  const validationError = definition.validateArguments?.(expression.arguments);
+  const validationError = definition.validateArguments?.(syntaxArguments);
   if (validationError) {
     return diagnosticError(validationError.error, validationError.message);
   }

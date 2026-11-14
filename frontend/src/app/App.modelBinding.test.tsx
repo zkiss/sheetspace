@@ -138,7 +138,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledTimes(1));
 
     const bind = async (sheetName: string) => {
       const sheet = screen.getByRole('article', { name: `Sheet ${sheetName}` });
@@ -168,7 +168,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(destructiveDraft).getByLabelText('Property 2 name'), { target: { value: 'Output' } });
     expect(within(destructiveDraft).getByText(/New replacement properties start empty/)).toBeInTheDocument();
     fireEvent.click(within(destructiveDraft).getByRole('button', { name: 'Cancel' }));
-    expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(3);
+    expect(apiClient.admitModelLifecycle).toHaveBeenCalledTimes(3);
     expect(columnLabelsFor(firstFrame)).toEqual(['Input', 'Output']);
     expect(cellInFrame(firstFrame, 'B1')).toHaveTextContent('3');
 
@@ -228,7 +228,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Tax' } });
     fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledTimes(1));
 
     const created = within(modelSelect()).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
     fireEvent.change(modelSelect(), { target: { value: created.value } });
@@ -260,7 +260,7 @@ describe('App model binding workflow', () => {
   it('reports a rejected binding persistence and restores the unbound sheet with its selection', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { workbook } = inputsWorkbook();
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
     render(<App initialWorkbook={{ ...workbook, dataModels: { invoice: declaredModel } }} apiClient={apiClient} />);
 
     fireEvent.click(cellAt('A1'));
@@ -279,13 +279,13 @@ describe('App model binding workflow', () => {
     const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
     const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
     const save = deferred<Workbook>();
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockReturnValue(save.promise) });
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
     fireEvent.click(cellAt('A1'));
     fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledOnce());
     const otherCell = screen.getByRole('cell', { name: 'Other A1 empty cell' });
     if (ownership === 'newer selection') fireEvent.click(otherCell);
     await act(async () => { save.reject(new Error('offline')); });
@@ -302,7 +302,7 @@ describe('App model binding workflow', () => {
     const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
     const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
     const save = deferred<Workbook>();
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockReturnValue(save.promise) });
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
     fireEvent.click(cellAt('A1'));
     fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -311,7 +311,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(panel).getByRole('combobox'), { target: { value: 'invoice' } });
     fireEvent.click(within(panel).getByRole('button', { name: 'Bind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledOnce());
     expect(within(panel).getByRole('combobox')).toBeDisabled();
     await act(async () => { save.reject(new Error('offline')); });
     await waitFor(() => expect(within(panel).getByRole('alert')).toHaveTextContent('The data model change was not saved.'));
@@ -325,7 +325,7 @@ describe('App model binding workflow', () => {
     const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
     const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
     const save = deferred<Workbook>();
-    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    const apiClient = autosaveClient({ admitModelLifecycle: vi.fn().mockReturnValue(save.promise) });
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
     fireEvent.click(cellAt('A1'));
     fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -334,7 +334,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(panel).getByRole('combobox'), { target: { value: 'invoice' } });
     fireEvent.click(within(panel).getByRole('button', { name: 'Bind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole('button', { name: 'Close command palette' }));
     const otherCell = screen.getByRole('cell', { name: 'Other A1 empty cell' });
     fireEvent.click(otherCell);
@@ -378,7 +378,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
 
-    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(apiClient.admitModelLifecycle).toHaveBeenCalledTimes(1));
 
     const created = within(modelSelect()).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
     fireEvent.change(modelSelect(), { target: { value: created.value } });

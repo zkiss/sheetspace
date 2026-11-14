@@ -52,7 +52,7 @@ class ModelLifecycleRoutesTest {
                 application { module(DefaultWorkbookApplication(store)) }
                 val response = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }
                 assertEquals(HttpStatusCode.OK, response.status)
-                assertEquals(mapOf(column to "Revenue"), response.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook().documents.getValue(sheet.id).columnNames)
+                assertEquals(mapOf(column to "Revenue"), response.decodeBody<ModelLifecycleResponse>().workbook.toLifecycleWorkbook().documents.getValue(sheet.id).columnNames)
                 assertEquals(mapOf(column to "Revenue"), store.loadWorkbookBundle().documents.getValue(sheet.id).columnNames)
                 val stale = before.replaceSheet(sheet.copy(columnNames = mapOf(column to "Other")))
                 assertEquals(HttpStatusCode.Conflict, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, stale)) }.status)
@@ -118,14 +118,14 @@ class ModelLifecycleRoutesTest {
                         jsonBody(lifecycleBody(before, bound))
                     }
                     assertEquals(HttpStatusCode.OK, response.status)
-                    val saved = response.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook()
+                    val saved = response.decodeBody<ModelLifecycleResponse>().workbook.toLifecycleWorkbook()
                     assertEquals(bound.documents.mapValues { it.value.content }, saved.documents.mapValues { it.value.content })
                     assertEquals(bound.documents.values.map { it.modelFormulaBindings }, saved.documents.values.map { it.modelFormulaBindings })
                     assertNotEquals(before.documents.values.first().revision, saved.documents.values.first().revision)
 
                     val retry = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, bound)) }
                     assertEquals(HttpStatusCode.OK, retry.status)
-                    assertEquals(saved, retry.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook())
+                    assertEquals(saved, retry.decodeBody<ModelLifecycleResponse>().workbook.toLifecycleWorkbook())
 
                     val renamed = saved.copy(
                         dataModels = saved.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") },
@@ -151,6 +151,25 @@ class ModelLifecycleRoutesTest {
             Files.deleteIfExists(database)
             Files.deleteIfExists(database.resolveSibling("${database.fileName}-wal"))
             Files.deleteIfExists(database.resolveSibling("${database.fileName}-shm"))
+        }
+    }
+
+    @Test
+    fun `concurrent function edit makes lifecycle snapshot stale`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            store.saveWorkbook(lifecycleWorkbook())
+            val application = DefaultWorkbookApplication(store)
+            val before = application.loadWorkbookBundle()
+            val after = lifecycleBoundWorkbook(before)
+            application.setFunction(before, CustomFunction("concurrent", emptyList(), "=1"), null)
+            val current = store.loadWorkbookBundle()
+            testApplication {
+                application { module(application) }
+                val response = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }
+                assertEquals(HttpStatusCode.Conflict, response.status)
+                assertEquals(ErrorResponse("model-lifecycle-conflict", scope = "workbook"), response.decodeBody())
+                assertEquals(current, store.loadWorkbookBundle())
+            }
         }
     }
 
@@ -361,4 +380,4 @@ internal fun lifecycleTemplate(sheet: SheetDocument, column: ColumnId, formula: 
     return BoundModelFormula(formula.replace(reference, stored))
 }
 
-internal fun lifecycleBody(before: WorkbookState, after: WorkbookState): String = Json.encodeToString(ModelLifecycleRequest(WorkbookReadTransportAdapter.bundle(before), WorkbookReadTransportAdapter.bundle(after)))
+internal fun lifecycleBody(before: WorkbookState, after: WorkbookState): String = Json.encodeToString(ModelLifecycleRequest(java.util.UUID.nameUUIDFromBytes((before.toString() + after.toString()).toByteArray()).toString(), WorkbookReadTransportAdapter.bundle(before), WorkbookReadTransportAdapter.bundle(after)))

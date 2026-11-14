@@ -64,7 +64,7 @@ export class FormulaCalculation {
   }
 
   updateStored(projection: CalculationProjection, workbook: Workbook, impact: CalculationImpact, onEvaluate?: FormulaEvaluationObserver): FormulaEvaluationSnapshot {
-    return this.calculate(projection, impact, onEvaluate, storedFormulaParser(workbook));
+    return this.calculate({ ...projection, functionSource: workbook }, impact, onEvaluate, storedFormulaParser(workbook));
   }
 
   private calculate(
@@ -73,11 +73,12 @@ export class FormulaCalculation {
     onEvaluate?: FormulaEvaluationObserver,
     parse?: ReturnType<typeof storedFormulaParser>,
   ): FormulaEvaluationSnapshot {
-    if (impact.kind === 'none' && this.initialized) {
+    const functionsChanged = JSON.stringify(this.previousProjection?.functionSource?.functions ?? []) !== JSON.stringify(projection.functionSource?.functions ?? []);
+    if (impact.kind === 'none' && this.initialized && !functionsChanged) {
       return this.snapshot;
     }
 
-    const effectiveImpact = !this.initialized || impact.kind === 'none'
+    const effectiveImpact = !this.initialized || impact.kind === 'none' || functionsChanged
       ? { kind: 'structure' } as const
       : impact;
     const previousGraph = this.graph;
@@ -85,7 +86,7 @@ export class FormulaCalculation {
       ? buildFormulaDependencyGraph(projection, parse)
       : updateFormulaDependencyGraph(this.graph, projection, effectiveImpact.cells, parse);
     const nextFormulaNodes = formulaNodes(nextGraph);
-    const orderOnly = effectiveImpact.kind === 'structure' && this.previousProjection && isRowOrderOnly(this.previousProjection, projection);
+    const orderOnly = effectiveImpact.kind === 'structure' && !functionsChanged && !projection.functionSource?.functions?.length && this.previousProjection && isRowOrderOnly(this.previousProjection, projection);
     const impacted = effectiveImpact.kind === 'structure'
       ? orderOnly ? orderImpactedNodes(this.previousProjection!, projection, previousGraph, nextGraph, parse ?? parseFormula) : new Set(nextFormulaNodes)
       : dependentClosure(

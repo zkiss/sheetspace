@@ -7,6 +7,8 @@ import { bindSheetToModel } from '@application/core/modelLifecycle';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 function fixture() {
   const a = sheetDocument({ id: 'a', name: 'A', rowCount: 2, columnCount: 1, cells: { A1: '1', A2: '2' } });
   const b = sheetDocument({ id: 'b', name: 'B', rowCount: 1, columnCount: 1 });
@@ -16,13 +18,13 @@ function fixture() {
 it('blocks sorted writes while an unrelated sheet has an unsettled creation', () => {
   const { a, workbook } = fixture();
   const axis = deferred<Workbook>();
-  const api = autosaveClient({ saveModelLifecycle: vi.fn(() => axis.promise) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn(async (id: string) => receipt(id, await axis.promise)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.appendRow('b'));
   const before = result.current.commands.currentWorkbook();
   act(() => expect(result.current.commands.writeCells([{ sheetId: 'a', rowId: a.content.rows[0]!, columnId: a.content.columns[0]!, raw: '5' }])).toEqual({ ok: false, reason: 'pending-model-transition' }));
   expect(result.current.commands.currentWorkbook()).toBe(before);
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
 });
 
 it('blocks sorted writes that would reorder a sheet with an unfinished entry', () => {
@@ -34,23 +36,23 @@ it('blocks sorted writes that would reorder a sheet with an unfinished entry', (
   if (!binding.ok) throw new Error(binding.reason);
   const sheet = binding.value.documents.bound!;
   const workbook: Workbook = { ...binding.value, documents: { ...binding.value.documents, bound: { ...sheet, sorting: [{ columnId: sheet.modelColumnBindings!.input!, direction: 'ascending' }] } } };
-  const api = autosaveClient();
+  const api = autosaveClient({ admitModelLifecycle: vi.fn() });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.changeEntryField('bound', 'input', '5'));
   const before = result.current.commands.currentWorkbook();
   act(() => expect(result.current.commands.writeCells([{ sheetId: 'a', rowId: a.content.rows[0]!, columnId: a.content.columns[0]!, raw: '5' }])).toEqual({ ok: false, reason: 'pending-model-transition' }));
   expect(result.current.commands.currentWorkbook()).toBe(before);
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.admitModelLifecycle).not.toHaveBeenCalled();
 });
 
 it('blocks sorted writes behind a failed older persistence operation', async () => {
   const { a, workbook } = fixture();
-  const api = autosaveClient({ updateSheetPosition: vi.fn().mockRejectedValue(new WorkbookApiError('offline', 500, 'offline')) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn(), updateSheetPosition: vi.fn().mockRejectedValue(new WorkbookApiError('offline', 500, 'offline')) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => result.current.commands.moveSheetFrame('b', { x: 30, y: 40 }));
   await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
   const before = result.current.commands.currentWorkbook();
   act(() => expect(result.current.commands.writeCells([{ sheetId: 'a', rowId: a.content.rows[0]!, columnId: a.content.columns[0]!, raw: '5' }])).toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' }));
   expect(result.current.commands.currentWorkbook()).toBe(before);
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.admitModelLifecycle).not.toHaveBeenCalled();
 });

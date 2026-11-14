@@ -9,11 +9,13 @@ import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 it('prunes a deleted sort column and replays the structure, criteria and preceding rename exactly', async () => {
   const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 2, cells: { A1: '2', A2: '1' } });
   const criteria = [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }];
   const workbook = workbookWithSheets([{ ...sheet, sorting: criteria }]);
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   await act(async () => { await result.current.commands.renameColumn('s', criteria[0]!.columnId, 'Price').completion; });
   expect(result.current.workbook.documents.s!.sorting).toEqual(criteria);
@@ -41,7 +43,7 @@ it('returns a sorted rename admission failure without publication or history', a
   const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1 });
   const workbook = workbookWithSheets([{ ...sheet, sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' }] }]);
   const pending = deferred<Workbook>();
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(pending.promise) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string) => receipt(id, await pending.promise)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   let rename: ReturnType<typeof result.current.commands.renameSheet>;
   act(() => {
@@ -50,7 +52,7 @@ it('returns a sorted rename admission failure without publication or history', a
   });
   expect(rename!).toEqual({ ok: false, reason: 'pending-model-transition' });
   expect(result.current.commands.currentWorkbook().documents.s!.name).toBe('S');
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
   await act(async () => { pending.resolve(result.current.commands.currentWorkbook()); await pending.promise; });
 });
 
@@ -65,10 +67,10 @@ it('settles changed model formula keys once and publishes the final calculation'
   if (!bound.ok) throw new Error(bound.reason);
   const document = bound.value.documents.s!;
   const workbook = { ...bound.value, documents: { ...bound.value.documents, s: { ...document, sorting: [{ columnId: document.content.columns[1]!, direction: 'ascending' as const }] } } };
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   await act(async () => { await result.current.commands.replaceModelDeclaration({ ...model, columns: [model.columns[0]!, { ...model.columns[1]!, formula: '=-@A[1]' }] }).completion; });
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
   expect(result.current.workbook.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
   expect(result.current.formulaResults.s!.B1.display).toBe('-2');
   expect(result.current.formulaResults.s!.B2.display).toBe('-1');
@@ -96,15 +98,15 @@ it('freezes cross-sheet positional keys before settling a model formula change',
     s: { ...sourceBound, sorting: [{ columnId: sourceBound.content.columns[1]!, direction: 'ascending' as const }] },
     o: { ...other, content: { ...other.content, cells }, sorting: [{ columnId: other.content.columns[0]!, direction: 'descending' as const }] },
   } };
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   await act(async () => { await result.current.commands.replaceModelDeclaration({ ...model, columns: [model.columns[0]!, { ...model.columns[1]!, formula: '=-@A[1]' }] }).completion; });
-  expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+  expect(api.admitModelLifecycle).toHaveBeenCalledTimes(1);
   expect(result.current.workbook.documents.s!.content.rows).toEqual([...source.content.rows].reverse());
   expect(result.current.workbook.documents.o!.content.rows).toEqual([...other.content.rows].reverse());
   expect(result.current.formulaResults.s).toMatchObject({ B1: { display: '-2' }, B2: { display: '-1' } });
   expect(result.current.formulaResults.o).toMatchObject({ A1: { display: '1' }, A2: { display: '2' } });
-  const submitted = vi.mocked(api.saveModelLifecycle).mock.calls[0]![1];
+  const submitted = vi.mocked(api.admitModelLifecycle!).mock.calls[0]![2];
   expect(submitted.documents.s!.content.rows).toEqual([...source.content.rows].reverse());
   expect(submitted.documents.o!.content.rows).toEqual([...other.content.rows].reverse());
 });
@@ -114,7 +116,7 @@ it('rolls back a failed sorted lifecycle save and preserves prior semantic histo
   const criteria = [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }];
   const workbook = workbookWithSheets([{ ...sheet, sorting: criteria }]);
   const save = deferred<Workbook>();
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after).mockImplementationOnce(async (_before: Workbook, after: Workbook) => after).mockReturnValueOnce(save.promise) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)).mockImplementationOnce(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)).mockImplementationOnce(async (id: string) => receipt(id, await save.promise)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   await act(async () => { await result.current.commands.renameColumn('s', criteria[0]!.columnId, 'Price').completion; });
   const before = result.current.workbook;
@@ -139,7 +141,7 @@ it('settles a semantic sheet rename and preserves its criterion for exact undo',
   const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
   const criteria = [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }];
   const workbook = workbookWithSheets([{ ...sheet, sorting: criteria }]);
-  const api = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+  const api = autosaveClient({ admitModelLifecycle: vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after)) });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => { expect(result.current.commands.renameSheet('s', 'Renamed').ok).toBe(true); });
   await waitFor(() => expect(result.current.canUndo).toBe(true));
@@ -154,10 +156,10 @@ it('settles a semantic sheet rename and preserves its criterion for exact undo',
 it('preserves oversized sorted rename rejection without saving or publishing', () => {
   const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1 });
   const workbook = workbookWithSheets([{ ...sheet, name: 'x'.repeat(18 * 1024 * 1024), sorting: [{ columnId: sheet.content.columns[0]!, direction: 'ascending' }] }]);
-  const api = autosaveClient();
+  const api = autosaveClient({ admitModelLifecycle: vi.fn() });
   const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
   act(() => { expect(result.current.commands.renameSheet('s', 'New')).toEqual({ ok: false, reason: 'sorting-history-too-large' }); });
   expect(result.current.commands.currentWorkbook()).toBe(workbook);
   expect(result.current.canUndo).toBe(false);
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.admitModelLifecycle).not.toHaveBeenCalled();
 });

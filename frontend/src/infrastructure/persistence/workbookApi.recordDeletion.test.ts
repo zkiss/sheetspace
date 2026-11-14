@@ -12,7 +12,7 @@ it('captures deletion with a guarded workbook and induced row orders', async () 
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(response)));
   vi.stubGlobal('fetch', fetch);
   const result = await workbookApi.deleteRecord('first', 'row', request);
-  expect(result).toEqual({ ...response, workbook: { ...before, dataModels: {} } });
+  expect(result).toEqual({ ...response, workbook: { ...before, dataModels: {}, functions: [] } });
   expect(fetch).toHaveBeenCalledWith('/api/sheets/first/records/row/deletions', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...request, before: encodeWorkbookBundle(before) }),
   });
@@ -25,7 +25,7 @@ it.each(['undo', 'redo'] as const)('replays deletion authority with a guarded %s
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(response)));
   vi.stubGlobal('fetch', fetch);
   const result = await workbookApi.replayRecordDeletion('first', 'row', 'authority', request);
-  expect(result).toEqual({ ...response, workbook: { ...before, dataModels: {} } });
+  expect(result).toEqual({ ...response, workbook: { ...before, dataModels: {}, functions: [] } });
   expect(fetch).toHaveBeenCalledWith('/api/sheets/first/records/row/deletions/authority/replay', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...request, before: encodeWorkbookBundle(before) }),
   });

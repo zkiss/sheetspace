@@ -12,7 +12,7 @@ it.each(['undo', 'redo'] as const)('serializes the full guard and decodes %s rep
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ operationId: 'operation', rowId: 'row', alreadyCommitted: true, workbook: encodeWorkbookBundle(before) })));
   vi.stubGlobal('fetch', fetch);
   const result = await workbookApi.replayRecord('first', 'row', request);
-  expect(result.workbook).toEqual({ ...before, dataModels: {} });
+  expect(result.workbook).toEqual({ ...before, dataModels: {}, functions: [] });
   expect(fetch).toHaveBeenCalledWith('/api/sheets/first/records/row/replay', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...request, before: encodeWorkbookBundle(before) }),
   });

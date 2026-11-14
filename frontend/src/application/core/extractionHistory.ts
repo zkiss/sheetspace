@@ -5,7 +5,7 @@ import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 
 export type ExtractionReplayResult =
-  | { ok: false; reason: 'invalid-extraction-history' | 'stale-extraction-history' | 'protected-model' }
+  | { ok: false; reason: 'invalid-extraction-history' | 'stale-extraction-history' | 'protected-model' | 'missing-extraction-authority' }
   | { ok: true; workbook: Workbook; persistence: WorkbookPersistenceIntent };
 
 function equal(left: unknown, right: unknown): boolean {
@@ -45,7 +45,7 @@ function protectedContent(sheet: SheetDocument, workbook: Workbook) {
     const identity = cellIdentityFromKey(key);
     return !identity || owned.has(identity.columnId);
   }));
-  return { ...sheet, frame: undefined, revision: 0, content: { ...sheet.content, cells } };
+  return { ...sheet, frame: undefined, revision: 0, content: { ...sheet.content, rows: sheet.sorting?.length ? [...sheet.content.rows].sort() : sheet.content.rows, cells } };
 }
 
 function ordinaryChangesAreFormulaRewrites(a: SheetDocument, b: SheetDocument): boolean {
@@ -56,8 +56,9 @@ function ordinaryChangesAreFormulaRewrites(a: SheetDocument, b: SheetDocument): 
 }
 
 /** Prepare a compare-and-swap replay; the caller commits history only after persistence succeeds. */
-export function prepareExtractionReplay(current: Workbook, transaction: ContentTransaction, direction: 'undo' | 'redo'): ExtractionReplayResult {
+export function prepareExtractionReplay(current: Workbook, transaction: ContentTransaction, direction: 'undo' | 'redo', requireAuthority = false): ExtractionReplayResult {
   if (transaction.kind !== 'extraction' || !transaction.snapshots) return { ok: false, reason: 'invalid-extraction-history' };
+  if (requireAuthority && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(transaction.transitionId ?? '')) return { ok: false, reason: 'missing-extraction-authority' };
   const { before, after } = transaction.snapshots;
   if (!equal(before.dataModels, after.dataModels)) return { ok: false, reason: 'protected-model' };
   for (const id of new Set([...Object.keys(before.documents), ...Object.keys(after.documents)])) {
@@ -66,10 +67,10 @@ export function prepareExtractionReplay(current: Workbook, transaction: ContentT
   }
   const expected = direction === 'undo' ? after : before;
   const target = direction === 'undo' ? before : after;
-  const replayed = replayDelta(semantic(current), semantic(expected), semantic(target));
+  const replayed = replayDelta(semantic(current), { ...semantic(expected), functions: current.functions }, { ...semantic(target), functions: current.functions });
   if (!replayed.ok) return { ok: false, reason: 'stale-extraction-history' };
   const next = replayed.value as Workbook;
   next.manifest.revision = current.manifest.revision;
   for (const [id, sheet] of Object.entries(next.documents)) sheet.revision = current.documents[id]?.revision ?? 0;
-  return { ok: true, workbook: next, persistence: { kind: 'model-lifecycle', before: structuredClone(current), after: structuredClone(next) } };
+  return { ok: true, workbook: next, persistence: { kind: 'model-lifecycle', before: structuredClone(current), after: structuredClone(next), ...(transaction.transitionId && { replay: { transitionId: transaction.transitionId, direction } }) } };
 }

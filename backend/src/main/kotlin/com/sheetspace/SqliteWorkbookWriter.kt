@@ -19,11 +19,13 @@ internal class SqliteWorkbookWriter(
     private val cellWriter = SqliteCellWriter(connection)
 
     fun replaceAll(workbook: WorkbookState) {
+        SqliteSheetIdentityHistory(connection).reconcile(reader.loadWorkbookBundle().documents.keys, workbook.documents.keys)
         connection.createStatement().use { it.executeUpdate("DELETE FROM sheet_documents") }
         connection.createStatement().use { it.executeUpdate("DELETE FROM data_models") }
         workbook.dataModels.values.forEach(::insertDataModel)
         workbook.sheetsInOrder.forEach(::insertSheet)
         replaceManifest(workbook.manifest)
+        replaceFunctions(workbook.functions)
     }
 
     /**
@@ -83,7 +85,9 @@ internal class SqliteWorkbookWriter(
         return reader.loadSheet(sheetId) ?: error("Updated sheet disappeared: ${expected.sheetId}")
     }
 
-    fun persistChanges(current: WorkbookState, updated: WorkbookState) {
+    fun persistChanges(current: WorkbookState, updated: WorkbookState, restored: Set<SheetId> = emptySet()) {
+        SqliteSheetIdentityHistory(connection).reconcile(current.documents.keys, updated.documents.keys, restored)
+        if (current.functions != updated.functions) replaceFunctions(updated.functions)
         updated.dataModels.values.forEach { updatedModel ->
             val currentModel = current.dataModels[updatedModel.id]
             when {
@@ -104,7 +108,21 @@ internal class SqliteWorkbookWriter(
             }
         }
 
+        (current.dataModels.keys - updated.dataModels.keys).forEach { id ->
+            connection.prepareStatement("DELETE FROM data_models WHERE id = ?").use { statement ->
+                statement.setBytes(1, id.toUuidBytes())
+                statement.executeUpdate()
+            }
+        }
+
         if (current.manifest != updated.manifest) replaceManifest(updated.manifest)
+    }
+
+    private fun replaceFunctions(functions: List<CustomFunction>) {
+        connection.prepareStatement("UPDATE workbook_functions SET definitions = ? WHERE singleton_key = 1").use { statement ->
+            statement.setString(1, Json.encodeToString(functions))
+            statement.executeUpdate()
+        }
     }
 
     private fun insertSheet(sheet: SheetDocument) {

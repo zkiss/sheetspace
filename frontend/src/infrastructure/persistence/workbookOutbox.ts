@@ -1,5 +1,6 @@
 import { SheetId } from '@workbook/core/model';
 import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@application/core/userActions';
+import type { LifecycleReceipt } from './workbookApi';
 
 export type OutboxStatus = 'queued' | 'running' | 'failed' | 'succeeded' | 'superseded' | 'blocked';
 export type OutboxEntry = {
@@ -11,6 +12,7 @@ export type OutboxEntry = {
   status: OutboxStatus;
   failure: unknown | undefined;
   sequence: number;
+  receipt?: LifecycleReceipt;
 };
 
 export type OutboxSnapshot = readonly OutboxEntry[];
@@ -19,6 +21,7 @@ export type TransportResult =
     kind: 'saved';
     revisions: readonly { sheetId: SheetId; revision: number }[];
     missingSheetIds?: readonly SheetId[];
+    receipt?: LifecycleReceipt;
   }
   | { kind: 'missing-sheet'; sheetIds: readonly SheetId[] }
   | { kind: 'blocked'; reason: string };
@@ -177,6 +180,7 @@ export class WorkbookOutbox {
       if (!this.isSuperseded(entry)) {
         entry.status = result.kind === 'blocked' ? 'blocked' : 'succeeded';
         entry.failure = result.kind === 'blocked' ? new Error(result.reason) : undefined;
+        entry.receipt = result.kind === 'saved' && result.receipt ? structuredClone(result.receipt) : undefined;
       }
     } catch (failure) {
       if (!this.isSuperseded(entry)) { entry.status = 'failed'; entry.failure = failure; }
@@ -214,7 +218,7 @@ export class WorkbookOutbox {
   private publish() { const snapshot = this.snapshot(); this.listeners.forEach((listener) => listener(snapshot)); }
 }
 
-function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent: cloneIntent(entry.intent), affectedSheetIds: [...entry.affectedSheetIds] }; }
+function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent: cloneIntent(entry.intent), affectedSheetIds: [...entry.affectedSheetIds], ...(entry.receipt && { receipt: structuredClone(entry.receipt) }) }; }
 function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceIntent {
   switch (intent.kind) {
     case 'model-lifecycle': return structuredClone(intent);

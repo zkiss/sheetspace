@@ -15,7 +15,7 @@ describe('navigation palette composition', () => {
     workbook.dataModels = { invoice: { id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }] } };
     const completion = deferred<Workbook>();
     const apiClient = persistedWorkbookClient(workbook);
-    apiClient.saveModelLifecycle.mockReturnValue(completion.promise);
+    apiClient.admitModelLifecycle.mockImplementation(async (operationId) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook: await completion.promise }));
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     await user.click(cell);

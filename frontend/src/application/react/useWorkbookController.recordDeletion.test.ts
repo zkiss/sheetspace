@@ -45,7 +45,7 @@ describe('persisted model record deletion', () => {
     const receipts = await Promise.all(api.deleteRecord.mock.results.map((call) => call.value));
     expect(receipts[0].deletionId).not.toBe(receipts[1].deletionId);
     expect(result.current.canRedo).toBe(false);
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(api.admitRecord).not.toHaveBeenCalled();
     expect(api.replayRecord).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
@@ -80,7 +80,7 @@ describe('persisted model record deletion', () => {
     });
     expect(api.deleteRecord).toHaveBeenCalledOnce();
     expect(api.replayRecordDeletion).not.toHaveBeenCalled();
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
     act(() => old.confirmRecordDeletion());
     await waitFor(() => expect(result.current.recordDeletion.unresolved).toBe(false));
@@ -136,7 +136,7 @@ describe('persisted model record deletion', () => {
       result.current.commands.redo();
     });
     expect(api.replayRecordDeletion).toHaveBeenCalledOnce();
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
     api.replayRecordDeletion.mockImplementation(replay);
     act(() => result.current.commands.undo());

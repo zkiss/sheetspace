@@ -6,10 +6,12 @@ import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: true, workbook });
+
 function setup() {
   const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '1' } });
-  const save = vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => after);
-  const api = autosaveClient({ saveModelLifecycle: save });
+  const save = vi.fn().mockImplementation(async (id: string, _before: Workbook, after: Workbook) => receipt(id, after));
+  const api = autosaveClient({ admitModelLifecycle: save });
   const hook = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
   const criteria = [{ columnId: sheet.content.columns[0]!, direction: 'ascending' as const }];
   return { sheet, save, api, criteria, ...hook };
@@ -17,7 +19,7 @@ function setup() {
 
 it('fences edits during ambiguous configuration and its deferred exact-payload retry', async () => {
   const { sheet, save, api, criteria, result } = setup();
-  const retry = deferred<Workbook>();
+  const retry = deferred<ReturnType<typeof receipt>>();
   save.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(retry.promise);
   let submission: ReturnType<typeof result.current.commands.configureSorting>;
   act(() => { submission = result.current.commands.configureSorting('s', criteria); });
@@ -37,7 +39,7 @@ it('fences edits during ambiguous configuration and its deferred exact-payload r
   expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
   expect(api.writeCells).not.toHaveBeenCalled();
   expect(api.updateSheetPosition).not.toHaveBeenCalled();
-  await act(async () => retry.resolve(save.mock.calls[1]![1]));
+  await act(async () => retry.resolve(receipt(save.mock.calls[1]![0], save.mock.calls[1]![2])));
   await waitFor(() => expect(result.current.canUndo).toBe(true));
   expect(result.current.workbook.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
   act(() => result.current.commands.undo());
@@ -54,7 +56,7 @@ it.each(['undo', 'redo'] as const)('fences edits and cursor during ambiguous %s 
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.canRedo).toBe(true));
   }
-  const retry = deferred<Workbook>();
+  const retry = deferred<ReturnType<typeof receipt>>();
   save.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(retry.promise);
   act(() => result.current.commands[direction]());
   await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(true));
@@ -75,7 +77,7 @@ it.each(['undo', 'redo'] as const)('fences edits and cursor during ambiguous %s 
   act(assertFenced);
   expect(save.mock.calls[callIndex + 1]).toEqual(save.mock.calls[callIndex]);
   expect(api.writeCells).not.toHaveBeenCalled();
-  await act(async () => retry.resolve(save.mock.calls[callIndex + 1]![1]));
+  await act(async () => retry.resolve(receipt(save.mock.calls[callIndex + 1]![0], save.mock.calls[callIndex + 1]![2])));
   await waitFor(() => expect(direction === 'undo' ? result.current.canRedo : result.current.canUndo).toBe(true));
   expect(result.current.workbook.documents.s!.content.rows).toEqual(direction === 'undo' ? sheet.content.rows : [...sheet.content.rows].reverse());
   expect(result.current.workbook.documents.s!.sorting).toEqual(direction === 'undo' ? undefined : criteria);

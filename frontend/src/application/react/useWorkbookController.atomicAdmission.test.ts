@@ -44,7 +44,7 @@ describe('live atomic admission wiring', () => {
     expect(fetch.mock.calls[0]![1].headers['If-Match']).toBe(String(before.documents.first!.revision));
     expect(result.current.workbook.documents.first!.content.rows).toEqual([...before.documents.first!.content.rows, request.rowId]);
     expect(result.current.entrySessions.first!.draft.fields.input!.raw).toBe('');
-    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(api.admitModelLifecycle).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
     api.writeCells.mockResolvedValueOnce({ sheets: [{ sheetId: 'first', revision: 5 }] });
     act(() => { result.current.commands.updateCellContent('first', 'A1', '8'); });

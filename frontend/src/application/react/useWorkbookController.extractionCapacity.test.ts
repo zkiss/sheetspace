@@ -4,6 +4,7 @@ import { autosaveClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { extractSelection } from '@application/core/extractSelection';
+import { ContentHistory } from '@application/core/contentHistory';
 import { useWorkbookController } from './useWorkbookController';
 
 function fixture(size: number) {
@@ -39,7 +40,7 @@ describe('extraction history capacity', () => {
     const { workbook, request, bytes } = fixture(9 * 1024 * 1024);
     expect(bytes).toBeGreaterThan(16 * 1024 * 1024);
     const save = vi.fn();
-    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: autosaveClient({ admitModelLifecycle: save }) }));
     act(() => result.current.commands.updateCellContent('s', 'B1', 'small'));
     await act(async () => {});
     act(() => result.current.commands.undo());
@@ -51,6 +52,32 @@ describe('extraction history capacity', () => {
     expect(await submission.completion).toEqual(submission.result);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
     expect(result.current.canRedo).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each(['offline', 'sorted online'] as const)('rejects oversized candidates without publication or consuming redo: %s', async (mode) => {
+    const { workbook, request } = fixture(9 * 1024 * 1024);
+    if (mode === 'sorted online') {
+      const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1 });
+      neighbor.sorting = [{ columnId: neighbor.content.columns[0]!, direction: 'ascending' }];
+      workbook.documents.neighbor = neighbor;
+      workbook.manifest.sheetIds.push('neighbor');
+    }
+    const save = vi.fn();
+    const historyAccess = vi.spyOn(ContentHistory.prototype, 'canUndo', 'get');
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, ...(mode === 'sorted online' && { apiClient: autosaveClient({ admitModelLifecycle: save }) }) }));
+    const history = historyAccess.mock.contexts[0] as ContentHistory;
+    historyAccess.mockRestore();
+    history.record([], { sheetIds: [], cells: [] });
+    history.commitUndo();
+    expect(history.canRedo).toBe(true);
+    const before = result.current.workbook;
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    expect(submission.result).toEqual({ ok: false, reason: 'extraction-history-too-large' });
+    expect(await submission.completion).toEqual(submission.result);
+    expect(result.current.workbook).toBe(before);
+    expect(history.canRedo).toBe(true);
     expect(save).not.toHaveBeenCalled();
   });
 });

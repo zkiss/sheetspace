@@ -7,6 +7,8 @@ import { cellRawContent } from '@workbook/read/queries';
 import type { Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 describe('persisted extraction chronology', () => {
   it('replays edits, a multi-row reorder and extraction in chronological order', async () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 4, columnCount: 1 });
@@ -22,7 +24,7 @@ describe('persisted extraction chronology', () => {
       targetColumns: ['00000000-0000-0000-0000-000000000003'],
       frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 },
     };
-    let lifecycleCount = 0;
+    let transition!: { before: Workbook; after: Workbook };
     const replaySaves: Array<{ pending: ReturnType<typeof deferred<Workbook>>; response: Workbook }> = [];
     const persistedSheet = structuredClone(sheet);
     const api = autosaveClient({
@@ -32,14 +34,18 @@ describe('persisted extraction chronology', () => {
         return structuredClone(persistedSheet);
       }),
       writeCells: vi.fn().mockImplementation(async (revisions: { sheetId: string; revision: number }[]) => ({ sheets: revisions })),
-      saveModelLifecycle: vi.fn().mockImplementation((_before: Workbook, after: Workbook) => {
-        lifecycleCount += 1;
+      admitModelLifecycle: vi.fn().mockImplementation(async (operationId: string, before: Workbook, after: Workbook) => {
         const copy = structuredClone(after);
-        if (copy.documents[target]) copy.documents[target]!.revision = lifecycleCount === 1 ? 9 : 1;
-        if (lifecycleCount === 1) return Promise.resolve(copy);
+        copy.documents[target]!.revision = 9;
+        transition = { before: structuredClone(before), after: copy };
+        return receipt(operationId, copy);
+      }),
+      replayModelLifecycle: vi.fn().mockImplementation((operationId: string, _transitionId: string, direction: 'undo' | 'redo') => {
+        const response = structuredClone(direction === 'undo' ? transition.before : transition.after);
+        if (response.documents[target]) response.documents[target]!.revision = 1;
         const pending = deferred<Workbook>();
-        replaySaves.push({ pending, response: copy });
-        return pending.promise;
+        replaySaves.push({ pending, response });
+        return pending.promise.then((workbook) => receipt(operationId, workbook));
       }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));

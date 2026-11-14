@@ -59,8 +59,8 @@ async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGa
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => { controller = realController(options); return controller; });
   const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8, position: { x: 48, y: 96 }, frameSize: { width: 310, height: 220 } })]);
   const api = persistedWorkbookClient(workbook);
-  const save = api.saveModelLifecycle.getMockImplementation()!;
-  if (saveGate) api.saveModelLifecycle.mockImplementationOnce(async (...args) => { await saveGate; return save(...args); });
+  const save = api.admitModelLifecycle.getMockImplementation()!;
+  if (saveGate) api.admitModelLifecycle.mockImplementationOnce(async (...args) => { await saveGate; return save(...args); });
   render(<App initialWorkbook={workbook} apiClient={api} />);
   const surface = screen.getByTestId('workspace-surface');
   measuredElementGeometry(surface, { width: 800, height: 600 });

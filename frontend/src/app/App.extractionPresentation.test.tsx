@@ -227,8 +227,8 @@ it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-chan
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
   const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8, position: { x: 48, y: 96 }, frameSize: { width: 310, height: 220 } })]);
   const api = persistedWorkbookClient(workbook);
-  const completion = deferred<typeof workbook>();
-  if (scenario.startsWith('reject')) api.saveModelLifecycle.mockReturnValue(completion.promise);
+  const completion = deferred<Awaited<ReturnType<typeof api.admitModelLifecycle>>>();
+  if (scenario.startsWith('reject')) api.admitModelLifecycle.mockReturnValue(completion.promise);
   render(<App initialWorkbook={workbook} apiClient={api} />);
   const surface = screen.getByTestId('workspace-surface');
   measuredElementGeometry(surface, { width: 800, height: 600 });

@@ -1,43 +1,5 @@
 package com.sheetspace
 
-data class CreateSheetCommand(
-    val name: String,
-    val position: WorkspacePosition = WorkspacePosition(),
-    val frameSize: SheetFrameSize = SheetFrameSize(),
-    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
-    val zIndex: Int? = null,
-)
-
-data class UpdateSheetCommand(
-    val name: String? = null,
-    val position: WorkspacePosition? = null,
-    val frameSize: SheetFrameSize? = null,
-    val visualScale: Double? = null,
-)
-
-data class SheetZOrderUpdate(
-    val sheetId: String,
-    val expectedRevision: Long,
-    val zIndex: Int,
-)
-
-data class RowAppendResult(
-    val sheet: SheetDocument,
-    val rowId: RowId,
-)
-
-data class ColumnAppendResult(
-    val sheet: SheetDocument,
-    val columnId: ColumnId,
-)
-
-data class CellPatchCommand(
-    val expectedRevisions: List<ExpectedSheetRevision>,
-    val cells: List<SheetCellWrite>,
-)
-
-data class UpdateSheetModelCommand(val modelId: String?, val modelColumnBindings: Map<String, ColumnId>? = null)
-
 enum class WorkbookApplicationError {
     SHEET_NOT_FOUND,
     SHEET_NAME_REQUIRED,
@@ -64,6 +26,7 @@ enum class WorkbookApplicationError {
     INVALID_MODEL_RECORD,
     INVALID_AXIS_ORDER,
     INVALID_SORTING,
+    INVALID_FUNCTION,
 }
 
 class WorkbookApplicationException(
@@ -72,10 +35,15 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun admitFunctionWrite(request: FunctionWriteRequest): FunctionMutationResponse
+    fun admitFunctionDelete(request: FunctionDeleteRequest): FunctionMutationResponse
+    fun replayLifecycle(transitionId: String, request: LifecycleReplayRequest): ModelLifecycleResponse
+    fun setFunction(before: WorkbookState, declaration: CustomFunction, previousName: String?): WorkbookState
+    fun deleteFunction(before: WorkbookState, name: String): WorkbookState
     fun deleteRecord(sheetId: String, rowId: String, request: RecordDeletionRequest): RecordDeletionResult
     fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument
     fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument
-    fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
+    fun saveModelLifecycle(request: ModelLifecycleRequest): ModelLifecycleResponse
     fun loadManifest(): WorkbookManifest
 
     fun loadWorkbookBundle(): WorkbookState
@@ -83,6 +51,8 @@ interface WorkbookApplication {
     fun loadSheet(sheetId: String): SheetDocument
 
     fun createSheet(command: CreateSheetCommand): SheetDocument
+
+    fun createSheetWithReceipt(command: CreateSheetCommand): SheetCreationResult
 
     fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): SheetDocument
 
@@ -111,7 +81,18 @@ interface WorkbookApplication {
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
     private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
+    private val functionAdmission: FunctionAdmission = SharedFunctionAdmission,
 ) : WorkbookApplication {
+    private val functionMutations = FunctionMutations(store, functionAdmission)
+    override fun admitFunctionWrite(request: FunctionWriteRequest) = functionMutations.admitFunctionWrite(request)
+    override fun admitFunctionDelete(request: FunctionDeleteRequest) = functionMutations.admitFunctionDelete(request)
+    override fun replayLifecycle(transitionId: String, request: LifecycleReplayRequest): ModelLifecycleResponse {
+        val prepared = prepareLifecycleReplay(transitionId, request)
+        val result = store.replayLifecycle(prepared)
+        return ModelLifecycleResponse(prepared.operationId, result.transitionId, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
+    override fun setFunction(before: WorkbookState, declaration: CustomFunction, previousName: String?) = functionMutations.setFunction(before, declaration, previousName)
+    override fun deleteFunction(before: WorkbookState, name: String) = functionMutations.deleteFunction(before, name)
     override fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument =
         updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
             val content = sheet.tabularContent
@@ -148,14 +129,17 @@ class DefaultWorkbookApplication(
             }
             workbook.replaceSheet(sheet.copy(content = updated))
         }
-    override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
-        store.updateWorkbook { current ->
-            val reconciled = reconcileModelLifecycle(current, before, after)
+    override fun saveModelLifecycle(request: ModelLifecycleRequest): ModelLifecycleResponse {
+        val prepared = prepareLifecycleAdmission(request.operationId, request.before, request.after)
+        val result = store.admitLifecycle(prepared) { current ->
+            val reconciled = reconcileModelLifecycle(current, prepared.before, prepared.after, functionAdmission)
             if (!calculatedTransitionIsValid(current, reconciled)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
             }
             reconciled
         }
+        return ModelLifecycleResponse(prepared.operationId, result.transitionId, result.alreadyCommitted, WorkbookReadTransportAdapter.bundle(result.workbook))
+    }
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -165,6 +149,11 @@ class DefaultWorkbookApplication(
             ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
 
     override fun createSheet(command: CreateSheetCommand): SheetDocument {
+        val result = createSheetWithReceipt(command)
+        return result.workbook.documents.getValue(result.sheetId)
+    }
+
+    override fun createSheetWithReceipt(command: CreateSheetCommand): SheetCreationResult {
         validateFrameCommand(command.position, command.frameSize, command.visualScale, command.zIndex)
 
         lateinit var createdSheet: SheetDocument
@@ -182,9 +171,10 @@ class DefaultWorkbookApplication(
                 is SheetNameResult.Valid -> result.value
                 is SheetNameResult.Invalid -> throw WorkbookApplicationException(result.reason.applicationError)
             }
-            workbook.addSheet(createdSheet)
+            val added = workbook.addSheet(createdSheet)
+            if (added.functions.isEmpty()) added else added.copy(functions = functionAdmission.bindSheet(added, createdSheet.id))
         }
-        return updated.documents.getValue(createdSheet.id)
+        return SheetCreationResult(createdSheet.id, updated)
     }
 
     override fun updateSheet(
@@ -262,7 +252,8 @@ class DefaultWorkbookApplication(
             }
             // Removing a sheet invalidates the derived instances that reference it, so the
             // dependent sheets are materialized in the same operation.
-            materializeDerivedContents(workbook.removeSheet(id))
+            val removed = workbook.removeSheet(id)
+            materializeDerivedContents(removed.copy(functions = removed.functions.map { it.copy(bodyBindings = it.bodyBindings - id.value) }))
         }
     }
 

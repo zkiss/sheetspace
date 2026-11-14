@@ -11,6 +11,8 @@ import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 function renderAutosave(apiClient: Partial<WorkbookApi>, initialWorkbook: Workbook) {
   return renderHook(() => {
     const [workbook, setWorkbook] = useState(initialWorkbook);
@@ -36,11 +38,11 @@ describe('useSavedSheetAutosave', () => {
     const removed = workbookWithSheets([source]);
     const recreated = workbookWithSheets([source, { ...target, revision: 0 }]);
     const pending = deferred<Workbook>();
-    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(pending.promise);
+    const admitModelLifecycle = vi.fn().mockImplementationOnce(async (operationId: string) => receipt(operationId, removed)).mockImplementationOnce(async (operationId: string) => receipt(operationId, await pending.promise));
     const appendRow = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1, rowCount: 21, rowId: 'row' });
     const writeCells = vi.fn().mockResolvedValue({ sheets: [{ sheetId: target.id, revision: 2 }] });
     const updateSheetFrameLayout = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 3 });
-    const api = { saveModelLifecycle, appendRow, writeCells, updateSheetFrameLayout };
+    const api = { admitModelLifecycle, appendRow, writeCells, updateSheetFrameLayout };
     const coordinator = new WorkbookPersistenceCoordinator();
     const { result } = renderHook(() => {
       const [workbook, setWorkbook] = useState(before);
@@ -61,7 +63,7 @@ describe('useSavedSheetAutosave', () => {
     act(() => result.current.axis.appendRow(target.id));
     expect(result.current.axis.hasUnsettled()).toBe(true);
     expect(appendRow).not.toHaveBeenCalled();
-    await act(async () => pending.resolve(recreated));
+    await act(async () => { result.current.setWorkbook(recreated); pending.resolve(recreated); });
     await waitFor(() => expect(appendRow).toHaveBeenCalledWith(target.id, { revision: 0 }));
     await waitFor(() => expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(1));
     act(() => result.current.autosave.enqueue('cell', { kind: 'write-cells', writes: [{ sheetId: target.id, rowId: 'row', columnId: 'column', beforeRaw: null, afterRaw: '3' }] }));
@@ -79,9 +81,9 @@ describe('useSavedSheetAutosave', () => {
     const before = workbookWithSheets([source, target]);
     const removed = workbookWithSheets([source]);
     const recreated = workbookWithSheets([source, { ...target, revision: 0 }]);
-    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(removed).mockResolvedValueOnce(recreated);
+    const admitModelLifecycle = vi.fn().mockImplementationOnce(async (operationId: string) => receipt(operationId, removed)).mockImplementationOnce(async (operationId: string) => receipt(operationId, recreated));
     const renameSheet = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1 });
-    const { result } = renderAutosave({ saveModelLifecycle, renameSheet }, before);
+    const { result } = renderAutosave({ admitModelLifecycle, renameSheet }, before);
 
     act(() => result.current.autosave.enqueue('remove', { kind: 'model-lifecycle', before, after: removed }));
     await waitFor(() => expect(result.current.autosave.outboxSnapshot[0]?.status).toBe('succeeded'));
@@ -90,7 +92,7 @@ describe('useSavedSheetAutosave', () => {
       result.current.autosave.enqueue('recreate', { kind: 'model-lifecycle', before: removed, after: before });
     });
     await waitFor(() => expect(result.current.autosave.outboxSnapshot[1]?.status).toBe('succeeded'));
-    expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(0);
+    expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(9);
     act(() => result.current.autosave.enqueue('rename', { kind: 'rename-sheet', sheetId: target.id, name: 'New' }));
     await waitFor(() => expect(renameSheet).toHaveBeenCalledWith(target.id, 'New', { revision: 0 }));
   });

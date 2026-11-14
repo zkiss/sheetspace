@@ -10,6 +10,8 @@ import type { Workbook } from '@workbook/core/model';
 
 const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`);
 
+const receipt = (operationId: string, workbook: Workbook) => ({ operationId, transitionId: 'dd36b1da-89af-4d7d-b81e-17a9c426f6e4', alreadyCommitted: false, workbook });
+
 describe('extraction controller history', () => {
   it('orders same-turn extraction and edits with undo and redo', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
@@ -76,8 +78,8 @@ describe('extraction controller history', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
     const cell = cellIdentityAt(sheet.content, 'A1')!;
     const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
-    const save = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (_before: Workbook, after: Workbook) => after);
-    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+    const save = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (operationId: string, _before: Workbook, after: Workbook) => receipt(operationId, after));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ admitModelLifecycle: save }) }));
     act(() => { result.current.commands.updateCellContent('s', 'A1', '42'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     await act(async () => {

@@ -29,6 +29,10 @@ data class SheetZOrderWrite(
 )
 
 interface WorkbookStore {
+    fun updateFunction(transform: (WorkbookState) -> FunctionMutationResult): WorkbookState = updateWorkbook { transform(it).workbook }
+    fun admitFunction(request: PreparedFunctionMutation, transform: (WorkbookState) -> FunctionMutationResult): StoredFunctionMutation
+    fun replayLifecycle(replay: PreparedLifecycleReplay): StoredLifecycleAdmission
+    fun admitLifecycle(request: PreparedLifecycleAdmission, transform: (WorkbookState) -> WorkbookState): StoredLifecycleAdmission
     fun deleteRecord(request: PreparedRecordDeletion, transform: (WorkbookState) -> RecordAdmissionStages): StoredRecordAdmission
     fun replayDeletion(replay: PreparedDeletionReplay): StoredRecordAdmission
     fun replayRecord(replay: PreparedRecordReplay): StoredRecordAdmission

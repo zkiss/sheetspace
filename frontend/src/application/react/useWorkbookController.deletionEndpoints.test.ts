@@ -27,15 +27,15 @@ it.each([false, true])('restores calculated deletion-era endpoints without settl
   expect(undone.documents.sheet!.content.cells[formulaKey]).toBe(formula);
   expect(undone.documents.sheet!.presentation.rowHeights[rowId]).toBe(48);
   expect(undone.documents.sheet!.presentation.formatOverrides!.cells[formulaKey]).toEqual({ fontWeight: 'bold' });
-  if (persisted) expect(await api.loadWorkbook()).toEqual(undone);
+  if (persisted) await waitFor(async () => expect(await api.loadWorkbook()).toEqual(result.current.workbook));
   act(() => result.current.commands.redo());
   await waitFor(() => expect(endpointContents(result.current.workbook)).toEqual(endpointContents(deleted)));
   if (persisted) {
-    expect(await api.loadWorkbook()).toEqual(result.current.workbook);
+    await waitFor(async () => expect(await api.loadWorkbook()).toEqual(result.current.workbook));
     expect(api.deleteRecord).toHaveBeenCalledOnce();
     expect(api.replayRecordDeletion.mock.calls.map((call) => call[3].direction)).toEqual(['undo', 'redo']);
   } else expect(api.deleteRecord).not.toHaveBeenCalled();
-  expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  expect(api.admitModelLifecycle).not.toHaveBeenCalled();
   expect(api.admitRecord).not.toHaveBeenCalled();
   expect(api.writeCells).not.toHaveBeenCalled();
 });
@@ -60,13 +60,62 @@ it.each([false, true])('keeps cell, configuration, deletion and semantic edit ch
       act(() => result.current.commands[direction]());
       await waitFor(() => expect(endpointContents(result.current.workbook)).toEqual(endpointContents(endpoints[index]!)));
       if (persisted) {
-        expect(await api.loadWorkbook()).toEqual(result.current.workbook);
-        expect(api.replayRecordDeletion).toHaveBeenCalledTimes(replayCount + ((direction === 'undo' ? index === 2 : index === 3) ? 1 : 0));
+        await waitFor(async () => {
+          expect(api.replayRecordDeletion).toHaveBeenCalledTimes(replayCount + ((direction === 'undo' ? index === 2 : index === 3) ? 1 : 0));
+          expect(await api.loadWorkbook()).toEqual(result.current.workbook);
+        });
       }
     }
   }
   expect(result.current.canRedo).toBe(false);
   expect(result.current.canUndo).toBe(true);
+});
+
+it('installs the deletion replay endpoint only after its committed receipt arrives', async () => {
+  const { api, initial, rowId } = deletionFixture();
+  const replay = api.replayRecordDeletion.getMockImplementation()!;
+  let release!: () => void;
+  const receiptGate = new Promise<void>((resolve) => { release = resolve; });
+  api.replayRecordDeletion.mockImplementation(async (...args) => {
+    const receipt = await replay(...args);
+    await receiptGate;
+    return receipt;
+  });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+  await act(async () => expect((await result.current.commands.deleteRow('sheet', rowId).completion).ok).toBe(true));
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(api.replayRecordDeletion).toHaveBeenCalledOnce());
+  const stored = await api.loadWorkbook();
+  expect(endpointContents(stored)).toEqual(endpointContents(initial));
+  expect(endpointContents(stored)).not.toEqual(endpointContents(result.current.workbook));
+  expect(stored).not.toEqual(result.current.workbook);
+  await act(async () => release());
+  await waitFor(async () => expect(await api.loadWorkbook()).toEqual(result.current.workbook));
+  expect(api.replayRecordDeletion).toHaveBeenCalledOnce();
+});
+
+it('reconciles an optimistic cell undo with the revision from its delayed write receipt', async () => {
+  const { api, initial } = deletionFixture();
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+  act(() => expect(result.current.commands.updateCellContent('other', 'A1', '8').ok).toBe(true));
+  await waitFor(async () => expect(await api.loadWorkbook()).toEqual(result.current.workbook));
+  const write = api.writeCells.getMockImplementation()!;
+  let release!: () => void;
+  const receiptGate = new Promise<void>((resolve) => { release = resolve; });
+  api.writeCells.mockImplementation(async (...args) => {
+    const receipt = await write(...args);
+    await receiptGate;
+    return receipt;
+  });
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
+  const stored = await api.loadWorkbook();
+  expect(endpointContents(stored)).toEqual(endpointContents(result.current.workbook));
+  expect(stored.documents.other!.revision).toBe(result.current.workbook.documents.other!.revision + 1);
+  await act(async () => release());
+  await waitFor(async () => expect(await api.loadWorkbook()).toEqual(result.current.workbook));
+  expect(api.writeCells).toHaveBeenCalledTimes(2);
+  expect(api.replayRecordDeletion).not.toHaveBeenCalled();
 });
 
 it('preflights unsorted local deletion history capacity before changing the workbook', async () => {

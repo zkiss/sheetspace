@@ -102,6 +102,7 @@ export function Workspace({
   onNavigateCell,
   onNavigateKeyboardCell,
   onOpenDataModels,
+  onOpenFunctions,
   onOpenRenameDialog,
   onPresentationChange,
   onRetryFailedSaves,
@@ -150,6 +151,7 @@ export function Workspace({
   onUpdateEditView?: (selection: { start: number; end: number }, scrollTop: number) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
+  onOpenFunctions?: () => void;
   onOpenDataModels?: (modelId?: string, propertyId?: string, onClose?: () => void) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onPresentationChange?: (snapshot: PresentationSnapshot) => void;
@@ -1167,6 +1169,7 @@ export function Workspace({
         onGoBack={() => navigationHistory.traverse('back')}
         onGoForward={() => navigationHistory.traverse('forward')}
         onOpenDataModels={onOpenDataModels}
+        onOpenFunctions={onOpenFunctions}
         onOpenCommandPalette={() => { paletteInvoker.current = document.activeElement as HTMLElement; setCommandPaletteOpen(true); }}
         onToggleReferences={() => setReferenceLinksVisible((visible) => !visible)}
         onRetryFailedSaves={onRetryFailedSaves}
