@@ -69,27 +69,29 @@ export function SheetSortingControls({ sheet, labels, onApply, onClose }: {
   };
   return <div className="sheet-sorting-backdrop">
     <div ref={editor} className="sheet-sorting-dialog" data-sheet-sorting-editor data-workspace-navigation role="dialog" aria-modal="true" aria-label={`Sort ${sheet.name}`} onKeyDown={keyboard}>
-      <h2>Sort {sheet.name}</h2>
-      <p>Rows are sorted by each level in order.</p>
-      {!criteria.length && <p>No sorting levels. Add a level to sort this sheet.</p>}
+      <div className="sheet-sorting-heading">
+        <h2>Sort sheet</h2>
+        <p>Choose how to sort rows in {sheet.name}.</p>
+      </div>
+      {!criteria.length && <p className="sheet-sorting-empty">No sorting applied. Add a sort rule to get started.</p>}
       {criteria.map((item, index) => <div key={item.key} className="sheet-sorting-criterion">
         <strong>{index === 0 ? 'Sort by' : 'Then by'}</strong>
-        <label>Column {index + 1}<select value={item.columnId} disabled={pending} onChange={(event) => change(index, { ...item, columnId: event.currentTarget.value })}>
+        <label>Column<select aria-label={`Column ${index + 1}`} value={item.columnId} disabled={pending} onChange={(event) => change(index, { ...item, columnId: event.currentTarget.value })}>
           {sheet.content.columns.filter((id) => id === item.columnId || !criteria.some((other) => other.columnId === id)).map((id) => <option key={id} value={id}>{name(id)}</option>)}
         </select></label>
-        <label>Direction {index + 1}<select value={item.direction} disabled={pending} onChange={(event) => change(index, { ...item, direction: event.currentTarget.value as SortCriterion['direction'] })}><option value="ascending">Ascending</option><option value="descending">Descending</option></select></label>
+        <label>Order<select aria-label={`Sort order ${index + 1}`} value={item.direction} disabled={pending} onChange={(event) => change(index, { ...item, direction: event.currentTarget.value as SortCriterion['direction'] })}><option value="ascending">Ascending</option><option value="descending">Descending</option></select></label>
         <div className="sheet-sorting-level-actions">
-          <button type="button" aria-label={`Move level ${index + 1} up`} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
-          <button type="button" aria-label={`Move level ${index + 1} down`} disabled={pending || index === criteria.length - 1} onClick={() => move(index, 1)}>↓</button>
-          <button type="button" aria-label={`Remove level ${index + 1}`} disabled={pending} onClick={() => setDraft(criteria.filter((_, i) => i !== index))}>Remove</button>
+          <button type="button" title="Move up" aria-label={`Move sort rule ${index + 1} up`} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
+          <button type="button" title="Move down" aria-label={`Move sort rule ${index + 1} down`} disabled={pending || index === criteria.length - 1} onClick={() => move(index, 1)}>↓</button>
+          <button type="button" title="Remove sort rule" aria-label={`Remove sort rule ${index + 1}`} disabled={pending} onClick={() => setDraft(criteria.filter((_, i) => i !== index))}>×</button>
         </div>
       </div>)}
       <div className="sheet-sorting-actions">
-        <button type="button" disabled={pending || criteria.length === sheet.content.columns.length} onClick={() => { const id = sheet.content.columns.find((column) => !criteria.some((item) => item.columnId === column)); if (id) setDraft([...criteria, { columnId: id, direction: 'ascending', key: nextKey.current++ }]); }}>Add level</button>
-        <button type="button" disabled={pending || !criteria.length} onClick={() => setDraft([])}>Clear sorting</button>
+        <button className="sheet-sorting-secondary" type="button" disabled={pending || criteria.length === sheet.content.columns.length} onClick={() => { const id = sheet.content.columns.find((column) => !criteria.some((item) => item.columnId === column)); if (id) setDraft([...criteria, { columnId: id, direction: 'ascending', key: nextKey.current++ }]); }}>+ Add another sort column</button>
+        <button className="sheet-sorting-secondary" type="button" disabled={pending || !criteria.length} onClick={() => setDraft([])}>Clear sort</button>
         <span />
-        <button type="button" disabled={pending} onClick={close}>Cancel</button>
-        <button type="button" disabled={pending} onClick={apply}>Apply sorting</button>
+        <button className="sheet-sorting-secondary" type="button" disabled={pending} onClick={close}>Cancel</button>
+        <button type="button" disabled={pending} onClick={apply}>Apply</button>
       </div>
       {pending && <span role="status">Saving sorting…</span>}{feedback && <span role="alert">{feedback}</span>}
     </div>
