@@ -102,3 +102,17 @@ it('edits a parameter formula in light and expanded modes', () => {
   expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'light');
   expect(input).toHaveValue('=@amount * 2');
 });
+
+it('uses Escape to leave the expanded editor, the draft, and the dialog in order', () => {
+  const close = vi.fn();
+  render(<FunctionDialog functions={[]} onClose={close} onRetry={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Create function' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Expand editor' }));
+  const input = screen.getByRole('textbox', { name: 'Formula body' });
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'light');
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.getByRole('button', { name: 'Create function' })).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Create function' }), { key: 'Escape' });
+  expect(close).toHaveBeenCalledOnce();
+});

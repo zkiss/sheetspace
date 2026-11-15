@@ -23,6 +23,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 - Let Save recover failed saves before applying current function edits, without a separate retry button.
 - Use the shared formula editor in function authoring and require `@` on parameter references.
 - Expand the formula editor over the dialog contents without resizing the dialog.
+- Let Escape dismiss the expanded formula editor and leave the function draft.
 
 ## UI design and evaluation guidance
 
