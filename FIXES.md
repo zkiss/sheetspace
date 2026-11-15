@@ -20,6 +20,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 ## Functions
 
 - Refine the function manager and editor layout, hierarchy, and action styling.
+- Let Save recover failed saves before applying current function edits, without a separate retry button.
 
 ## UI design and evaluation guidance
 

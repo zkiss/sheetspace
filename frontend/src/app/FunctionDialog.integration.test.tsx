@@ -19,9 +19,9 @@ it('connects authoring, cell entry, editing and deletion to recalculated callers
   render(<Harness capture={(current) => { controller = current; }} />);
   fireEvent.click(screen.getByText('Create function'));
   fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'fibonacci' } });
-  fireEvent.click(screen.getByText('Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
   fireEvent.change(screen.getByLabelText('Parameter 1 name'), { target: { value: 'a' } });
-  fireEvent.click(screen.getByText('Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
   fireEvent.change(screen.getByLabelText('Parameter 2 name'), { target: { value: 'b' } });
   fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=SUM(a,b)' } });
   fireEvent.click(screen.getByText('Save'));
@@ -61,10 +61,29 @@ it('reconciles a retried create before saving further changes to the retained dr
   await screen.findByRole('alert');
   fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'renamed' } });
   fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=2' } });
-  fireEvent.click(screen.getByText('Retry failed saves'));
-  await screen.findByText(/failed save was applied/i);
-  expect(screen.getByLabelText('Function name')).toHaveValue('renamed');
   fireEvent.click(screen.getByText('Save'));
   await screen.findByText('renamed()');
   expect(save).toHaveBeenCalledTimes(3);
+});
+
+it('keeps the draft editable when retrying a failed save fails again', async () => {
+  const initial = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+  const save = vi.fn().mockRejectedValue(new Error('offline'));
+  const api = autosaveClient({ loadWorkbook: vi.fn().mockResolvedValue(initial), setFunction: save });
+  function RetryHarness() {
+    const { workbook, commands, saveStatus } = useWorkbookController({ initialWorkbook: initial, apiClient: api });
+    return <FunctionDialog functions={workbook.functions ?? []} saveStatus={saveStatus} onClose={() => {}} onRetry={commands.retryFailedSaves} onSave={async (draft, previous) => commands.setFunction(draft, previous).completion} onDelete={async (name) => commands.deleteFunction(name).completion} />;
+  }
+  render(<RetryHarness />);
+  fireEvent.click(screen.getByText('Create function'));
+  fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'value' } });
+  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=1' } });
+  fireEvent.click(screen.getByText('Save'));
+  await screen.findByRole('alert');
+  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=2' } });
+  fireEvent.click(screen.getByText('Save'));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+  expect(screen.getByLabelText('Formula body')).toHaveValue('=2');
+  expect(screen.getByRole('alert')).toHaveTextContent('Check your connection and try again');
 });

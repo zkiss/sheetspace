@@ -26,6 +26,26 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
   const [failedSave, setFailedSave] = useState<{ name: string; previous?: CustomFunction } | null>(null);
   const [savedName, setSavedName] = useState<string>();
   const [focusAfterDelete, setFocusAfterDelete] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const recovery = useRef<((result: { ok: boolean; functions: readonly CustomFunction[] }) => void) | null>(null);
+  useEffect(() => {
+    if (!recovering || saveStatus === 'saving') return;
+    recovery.current?.({ ok: saveStatus === 'saved', functions });
+    recovery.current = null;
+    setRecovering(false);
+  }, [recovering, saveStatus, functions]);
+  useEffect(() => () => {
+    recovery.current?.({ ok: false, functions: [] });
+    recovery.current = null;
+  }, []);
+  function recover() {
+    if (saveStatus !== 'failed') return Promise.resolve({ ok: true, functions });
+    return new Promise<{ ok: boolean; functions: readonly CustomFunction[] }>((resolve) => {
+      recovery.current = resolve;
+      onRetry();
+      setRecovering(true);
+    });
+  }
   useEffect(() => {
     if (!failedSave || saveStatus !== 'saved') return;
     const saved = functions.find((fn) => fn.name.toLowerCase() === failedSave.name.toLowerCase());
@@ -63,19 +83,25 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
   async function remove(name: string) {
     setBusy(true); setError('');
     try {
+      const recovered = await recover();
+      if (!recovered.ok) { setError('The function could not be deleted. Check your connection and try again.'); return; }
+      if (!recovered.functions.some((fn) => fn.name.toLowerCase() === name.toLowerCase())) { setFocusAfterDelete(true); return; }
       const result = await onDelete(name);
-      if (!result.ok) setError('The function could not be deleted. Retry failed saves and try again.');
+      if (!result.ok) setError('The function could not be deleted. Check your connection and try again.');
       else setFocusAfterDelete(true);
-    } catch { setError('The function could not be deleted. Retry failed saves and try again.'); }
+    } catch { setError('The function could not be deleted. Check your connection and try again.'); }
     finally { setBusy(false); }
   }
   return <div className="dialog-backdrop" role="presentation">
     <section aria-label="Functions" aria-modal="true" className="data-model-dialog function-dialog" data-workspace-navigation onKeyDown={keyboard} ref={ref} role="dialog">
-      {draft ? <FunctionEditor initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onRetry={onRetry} onSave={async (value, previousName) => {
+      {draft ? <FunctionEditor initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onSave={async (value, previousName) => {
         setBusy(true);
         try {
-          const previous = functions.find((fn) => fn.name.toLowerCase() === value.name.toLowerCase());
-          const result = await onSave(value, previousName);
+          const recovered = await recover();
+          if (!recovered.ok) return { ok: false, reason: 'persistence-failed' };
+          const retried = failedSave && recovered.functions.find((fn) => fn.name.toLowerCase() === failedSave.name.toLowerCase() && fn !== failedSave.previous);
+          const previous = recovered.functions.find((fn) => fn.name.toLowerCase() === value.name.toLowerCase());
+          const result = await onSave(value, retried ? retried.name : previousName);
           if (result.ok) cancelDraft();
           else if (result.reason === 'persistence-failed') setFailedSave({ name: value.name, previous });
           return result;
@@ -91,7 +117,7 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
           <div className="function-list-actions"><button className="function-secondary" disabled={busy} onClick={() => setDraft(fn)} type="button">Edit {fn.name}</button><button className="function-secondary" disabled={busy} onClick={() => void remove(fn.name)} type="button">Delete {fn.name}</button></div>
         </li>)}</ul> : <div className="function-empty"><strong>No functions yet</strong><p>Create a function to reuse a formula across your workbook.</p></div>}
         {error ? <p role="alert" className="form-error">{error}</p> : null}
-        <div className="function-dialog-footer"><button className="function-secondary" disabled={busy} onClick={onRetry} type="button">Retry failed saves</button><button className="function-secondary" disabled={busy} onClick={onClose} type="button">Close</button></div>
+        <div className="function-dialog-footer"><button className="function-secondary" disabled={busy} onClick={onClose} type="button">Close</button></div>
       </>}
     </section>
   </div>;

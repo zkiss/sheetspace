@@ -11,7 +11,6 @@ type Props = {
   savedName?: string;
   functions: readonly CustomFunction[];
   onCancel: () => void;
-  onRetry?: () => void;
   onSave: (draft: FunctionDeclaration, previousName?: string) => Promise<FunctionResult>;
 };
 
@@ -25,7 +24,7 @@ const messages: Record<string, string> = {
   'unknown-function': 'This function no longer exists. Cancel and reopen the manager.',
 };
 
-export function FunctionEditor({ initial, savedName, functions, onCancel, onRetry, onSave }: Props) {
+export function FunctionEditor({ initial, savedName, functions, onCancel, onSave }: Props) {
   const [draft, setDraft] = useState<FunctionDeclaration>(() => initial
     ? { name: initial.name, parameters: initial.parameters.map((parameter) => ({ ...parameter })), body: initial.body }
     : { name: '', parameters: [], body: '=' });
@@ -60,9 +59,9 @@ export function FunctionEditor({ initial, savedName, functions, onCancel, onRetr
     setSaving(true);
     try {
       const result = await onSave(draft, savedName ?? initial?.name);
-      if (!result.ok) setError(messages[result.reason] ?? 'The function could not be saved. Retry failed saves and try again.');
+      if (!result.ok) setError(messages[result.reason] ?? 'The function could not be saved. Check your connection and try again.');
     } catch {
-      setError('The function could not be saved. Retry failed saves and try again.');
+      setError('The function could not be saved. Check your connection and try again.');
     } finally { setSaving(false); }
   }
   return <form className="function-editor" aria-label={initial ? 'Edit function' : 'Create function'} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save')) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
@@ -87,6 +86,6 @@ export function FunctionEditor({ initial, savedName, functions, onCancel, onRetr
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     {savedName ? <p role="status">The failed save was applied. Continue editing or cancel to keep the saved version.</p> : null}
     {saving ? <p role="status">Saving function…</p> : null}
-    <div className="dialog-actions function-editor-actions">{onRetry && <button className="function-secondary function-retry" disabled={saving} onClick={onRetry} type="button">Retry failed saves</button>}<button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
+    <div className="dialog-actions function-editor-actions"><button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
   </form>;
 }

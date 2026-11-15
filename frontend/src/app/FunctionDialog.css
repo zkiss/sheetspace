@@ -16,7 +16,7 @@
 .function-list-content { display: grid; gap: .3rem; min-width: 0; overflow-wrap: anywhere; }
 .function-list-formula { color: #60717b; font-size: .85rem; white-space: pre-wrap; }
 .function-list-actions, .function-parameter-actions { display: flex; gap: .35rem; flex: none; }
-.function-dialog-footer { display: flex; justify-content: space-between; gap: .5rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e1e8ec; }
+.function-dialog-footer { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e1e8ec; }
 .function-dialog .function-secondary, .function-dialog .function-parameter-actions button { border: 1px solid #cdd8de; border-radius: 5px; color: #344454; background: #fff; }
 .function-dialog .function-secondary:hover:not(:disabled), .function-dialog .function-parameter-actions button:hover:not(:disabled) { background: #edf2f4; }
 .function-dialog button:disabled { opacity: .4; }
@@ -30,7 +30,6 @@
 .function-editor > p:not(.form-error) { color: #765c16; font-size: .9rem; }
 .function-editor > p[role="status"] { color: #60717b; }
 .function-editor-actions { align-items: center; gap: .5rem; padding-top: .75rem; border-top: 1px solid #e1e8ec; }
-.function-retry { margin-right: auto; }
 @media (max-width: 600px) {
   .function-dialog-header, .function-list li { flex-wrap: wrap; }
   .function-parameter-row { grid-template-columns: minmax(0, 1fr) minmax(5rem, .5fr); }
