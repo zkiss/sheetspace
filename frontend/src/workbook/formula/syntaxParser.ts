@@ -222,7 +222,16 @@ export class FormulaParser {
       this.diagnostics.push({ kind: 'reference', code: '#REF!', sourceSpan });
       return { ok: true, value: { kind: 'invalid-reference', sourceSpan } };
     }
-    if (this.peek() === '@') return this.readReference();
+    if (this.peek() === '@') {
+      const parameter = /^@([A-Za-z][A-Za-z0-9_]*)/.exec(this.input.slice(this.index));
+      const following = parameter && this.input.slice(this.index + parameter[0].length).trimStart();
+      if (parameter && this.parameters?.has(parameter[1]!.toUpperCase()) && !/^(?:!|\[|:)/.test(following ?? '')) {
+        this.index += parameter[0].length;
+        this.recordToken('text', start, this.index);
+        return { ok: true, value: { kind: 'parameter', name: parameter[1]!.toUpperCase(), sourceSpan: this.span(start) } };
+      }
+      return this.readReference();
+    }
     const number = this.readNumber();
     if (number) return { ok: true, value: number };
 
@@ -243,11 +252,6 @@ export class FormulaParser {
       }
       this.skipWhitespace();
       if (this.peek() === '(') return this.readFunction(normalized, identifierStart);
-      if (this.parameters?.has(normalized)) {
-        this.index = identifierStart + identifier.length;
-        this.recordToken('text', identifierStart, this.index);
-        return { ok: true, value: { kind: 'parameter', name: normalized, sourceSpan: this.span(identifierStart) } };
-      }
       this.index = identifierStart;
     }
     return this.readReference();

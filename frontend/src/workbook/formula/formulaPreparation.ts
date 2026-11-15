@@ -147,6 +147,7 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
     return containsRetained(span) || propertiesFor(sheetFor(qualifier)).some((property) => property.name === name);
   } });
   const replacements: Replacement[] = [];
+  const parameterStarts = new Set(syntax.tokens.filter((token) => token.kind === 'text' && text[token.sourceSpan.start] === '@').map((token) => token.sourceSpan.start));
   for (const lexeme of syntax.referenceLexemes) {
     if (work) work.visits++;
     const retainedSpan = retainedByStart.get(lexeme.sourceSpan.start);
@@ -168,7 +169,7 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
     if (text[index] === '"') {
       if (quoted && text[index + 1] === '"') index++;
       else quoted = !quoted;
-    } else if (!quoted && (text[index] === '@' || text.startsWith('~{', index))) {
+    } else if (!quoted && !parameterStarts.has(index) && (text[index] === '@' || text.startsWith('~{', index))) {
       escapes.push({ start: index, end: index + 1, text: escapeFormulaText(text[index]) });
     }
   }

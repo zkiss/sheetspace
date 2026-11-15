@@ -12,13 +12,14 @@ import type { FormulaInspectionReference } from '@workbook/formula/formulaInspec
 import { referenceTextTokens } from '@application/core/referenceTextTokens';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   readOnly?: boolean;
   readOnlyText?: boolean;
   onReferenceElementHover?: (reference: FormulaInspectionReference | undefined, element?: HTMLElement) => void;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
+  parameters?: readonly string[];
   onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }, destination: EventTarget | null) => void;
   onViewChange?: (view: FormulaEditorSelection & { scrollTop: number }) => void;
   cellMode?: 'light' | 'heavy';
@@ -54,7 +55,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const analysis = useMemo(() => readOnlyText ? {
     result: { kind: 'not-formula' as const, raw }, tokens: referenceTextTokens(raw, inspectionReferences ?? []),
     references: [], referenceIdentities: [], diagnostics: [],
-  } : analyzeFormulaEditor(raw, resolver), [raw, resolver, readOnlyText, inspectionReferences]);
+  } : analyzeFormulaEditor(raw, resolver, parameters), [raw, resolver, readOnlyText, inspectionReferences, parameters]);
   const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
   useLayoutEffect(() => {
     if (!autoFocus || !input.current) return;

@@ -26,8 +26,8 @@ export type FormulaEditorAnalysis = Pick<FormulaSyntaxResult, 'tokens' | 'refere
 };
 
 /** The parser and resolver remain the source of syntax, diagnostics, and reference truth. */
-export function analyzeFormulaEditor(raw: string, resolver: FormulaReferenceResolver): FormulaEditorAnalysis {
-  const analysis = analyzeFormulaSyntax(raw, resolver);
+export function analyzeFormulaEditor(raw: string, resolver: FormulaReferenceResolver, parameters?: readonly string[]): FormulaEditorAnalysis {
+  const analysis = analyzeFormulaSyntax(raw, resolver, false, parameters);
   return {
     result: analysis.result,
     tokens: analysis.tokens,

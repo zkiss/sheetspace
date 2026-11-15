@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { CustomFunction } from '@workbook/core/model';
+import type { CustomFunction, Workbook } from '@workbook/core/model';
 import type { FunctionDeclaration } from '@application/core/functionCommands';
 import type { FunctionResult } from '@application/react/workbookControllerTypes';
 import { matchesShortcut } from '@shared/keyboard/keymap';
@@ -11,6 +11,7 @@ const focusable = 'button:not(:disabled), input:not(:disabled), select:not(:disa
 
 type Props = {
   functions: readonly CustomFunction[];
+  workbook?: Workbook;
   saveStatus?: 'saved' | 'saving' | 'failed';
   onClose: () => void;
   onRetry: () => void;
@@ -18,7 +19,7 @@ type Props = {
   onDelete: (name: string) => Promise<FunctionResult>;
 };
 
-export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRetry, onSave, onDelete }: Props) {
+export function FunctionDialog({ functions, workbook, saveStatus = 'saved', onClose, onRetry, onSave, onDelete }: Props) {
   const ref = useRef<HTMLElement>(null);
   const [draft, setDraft] = useState<CustomFunction | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -94,7 +95,7 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
   }
   return <div className="dialog-backdrop" role="presentation">
     <section aria-label="Functions" aria-modal="true" className="data-model-dialog function-dialog" data-workspace-navigation onKeyDown={keyboard} ref={ref} role="dialog">
-      {draft ? <FunctionEditor initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onSave={async (value, previousName) => {
+      {draft ? <FunctionEditor workbook={workbook} initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onSave={async (value, previousName) => {
         setBusy(true);
         try {
           const recovered = await recover();

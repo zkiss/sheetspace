@@ -21,6 +21,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 
 - Refine the function manager and editor layout, hierarchy, and action styling.
 - Let Save recover failed saves before applying current function edits, without a separate retry button.
+- Use the shared formula editor in function authoring and require `@` on parameter references.
 
 ## UI design and evaluation guidance
 

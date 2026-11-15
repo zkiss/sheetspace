@@ -23,14 +23,14 @@ it('connects authoring, cell entry, editing and deletion to recalculated callers
   fireEvent.change(screen.getByLabelText('Parameter 1 name'), { target: { value: 'a' } });
   fireEvent.click(screen.getByText('+ Add parameter'));
   fireEvent.change(screen.getByLabelText('Parameter 2 name'), { target: { value: 'b' } });
-  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=SUM(a,b)' } });
+  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=SUM(@a,@b)' } });
   fireEvent.click(screen.getByText('Save'));
   await screen.findByText('fibonacci(a: int, b: int)');
   act(() => { expect(controller.commands.updateCellContent('one', 'A1', '=fibonacci(3,5)').ok).toBe(true); });
   expect(screen.getByTestId('result')).toHaveTextContent('8');
   expect(tabularCellsByA1(controller.workbook.documents.one.content).A1).toBe('=fibonacci(3,5)');
   fireEvent.click(screen.getByText('Edit fibonacci'));
-  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=SUM(a,b,1)' } });
+  fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=SUM(@a,@b,1)' } });
   fireEvent.click(screen.getByText('Save'));
   await waitFor(() => expect(screen.getByTestId('result')).toHaveTextContent('9'));
   fireEvent.click(screen.getByText('Delete fibonacci'));
@@ -86,4 +86,19 @@ it('keeps the draft editable when retrying a failed save fails again', async () 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
   expect(screen.getByLabelText('Formula body')).toHaveValue('=2');
   expect(screen.getByRole('alert')).toHaveTextContent('Check your connection and try again');
+});
+
+it('edits a parameter formula in light and expanded modes', () => {
+  render(<Harness capture={() => {}} />);
+  fireEvent.click(screen.getByText('Create function'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
+  fireEvent.change(screen.getByLabelText('Parameter 1 name'), { target: { value: 'amount' } });
+  const input = screen.getByRole('textbox', { name: 'Formula body' });
+  fireEvent.change(input, { target: { value: '=@amount * 2' } });
+  expect(screen.queryByText(/formula body is malformed/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Expand editor' }));
+  expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'heavy');
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse editor' }));
+  expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'light');
+  expect(input).toHaveValue('=@amount * 2');
 });
