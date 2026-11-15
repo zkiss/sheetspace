@@ -29,6 +29,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 
 - Use the same colour for repeated references to the same cell or range.
 
+## Formula completion
+
+- Suggest the referenced sheet's named columns after a sheet qualifier.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.

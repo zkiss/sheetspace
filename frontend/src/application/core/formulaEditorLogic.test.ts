@@ -1,5 +1,5 @@
 import { referenceIdentityColor } from '@workbook/core/referenceIdentity';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { parseFormula, parseFormulaSyntax } from '@workbook/formula/syntax';
@@ -60,11 +60,25 @@ describe('formula editor logic', () => {
   });
   it('handles completion within qualified references and escaped strings', () => {
     expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [] })).toEqual([]);
-    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Revenue'] }))
+    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Wrong'], propertyNamesForSheet: (sheet) => sheet === 'Budget' ? ['Revenue'] : [] }))
       .toContainEqual(expect.objectContaining({ label: 'Revenue', kind: 'property' }));
     const raw = '="a""b"+SU';
     expect(formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] }))
       .toContainEqual(expect.objectContaining({ label: 'SUM' }));
+  });
+
+  it('offers only the named columns of the qualified sheet, including quoted sheet names', () => {
+    const names = vi.fn((sheet: string) => sheet === "Owner's Plan" ? ['Sales total', 'Sales tax'] : []);
+    const raw = "=@'Owner''s Plan'!Sa[1]";
+    const cursor = raw.indexOf('[1]');
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ["Owner's Plan"], propertyNames: ['Same sheet'], propertyNamesForSheet: names,
+    });
+    expect(names).toHaveBeenCalledWith("Owner's Plan");
+    expect(suggestions.map((item) => item.label)).toEqual(['Sales total', 'Sales tax']);
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe("=@'Owner''s Plan'!'Sales total'[1]");
+    expect(resolver.namedColumnNames?.('budget')).toEqual(['Revenue', 'Cost']);
+    expect(resolver.namedColumnNames?.('missing')).toEqual([]);
   });
 
   it('formats grouped expressions without treating parentheses as function calls', () => {
@@ -131,7 +145,7 @@ describe('formula editor logic', () => {
 
   it.each([
     { raw: '=@$Re[$1]', cursor: 5, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@$Revenue[$1]" },
-    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$Revenue[$1]" },
+    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNamesForSheet: () => ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$Revenue[$1]" },
     { raw: '=@A[1]-SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]-SUM' },
     { raw: '=@A[1]+SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]+SUM' },
     { raw: '=@A[1]*SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]*SUM' },

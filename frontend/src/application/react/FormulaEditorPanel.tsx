@@ -82,7 +82,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     return () => { element.removeEventListener('beforeinput', preventEdit); element.removeEventListener('input', restoreValue); };
   }, [readOnly, raw]);
   const completions = !readOnly && completionRequest
-    ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, automatic: completionRequest.automatic }) : [];
+    ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, propertyNamesForSheet: (qualifier) => {
+      const sheetId = resolver.sheetByQualifier(qualifier);
+      return sheetId ? resolver.namedColumnNames?.(sheetId) ?? [] : [];
+    }, automatic: completionRequest.automatic }) : [];
   const completionOpen = completions.length > 0;
   const setEditor = (next: { raw: string; selection: FormulaEditorSelection }) => { setCompletionRequest(null); onRawChange(next.raw); requestAnimationFrame(() => input.current?.setSelectionRange(next.selection.start, next.selection.end)); };
   useEffect(() => {
@@ -97,7 +100,15 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const acceptCompletion = (index = completionIndex) => {
     const completion = completions[index]; if (!completion) return;
     const next = applyFormulaCompletion(raw, completion); onRawChange(next); setCompletionRequest(null);
-    requestAnimationFrame(() => input.current?.setSelectionRange(completion.replacement.start + completion.insertText.length, completion.replacement.start + completion.insertText.length));
+    requestAnimationFrame(() => {
+      let position = completion.replacement.start + completion.insertText.length;
+      if (completion.kind === 'sheet' && next[position] === '!') position += 1;
+      input.current?.setSelectionRange(position, position);
+      if (completion.kind === 'sheet') {
+        setCompletionIndex(0); setCompletionChosen(false);
+        setCompletionRequest({ selection: { start: position, end: position }, automatic: true });
+      }
+    });
   };
   function updateRaw(value: string) {
     if (readOnly) return;

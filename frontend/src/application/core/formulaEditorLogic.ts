@@ -40,7 +40,7 @@ export function analyzeFormulaEditor(raw: string, resolver: FormulaReferenceReso
 export function formulaCompletions(
   raw: string,
   selection: FormulaEditorSelection,
-  options: { sheetNames: readonly string[]; propertyNames?: readonly string[]; automatic?: boolean },
+  options: { sheetNames: readonly string[]; propertyNames?: readonly string[]; propertyNamesForSheet?: (qualifier: string) => readonly string[]; automatic?: boolean },
 ): FormulaCompletion[] {
   if (!raw.startsWith('=') || selection.start !== selection.end) return [];
   const cursor = clamp(selection.start, 0, raw.length);
@@ -51,8 +51,8 @@ export function formulaCompletions(
   const reference = referenceCompletionContext(before, syntax.tokens);
   if (reference) {
     const replacement = completionReplacement(raw, cursor, end, reference.prefixStart);
-    const candidates = reference.afterQualifier
-      ? propertyCandidates(options.propertyNames ?? [], reference.query, replacement)
+    const candidates = reference.qualifier !== undefined
+      ? propertyCandidates(options.propertyNamesForSheet?.(reference.qualifier) ?? [], reference.query, replacement)
       : [
         ...sheetCandidates(options.sheetNames, reference.query, raw, replacement),
         ...propertyCandidates(options.propertyNames ?? [], reference.query, replacement),
@@ -166,17 +166,18 @@ export function formulaReferenceHover(
   return { kind: 'range', identity, values: rangeValues.slice(0, maximum), truncated: rangeValues.length > maximum };
 }
 
-function referenceCompletionContext(before: string, tokens: readonly FormulaSyntaxToken[]): { prefixStart: number; query: string; afterQualifier: boolean } | undefined {
+function referenceCompletionContext(before: string, tokens: readonly FormulaSyntaxToken[]): { prefixStart: number; query: string; qualifier?: string } | undefined {
   const at = before.lastIndexOf('@');
   if (at < lastCompletionBoundary(tokens, before.length)) return undefined;
   const fragment = before.slice(at + 1);
-  const separator = fragment.lastIndexOf('!');
+  const qualified = /^(?:'((?:[^']|'')*)'|([^'!]+))!/.exec(fragment);
+  const separator = qualified ? qualified[0].length - 1 : -1;
   const query = separator >= 0 ? fragment.slice(separator + 1) : fragment;
   const anchorLength = query.startsWith('$') ? 1 : 0;
   return {
     prefixStart: at + 1 + (separator >= 0 ? separator + 1 : 0) + anchorLength,
     query: unquotePartial(query.slice(anchorLength)),
-    afterQualifier: separator >= 0,
+    ...(qualified ? { qualifier: (qualified[1] ?? qualified[2]!).replace(/''/g, "'") } : {}),
   };
 }
 

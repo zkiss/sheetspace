@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { FormulaEditorPanel } from './FormulaEditorPanel';
@@ -105,5 +105,22 @@ describe('FormulaEditorPanel', () => {
     render(<FormulaEditorPanel ariaLabel="Incomplete formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(" resolver={resolver} sheetNames={[]} />);
 
     expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
+  });
+
+  it('offers the selected sheet’s columns after completing its name', async () => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Revenue', 'Cost'] : [] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState('=@Bu');
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Sheet formula' });
+    input.focus();
+    input.setSelectionRange(4, 4);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Revenue' })).toBeInTheDocument());
+    expect(input).toHaveValue('=@Budget!');
+    expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument();
   });
 });

@@ -353,6 +353,7 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
     coordinateAt: (sheetId, address) => { const content = sheet(sheetId)?.content; const rowId = content?.rows[address.rowIndex]; const columnId = content?.columns[address.columnIndex]; return rowId && columnId ? { rowId, columnId } : undefined; },
     addressOf: (sheetId, coordinate) => { const content = sheet(sheetId)?.content; if (!content) return undefined; const rowIndex = content.rows.indexOf(coordinate.rowId); const columnIndex = content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { rowIndex, columnIndex }; },
+    namedColumnNames: (sheetId) => { const document = sheet(sheetId); return document ? namedColumns(workbook, document).map((column) => column.name) : []; },
     hasNamedColumn: (sheetId, name) => {
       const document = sheet(sheetId);
       return Boolean(document && namedColumns(workbook, document).some((column) => column.name === name));
