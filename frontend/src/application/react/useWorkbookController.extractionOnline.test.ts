@@ -91,6 +91,29 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 }
 
 describe('online extraction replay', () => {
+  it('undoes and redoes extraction after the server omits empty sheet metadata', async () => {
+    const { result, request, saves, replay } = setup();
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    await waitFor(() => expect(saves).toHaveLength(1));
+    const authoritative = structuredClone(saves[0]!.after);
+    const target = authoritative.documents[request.targetSheetId]!;
+    delete target.columnNames;
+    delete target.presentation.formatOverrides;
+    await act(async () => { saves[0]!.pending.resolve(authoritative); await submission.completion; });
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(replay).toHaveBeenCalledOnce());
+    await waitFor(() => expect(saves).toHaveLength(2));
+    await act(async () => saves[1]!.pending.resolve(saves[1]!.after));
+    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(saves).toHaveLength(3));
+    await act(async () => saves[2]!.pending.resolve(saves[2]!.after));
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeDefined();
+  });
+
   it.each([[false, false], [false, true], [true, false], [true, true]])('installs oversized CURRENT without retaining it (recovery: %s, sorted: %s)', async (recover, sorted) => {
     const prepare = vi.spyOn(ContentHistory.prototype, 'prepareExtraction'); const { result, request, saves, save, replay } = setup(true, sorted);
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;

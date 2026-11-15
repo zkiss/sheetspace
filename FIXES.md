@@ -38,6 +38,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 
 - Add Functions and Sort sheet commands to the command palette.
 
+## Extract undo
+
+- Preserve undo after extraction when the server omits empty optional sheet metadata.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.
