@@ -21,6 +21,7 @@ import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
+import { SheetSortingControls } from '@workspace/SheetSortingControls';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { extractionStacking } from '@workspace/extractionStacking';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -187,6 +188,7 @@ export function Workspace({
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [modifierReferenceSpan, setModifierReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [sortingSheetId, setSortingSheetId] = useState<string | null>(null);
   const [errorsOpen, setErrorsOpen] = useState(false);
   const [errorReferenceHover, setErrorReferenceHover] = useState<ErrorReferenceHover>(null);
   const [errorsFocusRequest, setErrorsFocusRequest] = useState(0);
@@ -241,7 +243,7 @@ export function Workspace({
     ? inspectStoredFormula(inspectedRaw, workbook, selectedSheet)
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
-  const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
+  const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen && !sortingSheetId;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
   const panViewportNeedsRender = useRef<(viewport: import('@workspace/workspaceContracts').WorkspaceViewport) => boolean>(() => true);
@@ -1140,6 +1142,13 @@ export function Workspace({
   }, [activeCell?.sheetId, editingCell, gridFocusLease, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
+      {sortingSheetId && workbook.documents[sortingSheetId] && <SheetSortingControls
+        key={sortingSheetId}
+        sheet={workbook.documents[sortingSheetId]}
+        labels={modelColumnPresentation(workbook.documents[sortingSheetId], workbook.dataModels).columnLabels}
+        onApply={commands.configureSorting}
+        onClose={() => { setSortingSheetId(null); onRestoreGridFocus(); }}
+      />}
       <WorkspaceToolbar
         canMaximise={Boolean(selectedSheet) || modeActive}
         titles={{
@@ -1213,7 +1222,7 @@ export function Workspace({
               const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
               return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
             })()}
-            sorting={{ labels: modelColumnPresentation(menuSheet, workbook.dataModels).columnLabels, apply: commands.configureSorting }}
+            onSort={() => { setSortingSheetId(menuSheet.id); workspaceController.closeSheetMenu(); }}
             modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();

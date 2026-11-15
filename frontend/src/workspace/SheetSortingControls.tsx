@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { SheetDocument, SortCriterion } from '@workbook/core/model';
 import { columnIndexToLabel } from '@workbook/core/address';
+import './SheetSortingControls.css';
 
 type DraftCriterion = SortCriterion & { key: number };
 
@@ -20,29 +21,36 @@ function sortingFailure(reason: string): string {
   }
 }
 
-export function SheetSortingControls({ sheet, labels, onApply }: {
+export function SheetSortingControls({ sheet, labels, onApply, onClose }: {
   sheet: SheetDocument;
   labels?: ReadonlyMap<string, string>;
   onApply: (sheetId: string, criteria: readonly SortCriterion[]) => SortingSubmission;
+  onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<DraftCriterion[] | null>(null);
-  const nextKey = useRef(0);
+  const [draft, setDraft] = useState<DraftCriterion[]>(() => (sheet.sorting ?? []).map((item, key) => ({ ...item, key })));
+  const nextKey = useRef(draft.length);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const button = useRef<HTMLButtonElement>(null);
   const editor = useRef<HTMLDivElement>(null);
-  const opening = useRef(false);
   useLayoutEffect(() => {
-    if (draft && opening.current) {
-      editor.current?.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)')?.focus();
-      opening.current = false;
-    }
-  }, [draft]);
+    editor.current?.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)')?.focus();
+  }, []);
   const name = (id: string) => labels?.get(id) ?? sheet.columnNames?.[id] ?? columnIndexToLabel(sheet.content.columns.indexOf(id));
   const valid = <T extends SortCriterion,>(criteria: readonly T[]) => criteria.filter((criterion) => sheet.content.columns.includes(criterion.columnId));
-  const active = valid(sheet.sorting ?? []);
-  const criteria = valid(draft ?? []);
-  const close = () => { setDraft(null); setFeedback(''); button.current?.focus(); };
+  const criteria = valid(draft);
+  const close = () => onClose();
+  const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation();
+      if (!pending) close();
+    } else if (event.key === 'Tab') {
+      const elements = [...(editor.current?.querySelectorAll<HTMLElement>('select:not(:disabled), button:not(:disabled)') ?? [])];
+      if (!elements.length) { event.preventDefault(); return; }
+      const index = elements.indexOf(document.activeElement as HTMLElement);
+      event.preventDefault();
+      elements[event.shiftKey ? (index <= 0 ? elements.length - 1 : index - 1) : (index + 1) % elements.length]?.focus();
+    }
+  };
   const change = (index: number, criterion: DraftCriterion) => setDraft(criteria.map((item, i) => i === index ? criterion : item));
   const move = (index: number, offset: number) => {
     const next = [...criteria];
@@ -59,25 +67,31 @@ export function SheetSortingControls({ sheet, labels, onApply }: {
       else setFeedback(sortingFailure(result.reason));
     });
   };
-  return <div className="sheet-sorting" onKeyDown={(event) => { if (event.key === 'Escape' && draft && !pending) { event.stopPropagation(); close(); } }}>
-    <button ref={button} type="button" role="menuitem" aria-disabled={pending} onClick={() => { if (pending) return; opening.current = true; setDraft(active.map((item) => ({ ...item, key: nextKey.current++ }))); setFeedback(''); }}>Sorting…</button>
-    <div aria-label="Active sorting">{active.length ? `Sorted by ${active.map((item) => `${name(item.columnId)} (${item.direction})`).join(', then ')}` : 'Sorting off'}</div>
-    {draft && <div ref={editor} data-sheet-sorting-editor role="group" aria-label={`Sorting for ${sheet.name}`}>
+  return <div className="sheet-sorting-backdrop">
+    <div ref={editor} className="sheet-sorting-dialog" data-sheet-sorting-editor data-workspace-navigation role="dialog" aria-modal="true" aria-label={`Sort ${sheet.name}`} onKeyDown={keyboard}>
+      <h2>Sort {sheet.name}</h2>
+      <p>Rows are sorted by each level in order.</p>
+      {!criteria.length && <p>No sorting levels. Add a level to sort this sheet.</p>}
       {criteria.map((item, index) => <div key={item.key} className="sheet-sorting-criterion">
-        <span>Priority {index + 1}</span>
+        <strong>{index === 0 ? 'Sort by' : 'Then by'}</strong>
         <label>Column {index + 1}<select value={item.columnId} disabled={pending} onChange={(event) => change(index, { ...item, columnId: event.currentTarget.value })}>
           {sheet.content.columns.filter((id) => id === item.columnId || !criteria.some((other) => other.columnId === id)).map((id) => <option key={id} value={id}>{name(id)}</option>)}
         </select></label>
         <label>Direction {index + 1}<select value={item.direction} disabled={pending} onChange={(event) => change(index, { ...item, direction: event.currentTarget.value as SortCriterion['direction'] })}><option value="ascending">Ascending</option><option value="descending">Descending</option></select></label>
-        <button type="button" disabled={pending || index === 0} onClick={() => move(index, -1)}>Move up {index + 1}</button>
-        <button type="button" disabled={pending || index === criteria.length - 1} onClick={() => move(index, 1)}>Move down {index + 1}</button>
-        <button type="button" disabled={pending} onClick={() => setDraft(criteria.filter((_, i) => i !== index))}>Remove {index + 1}</button>
+        <div className="sheet-sorting-level-actions">
+          <button type="button" aria-label={`Move level ${index + 1} up`} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
+          <button type="button" aria-label={`Move level ${index + 1} down`} disabled={pending || index === criteria.length - 1} onClick={() => move(index, 1)}>↓</button>
+          <button type="button" aria-label={`Remove level ${index + 1}`} disabled={pending} onClick={() => setDraft(criteria.filter((_, i) => i !== index))}>Remove</button>
+        </div>
       </div>)}
-      <button type="button" disabled={pending || criteria.length === sheet.content.columns.length} onClick={() => { const id = sheet.content.columns.find((column) => !criteria.some((item) => item.columnId === column)); if (id) setDraft([...criteria, { columnId: id, direction: 'ascending', key: nextKey.current++ }]); }}>Add criterion</button>
-      <button type="button" disabled={pending || !criteria.length} onClick={() => setDraft([])}>Clear sorting</button>
-      <button type="button" disabled={pending} onClick={close}>Cancel</button>
-      <button type="button" disabled={pending} onClick={apply}>Apply sorting</button>
+      <div className="sheet-sorting-actions">
+        <button type="button" disabled={pending || criteria.length === sheet.content.columns.length} onClick={() => { const id = sheet.content.columns.find((column) => !criteria.some((item) => item.columnId === column)); if (id) setDraft([...criteria, { columnId: id, direction: 'ascending', key: nextKey.current++ }]); }}>Add level</button>
+        <button type="button" disabled={pending || !criteria.length} onClick={() => setDraft([])}>Clear sorting</button>
+        <span />
+        <button type="button" disabled={pending} onClick={close}>Cancel</button>
+        <button type="button" disabled={pending} onClick={apply}>Apply sorting</button>
+      </div>
       {pending && <span role="status">Saving sorting…</span>}{feedback && <span role="alert">{feedback}</span>}
-    </div>}
+    </div>
   </div>;
 }

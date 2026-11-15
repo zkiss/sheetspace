@@ -11,3 +11,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 ## Data model in sheet title
 
 - Display a bound data model's name in code styling beside the sheet name.
+
+## Sorting configuration
+
+- Open a separate sort dialog from the sheet context menu, with ordered, editable sort levels.
