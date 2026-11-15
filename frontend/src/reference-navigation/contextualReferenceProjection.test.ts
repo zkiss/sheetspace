@@ -64,6 +64,16 @@ describe('contextual reference projection', () => {
     expect(result).toEqual({ kind: 'visible', rect: { left: 101, top: 104.4, right: 281, bottom: 194.4 } });
   });
 
+  it('projects the visible portion of a range clipped by the workspace edge', () => {
+    const { workbook, inspection, frames } = fixture();
+    const base = { reference: inspection.references[1]!, workbook, frames, gridViewports: { source: viewport }, workspaceViewport: { x: 0, y: 0, scale: 1 } };
+    const full = projectReferenceGeometry({ ...base, surfaceSize: { width: 1200, height: 900 } });
+    expect(full.kind).toBe('visible');
+    if (full.kind !== 'visible') throw new Error('Expected a visible range');
+    const clipped = projectReferenceGeometry({ ...base, surfaceSize: { width: 1200, height: full.rect.top + 30 } });
+    expect(clipped).toEqual({ kind: 'visible', rect: { ...full.rect, bottom: full.rect.top + 30 } });
+  });
+
   it('uses a durable frame projection during live movement and resize rather than persisted sheet frame values', () => {
     const { workbook, inspection, frames } = fixture();
     const moved = frames.map((frame) => frame.id === 'source' ? { ...frame, position: { x: 300, y: 200 }, size: { width: 600, height: 500 } } : frame);

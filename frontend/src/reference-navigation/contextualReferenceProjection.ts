@@ -112,12 +112,11 @@ export function projectReferenceGeometry({
   };
   const clipped = intersect(target, viewport);
   if (!clipped) return intersects(target, surface) ? { kind: 'unavailable', reason: 'offscreen' } : offscreenPointer(target, workspaceViewport);
-  // A partly hidden range is safe only when the visible portion remains a rectangle
-  // entirely inside the body; cell targets fall back instead of suggesting a false anchor.
+  // Cell targets fall back when clipped rather than suggesting a false anchor.
   if (reference.target.kind === 'cell' && !sameRect(target, clipped)) return { kind: 'unavailable', reason: 'clipped' };
   const visible = intersect(clipped, surface);
   if (!visible) return offscreenPointer(clipped, workspaceViewport);
-  if (!sameRect(clipped, visible)) return { kind: 'unavailable', reason: 'clipped' };
+  if (reference.target.kind === 'cell' && !sameRect(clipped, visible)) return { kind: 'unavailable', reason: 'clipped' };
   if (frames.some((candidate) => candidate.id !== frame.id && candidate.zIndex > frame.zIndex
     && workspaceRectsIntersect(workspaceRectForFrame(candidate), visible))) {
     return { kind: 'unavailable', reason: 'occluded' };

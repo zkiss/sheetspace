@@ -28,6 +28,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 ## Formula reference colours
 
 - Use the same colour for repeated references to the same cell or range.
+- Keep reference paths visible when a referenced range is partially outside the workspace.
 
 ## Formula completion
 
