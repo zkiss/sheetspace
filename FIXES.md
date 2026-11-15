@@ -17,6 +17,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 - Open a separate sort dialog from the sheet context menu, with ordered, editable sort levels.
 - Refine the dialog layout and use familiar sort-by / then-by wording.
 
+## Functions
+
+- Refine the function manager and editor layout, hierarchy, and action styling.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.

@@ -5,6 +5,7 @@ import type { FunctionResult } from '@application/react/workbookControllerTypes'
 import { matchesShortcut } from '@shared/keyboard/keymap';
 import { FunctionEditor } from './FunctionEditor';
 import './DataModelDialog.css';
+import './FunctionDialog.css';
 
 const focusable = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)';
 
@@ -69,8 +70,8 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
     finally { setBusy(false); }
   }
   return <div className="dialog-backdrop" role="presentation">
-    <section aria-label="Functions" aria-modal="true" className="data-model-dialog" data-workspace-navigation onKeyDown={keyboard} ref={ref} role="dialog">
-      {draft ? <FunctionEditor initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onSave={async (value, previousName) => {
+    <section aria-label="Functions" aria-modal="true" className="data-model-dialog function-dialog" data-workspace-navigation onKeyDown={keyboard} ref={ref} role="dialog">
+      {draft ? <FunctionEditor initial={draft === 'new' ? undefined : draft} savedName={savedName} functions={functions} onCancel={cancelDraft} onRetry={onRetry} onSave={async (value, previousName) => {
         setBusy(true);
         try {
           const previous = functions.find((fn) => fn.name.toLowerCase() === value.name.toLowerCase());
@@ -81,12 +82,17 @@ export function FunctionDialog({ functions, saveStatus = 'saved', onClose, onRet
         }
         finally { setBusy(false); }
       }} /> : <>
-        <div className="data-model-header"><h2>Functions</h2><button autoFocus disabled={busy} onClick={() => { setError(''); setDraft('new'); }} type="button">Create function</button></div>
-        {functions.length ? <ul className="data-model-list">{functions.map((fn) => <li key={fn.name.toLowerCase()}><span><strong><code>{fn.name}({fn.parameters.map((parameter) => `${parameter.name}: ${parameter.type}`).join(', ')})</code></strong><small>{fn.body}</small></span><button disabled={busy} onClick={() => setDraft(fn)} type="button">Edit {fn.name}</button><button disabled={busy} onClick={() => void remove(fn.name)} type="button">Delete {fn.name}</button></li>)}</ul> : <p>No functions yet.</p>}
+        <div className="function-dialog-header">
+          <div><h2>Functions</h2><p>Manage reusable formulas for this workbook.</p></div>
+          <button autoFocus disabled={busy} onClick={() => { setError(''); setDraft('new'); }} type="button">Create function</button>
+        </div>
+        {functions.length ? <ul className="function-list">{functions.map((fn) => <li key={fn.name.toLowerCase()}>
+          <div className="function-list-content"><strong><code>{fn.name}({fn.parameters.map((parameter) => `${parameter.name}: ${parameter.type}`).join(', ')})</code></strong><code className="function-list-formula">{fn.body}</code></div>
+          <div className="function-list-actions"><button className="function-secondary" disabled={busy} onClick={() => setDraft(fn)} type="button">Edit {fn.name}</button><button className="function-secondary" disabled={busy} onClick={() => void remove(fn.name)} type="button">Delete {fn.name}</button></div>
+        </li>)}</ul> : <div className="function-empty"><strong>No functions yet</strong><p>Create a function to reuse a formula across your workbook.</p></div>}
         {error ? <p role="alert" className="form-error">{error}</p> : null}
-        <div className="dialog-actions"><button disabled={busy} onClick={onRetry} type="button">Retry failed saves</button><button disabled={busy} onClick={onClose} type="button">Close</button></div>
+        <div className="function-dialog-footer"><button className="function-secondary" disabled={busy} onClick={onRetry} type="button">Retry failed saves</button><button className="function-secondary" disabled={busy} onClick={onClose} type="button">Close</button></div>
       </>}
-      {draft ? <button disabled={busy} onClick={onRetry} type="button">Retry failed saves</button> : null}
     </section>
   </div>;
 }

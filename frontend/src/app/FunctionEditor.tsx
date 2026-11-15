@@ -11,6 +11,7 @@ type Props = {
   savedName?: string;
   functions: readonly CustomFunction[];
   onCancel: () => void;
+  onRetry?: () => void;
   onSave: (draft: FunctionDeclaration, previousName?: string) => Promise<FunctionResult>;
 };
 
@@ -24,7 +25,7 @@ const messages: Record<string, string> = {
   'unknown-function': 'This function no longer exists. Cancel and reopen the manager.',
 };
 
-export function FunctionEditor({ initial, savedName, functions, onCancel, onSave }: Props) {
+export function FunctionEditor({ initial, savedName, functions, onCancel, onRetry, onSave }: Props) {
   const [draft, setDraft] = useState<FunctionDeclaration>(() => initial
     ? { name: initial.name, parameters: initial.parameters.map((parameter) => ({ ...parameter })), body: initial.body }
     : { name: '', parameters: [], body: '=' });
@@ -64,26 +65,28 @@ export function FunctionEditor({ initial, savedName, functions, onCancel, onSave
       setError('The function could not be saved. Retry failed saves and try again.');
     } finally { setSaving(false); }
   }
-  return <form aria-label={initial ? 'Edit function' : 'Create function'} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save')) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
-    <h2>{initial ? 'Edit function' : 'Create function'}</h2>
+  return <form className="function-editor" aria-label={initial ? 'Edit function' : 'Create function'} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save')) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
+    <div className="function-editor-heading"><h2>{initial ? 'Edit function' : 'Create function'}</h2><p>Define a reusable formula and its inputs.</p></div>
     <label>Function name<input autoFocus disabled={saving} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-    <fieldset disabled={saving} ref={parametersRef}><legend>Parameters</legend>
-      {draft.parameters.map((parameter, index) => <div className="model-property-row" key={index}>
-        <input aria-label={`Parameter ${index + 1} name`} value={parameter.name} onChange={(event) => updateParameter(index, { name: event.target.value })} />
+    <fieldset className="function-parameters" disabled={saving} ref={parametersRef}><legend>Parameters</legend>
+      {draft.parameters.map((parameter, index) => <div className="function-parameter-row" key={index}>
+        <input aria-label={`Parameter ${index + 1} name`} placeholder="Parameter name" value={parameter.name} onChange={(event) => updateParameter(index, { name: event.target.value })} />
         <select aria-label={`Parameter ${index + 1} type`} value={parameter.type} onChange={(event) => updateParameter(index, { type: event.target.value as ModelColumnType })}>
           {(['int', 'float', 'string', 'boolean'] as const).map((type) => <option key={type}>{type}</option>)}
         </select>
-        <button aria-label={`Move parameter ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)} type="button">↑</button>
-        <button aria-label={`Move parameter ${index + 1} down`} disabled={index === draft.parameters.length - 1} onClick={() => move(index, 1)} type="button">↓</button>
-        <button aria-label={`Remove parameter ${index + 1}`} onClick={() => { focusParameter.current = Math.min(index, draft.parameters.length - 2); setDraft({ ...draft, parameters: draft.parameters.filter((_, i) => i !== index) }); }} type="button">×</button>
+        <div className="function-parameter-actions">
+          <button aria-label={`Move parameter ${index + 1} up`} title="Move up" disabled={index === 0} onClick={() => move(index, -1)} type="button">↑</button>
+          <button aria-label={`Move parameter ${index + 1} down`} title="Move down" disabled={index === draft.parameters.length - 1} onClick={() => move(index, 1)} type="button">↓</button>
+          <button aria-label={`Remove parameter ${index + 1}`} title="Remove parameter" onClick={() => { focusParameter.current = Math.min(index, draft.parameters.length - 2); setDraft({ ...draft, parameters: draft.parameters.filter((_, i) => i !== index) }); }} type="button">×</button>
+        </div>
       </div>)}
-      <button data-add-parameter onClick={() => setDraft({ ...draft, parameters: [...draft.parameters, { name: '', type: 'int' }] })} type="button">Add parameter</button>
+      <button className="function-secondary function-add-parameter" data-add-parameter onClick={() => setDraft({ ...draft, parameters: [...draft.parameters, { name: '', type: 'int' }] })} type="button">+ Add parameter</button>
     </fieldset>
     <label>Formula body<textarea disabled={saving} value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></label>
     {malformed ? <p>Formula body is malformed. You can save it and correct it later.</p> : null}
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     {savedName ? <p role="status">The failed save was applied. Continue editing or cancel to keep the saved version.</p> : null}
     {saving ? <p role="status">Saving function…</p> : null}
-    <div className="dialog-actions"><button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
+    <div className="dialog-actions function-editor-actions">{onRetry && <button className="function-secondary function-retry" disabled={saving} onClick={onRetry} type="button">Retry failed saves</button>}<button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
   </form>;
 }
