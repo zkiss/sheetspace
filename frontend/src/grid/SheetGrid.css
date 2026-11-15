@@ -65,6 +65,10 @@
   touch-action: none;
 }
 
+.sheet-grid-sort-arrow {
+  margin-left: 0.25rem;
+}
+
 .sheet-grid-row-header {
   position: sticky;
   touch-action: none;

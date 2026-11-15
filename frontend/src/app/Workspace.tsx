@@ -1395,6 +1395,7 @@ export function Workspace({
                     presentation={sheet.presentation}
                     pendingCutCells={pendingCutCells}
                     columnLabels={columnLabels}
+                    sorting={sheet.sorting}
                     calculatedColumnIds={calculatedColumnIds}
                     logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
