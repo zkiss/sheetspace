@@ -7,3 +7,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 ## Column sort indicators
 
 - Show down arrows for ascending and up arrows for descending on sorted column headers.
+
+## Data model in sheet title
+
+- Display a bound data model's name in code styling beside the sheet name.

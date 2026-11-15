@@ -1302,6 +1302,7 @@ export function Workspace({
             : undefined;
           return (
             <SheetFrame
+              modelName={model?.name}
               extractionHandoff={extractionHandoff.handoff?.targetId === sheet.id}
               extractionSource={extractionHandoff.handoff?.source.id === sheet.id}
               extractionReady={extractionHandoff.handoff?.ready}

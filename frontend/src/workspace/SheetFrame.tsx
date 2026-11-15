@@ -23,6 +23,7 @@ export function SheetFrame({
   children,
   columnCount,
   frame,
+  modelName,
   isActiveSheet,
   isNavigationReveal,
   retainDetailedBody,
@@ -55,6 +56,7 @@ export function SheetFrame({
   children: (scrollContainerRef: RefObject<HTMLDivElement>) => ReactNode;
   columnCount: number;
   frame: SheetFrameProjection;
+  modelName?: string;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
   /** Retain an existing detailed body during editing or a gesture; never reveal one solely for a culling pin. */
@@ -188,7 +190,7 @@ export function SheetFrame({
         onPointerMove={onSheetFrameDragMove}
         onPointerUp={onSheetFrameDragStop}
       >
-        <h2>{frame.name}</h2>
+        <h2>{frame.name}{modelName && <>: <code>{modelName}</code></>}</h2>
         {!presentation && onMaximise && <button
           aria-label={`Maximise ${frame.name}`}
           className="sheet-frame-maximise"
