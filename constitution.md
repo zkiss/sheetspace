@@ -12,6 +12,15 @@ Follow these rules for all coding and testing work in Sheetspace. Repository wor
 - Keep production and test files small, cohesive, and focused on one responsibility.
 - Separate calculation, validation, data transformation, and other application logic from UI rendering and interaction code so that logic can be tested without rendering the app.
 
+## UI design
+
+- Treat UI work as interaction and visual design, not just functional wiring. Deliver a coherent, finished interface within the requested scope.
+- Organize controls around the user's task. Establish clear visual hierarchy, distinguish primary actions from secondary and destructive actions, and use deliberate spacing, alignment, and sizing.
+- Use familiar terminology and interaction patterns from comparable applications. Treat the user's informal wording as intent, not necessarily final interface copy.
+- Keep labels concise and useful. Expose implementation details only when they help users understand or operate the interface.
+- Follow established application patterns where they work. Correct local presentation problems rather than reproducing them mechanically.
+- Preserve accessibility and usability across relevant content lengths, viewport sizes, and interaction states.
+
 ## Readability and comments
 
 - Write code that reads like English through clear names, focused functions, and straightforward control flow. Improve the code rather than adding comments to explain what it does.

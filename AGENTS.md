@@ -25,6 +25,17 @@ Human manual acceptance testing in the real user environment, such as interactiv
 
 When creating or updating Beads, distinguish committed automated regression tests, ad hoc agent-driven Playwright verification where useful, and human acceptance checks. Agent completion criteria must be executable by the agent; keep human-only checks separate rather than making them an agent completion gate. Do not require a committed Playwright regression test merely because Playwright was useful for reproducing or verifying the issue.
 
+### UI evaluation
+
+For user-visible UI changes, perform a design review before considering the work complete:
+
+1. Identify the user's task, primary action, and appropriate familiar interaction pattern.
+2. Inspect the implemented UI in the running application, including a rendered screenshot. Review appearance as well as behavior; DOM assertions alone do not establish visual quality.
+3. Critique hierarchy, layout, spacing, alignment, typography, wording, action emphasis, and consistency. Check relevant empty, populated, disabled, pending, and error states.
+4. Correct evident problems within scope without waiting for the user to request polish. Reinspect after changes.
+
+Keep exploratory browser scripts and screenshots uncommitted unless requested. If rendered inspection is unavailable, state that limitation explicitly. Agent-driven UI evaluation supplements automated tests and remains separate from human acceptance.
+
 ## Repository commands
 
 This is a Makefile-driven monorepo with `frontend/` and `backend/` applications.
@@ -86,7 +97,7 @@ Use **fixes mode** only when the user explicitly requests it. Keep the normal ex
 
 - Create a temporary Markdown fixes log, such as `FIXES.md`, containing this protocol and the fixes made.
 - Address only the requested feedback. After each fixing turn, update the log and commit the changes. Related refinements may share one cohesive area entry rather than a separate entry for every small change.
-- Test updates, test execution, and passing results may be deferred during this explicitly selected phase. This is a temporary deferral, not permission to weaken constitution coverage thresholds or build checks, or to claim final assurance.
+- Automated test updates, test execution, and passing results may be deferred during this explicitly selected phase. This is a temporary deferral, not permission to weaken constitution coverage thresholds or build checks, or to claim final assurance. Thoughtful UI design and rendered inspection under UI evaluation still apply.
 
 ### User-requested hardening and assurance
 
