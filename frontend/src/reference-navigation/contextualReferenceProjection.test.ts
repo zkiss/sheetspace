@@ -17,20 +17,29 @@ function fixture() {
 }
 
 describe('contextual reference projection', () => {
-  it('shares stable identity but assigns distinct colours to repeated tokens', () => {
+  it('shares stable identity and colour for repeated tokens', () => {
     const { inspection } = fixture();
     const repeated = contextualReferences([inspection.references[0]!, inspection.references[0]!]);
     expect(repeated).toHaveLength(2);
     expect(repeated[0]!.identity).toEqual(repeated[1]!.identity);
-    expect(repeated[0]!.color).not.toBe(repeated[1]!.color);
+    expect(repeated[0]!.color).toBe(repeated[1]!.color);
   });
 
-  it('shares identity but distinguishes ranges written with reversed endpoints', () => {
+  it('shares identity and colour for ranges written with reversed endpoints', () => {
     const { formula, workbook, inspection } = fixture();
     const reversed = inspectFormula('=@source!A[1]:B[2]', workbook, formula)!;
     const references = contextualReferences([inspection.references[1]!, reversed.references[0]!]);
     expect(references[0]!.identity).toEqual(references[1]!.identity);
-    expect(references[0]!.color).not.toBe(references[1]!.color);
+    expect(references[0]!.color).toBe(references[1]!.color);
+  });
+
+  it('uses one colour per target and recognizes the other diagonal of a range', () => {
+    const { formula, workbook } = fixture();
+    const inspection = inspectFormula('=@source!A[1]:B[2]+@source!B[1]:A[2]+@source!A[1]+@source!B[2]', workbook, formula)!;
+    const references = contextualReferences(inspection.references);
+    expect(references[0]!.identity).toEqual(references[1]!.identity);
+    expect(references[0]!.color).toBe(references[1]!.color);
+    expect(new Set([references[0]!.color, references[2]!.color, references[3]!.color]).size).toBe(3);
   });
 
   it('colours unresolved tokens but not broken references', () => {

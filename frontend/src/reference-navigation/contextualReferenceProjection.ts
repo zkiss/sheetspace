@@ -33,9 +33,18 @@ export type ProjectedReferenceGeometry =
  * editor token colours, source highlights, and reference links.
  */
 export function contextualReferences(references: readonly FormulaInspectionReference[]): readonly ContextualReference[] {
-  return references.map((reference, index) => {
+  const colors = new Map<string, string>();
+  let nextColor = 0;
+  return references.map((reference) => {
     const identity = identityForTarget(reference.target);
-    return { reference, identity, color: reference.broken ? undefined : referenceColour(index) };
+    if (reference.broken) return { reference, identity, color: undefined };
+    const key = identity && JSON.stringify(identity);
+    let color = key && colors.get(key);
+    if (!color) {
+      color = referenceColour(nextColor++);
+      if (key) colors.set(key, color);
+    }
+    return { reference, identity, color };
   });
 }
 
@@ -116,7 +125,7 @@ export function projectReferenceGeometry({
   return { kind: 'visible', rect: toSurfaceRect(visible, workspaceViewport) };
 }
 
-function identityForTarget(target: FormulaReferenceTarget): FormulaReferenceIdentity | undefined {
+export function identityForTarget(target: FormulaReferenceTarget): FormulaReferenceIdentity | undefined {
   if (target.kind === 'cell') return target.identity && { kind: 'cell', sheetId: target.sheetId, ...target.identity };
   return target.range && rangeReferenceIdentity(target.sheetId, target.range.start, target.range.end);
 }

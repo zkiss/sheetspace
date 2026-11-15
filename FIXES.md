@@ -25,6 +25,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 - Expand the formula editor over the dialog contents without resizing the dialog.
 - Let Escape dismiss the expanded formula editor and leave the function draft.
 
+## Formula reference colours
+
+- Use the same colour for repeated references to the same cell or range.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.
