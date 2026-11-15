@@ -33,6 +33,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 
 - Suggest the referenced sheet's named columns after a sheet qualifier.
 
+## Command palette
+
+- Add Functions and Sort sheet commands to the command palette.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.

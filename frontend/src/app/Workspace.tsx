@@ -1037,7 +1037,7 @@ export function Workspace({
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
     openPanel: () => { setPaletteChoices(null); setRowPickerOpen(false); setPaletteView((view) => view + 1); setCommandPaletteOpen(true); },
-    onOpenDataModels, onRename: handleOpenRenameDialog,
+    onOpenDataModels, onOpenFunctions, onSortSheet: setSortingSheetId, onRename: handleOpenRenameDialog,
     onDelete: (sheet) => { if (editingCell?.target.sheetId === sheet.id) onCancelEdit(); return commands.deleteSheet(sheet.id); },
     onEdit: onStartEdit, onClear: (target) => reportWriteOutcome(onClearCell(target)),
     onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
