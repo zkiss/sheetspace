@@ -41,6 +41,7 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 ## Extract undo
 
 - Preserve undo after extraction when the server omits empty optional sheet metadata.
+- Treat empty formatting and column-name containers consistently during extraction history replay, including on the source sheet.
 
 ## UI design and evaluation guidance
 

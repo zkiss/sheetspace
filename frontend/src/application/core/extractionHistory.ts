@@ -20,7 +20,13 @@ function equal(left: unknown, right: unknown): boolean {
 }
 
 export function semantic(workbook: Workbook): Workbook {
-  return { ...workbook, manifest: { ...workbook.manifest, revision: 0 }, documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => [id, { ...sheet, revision: 0 }])) };
+  return { ...workbook, manifest: { ...workbook.manifest, revision: 0 }, documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => {
+    const { columnNames, presentation, ...rest } = sheet;
+    const { formatOverrides, ...dimensions } = presentation;
+    const hasFormats = formatOverrides && Object.values(formatOverrides).some((entries) => Object.keys(entries).length > 0);
+    return [id, { ...rest, revision: 0, ...(columnNames && Object.keys(columnNames).length ? { columnNames } : {}),
+      presentation: { ...dimensions, ...(hasFormats ? { formatOverrides } : {}) } }];
+  })) };
 }
 
 export function replayDelta(current: unknown, expected: unknown, target: unknown): { ok: true; value: unknown } | { ok: false } {
