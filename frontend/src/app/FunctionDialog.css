@@ -30,10 +30,10 @@
 .function-formula-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .function-formula-header button { min-height: 0; padding: .25rem .5rem; font-size: .8rem; font-weight: normal; }
 .function-formula-field small { color: #60717b; font-size: .8rem; font-weight: normal; }
-.function-formula-editor { min-width: 0; }
+.function-formula-editor { min-width: 0; min-height: calc(2.25rem + 2px); }
 .function-formula-editor .sheet-grid-cell-formula-editor { position: relative; width: 100%; box-sizing: border-box; box-shadow: none; }
 .function-formula-editor .sheet-grid-cell-editor { height: 2.25rem; min-height: 2.25rem; resize: none; }
-.function-formula-editor-heavy .sheet-grid-cell-formula-editor { min-height: 16rem; }
+.function-formula-editor-heavy .sheet-grid-cell-formula-editor { position: absolute; z-index: 10; inset: 1rem; width: auto; box-shadow: 0 6px 20px rgb(23 32 42 / 20%); }
 .function-formula-editor-heavy .formula-editor-input-wrap { flex: 1; }
 .function-formula-editor-heavy .sheet-grid-cell-editor { height: 100%; min-height: 10rem; }
 .function-editor > p:not(.form-error) { color: #765c16; font-size: .9rem; }
