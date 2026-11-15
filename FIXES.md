@@ -6,4 +6,4 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 
 ## Column sort indicators
 
-- Show ascending or descending arrows on sorted column headers.
+- Show down arrows for ascending and up arrows for descending on sorted column headers.

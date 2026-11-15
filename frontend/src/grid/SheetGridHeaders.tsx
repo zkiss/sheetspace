@@ -70,7 +70,7 @@ export function SheetGridHeaders({
             } as CSSProperties}
           >
             {column.kind === 'creating' ? 'Creating…' : columnLabels?.get(column.id) ?? columnIndexToLabel(column.durableIndex)}
-            {sort && <span className="sheet-grid-sort-arrow" aria-hidden="true">{sort.direction === 'ascending' ? '↑' : '↓'}</span>}
+            {sort && <span className="sheet-grid-sort-arrow" aria-hidden="true">{sort.direction === 'ascending' ? '↓' : '↑'}</span>}
             {column.kind === 'saved' && resize && <AxisResizeHandle axis="column" id={column.id}
               label={columnIndexToLabel(column.durableIndex)} size={virtualColumn.size} resize={resize} />}
           </div>
