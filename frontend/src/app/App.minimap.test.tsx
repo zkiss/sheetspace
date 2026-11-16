@@ -114,6 +114,57 @@ describe('workspace minimap integration', () => {
       expect(surface.dataset.viewportX).toBe(moved);
     } finally { vi.unstubAllGlobals(); }
   });
+  it('centers on a click inside the viewport without recentering after a drag', () => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    try {
+      render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'near', name: 'Near' }), smallSheetDocument({ id: 'far', name: 'Far', position: { x: 4000, y: 0 } })])} />);
+      const map = screen.getByRole('img', { name: 'Workspace map' });
+      map.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 200, height: 130 });
+      Object.assign(map, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+      const outline = map.querySelector('.workspace-minimap-viewport')!;
+      const x = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) * 0.75;
+      const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      const surface = screen.getByTestId('workspace-surface');
+      fireEvent.pointerDown(map, { button: 0, pointerId: 1, clientX: x, clientY: y });
+      fireEvent.pointerUp(map, { pointerId: 1, clientX: x, clientY: y });
+      expect(Number(surface.dataset.viewportX)).toBeLessThan(0);
+      const nextX = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+      const nextY = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      fireEvent.pointerDown(map, { button: 0, pointerId: 2, clientX: nextX, clientY: nextY });
+      fireEvent.pointerMove(map, { pointerId: 2, clientX: nextX + 20, clientY: nextY });
+      const moved = surface.dataset.viewportX;
+      fireEvent.pointerUp(map, { pointerId: 2, clientX: nextX + 20, clientY: nextY });
+      expect(surface.dataset.viewportX).toBe(moved);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('ignores captured minimap moves and release after a wheel zoom interrupts the drag', () => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callbacks.set(++next, callback); return next; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => { callbacks.delete(id); });
+    const frame = () => act(() => { const pending = [...callbacks.values()]; callbacks.clear(); pending.forEach((callback) => callback(performance.now())); });
+    try {
+      render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'near', name: 'Near' }), smallSheetDocument({ id: 'far', name: 'Far', position: { x: 4000, y: 0 } })])} />);
+      const map = screen.getByRole('img', { name: 'Workspace map' });
+      map.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 200, height: 130 });
+      Object.assign(map, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+      const outline = map.querySelector('.workspace-minimap-viewport')!;
+      const x = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+      const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      const surface = screen.getByTestId('workspace-surface');
+      fireEvent.pointerDown(map, { button: 0, pointerId: 3, clientX: x, clientY: y });
+      fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 10, clientY: y });
+      fireEvent.wheel(surface, { ctrlKey: true, deltaY: -100, clientX: 300, clientY: 200 });
+      frame();
+      const zoomed = { ...surface.dataset };
+      expect(Number(zoomed.viewportScale)).toBeGreaterThan(1);
+      fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 30, clientY: y });
+      fireEvent.pointerUp(map, { pointerId: 3, clientX: x + 30, clientY: y });
+      expect(surface.dataset.viewportX).toBe(zoomed.viewportX);
+      expect(surface.dataset.viewportScale).toBe(zoomed.viewportScale);
+    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
   it('tracks real wheel previews and disables navigation while a dialog owns the workspace', () => {
     vi.stubGlobal('PointerEvent', TestPointerEvent);
     const callbacks = new Map<number, FrameRequestCallback>();

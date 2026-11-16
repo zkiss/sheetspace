@@ -40,7 +40,7 @@ export function useWorkspaceController({
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
-  const previewGeneration = useRef(0);
+  const previewGeneration = useRef(0), minimapSession = useRef<number | null>(null);
   const panPreview = useRef<WorkspaceViewport | null>(null);
   const panSession = useRef(false);
   const panSessionId = useRef(0);
@@ -519,14 +519,14 @@ export function useWorkspaceController({
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
-    beginMinimapNavigation: () => { if (!interruptNavigation()) return null; beginPanPreview(); return viewportRef.current; },
+    beginMinimapNavigation: () => { if (!interruptNavigation()) return null; beginPanPreview(); minimapSession.current = previewGeneration.current; return viewportRef.current; },
     moveMinimapViewport: (next: WorkspaceViewport) => {
-      invalidateCreationSequence();
-      panPreview.current = next;
+      if (unmounted.current || minimapSession.current !== previewGeneration.current) return;
+      invalidateCreationSequence(); panPreview.current = next;
       paintPanViewport(next);
       if (!shouldRenderPanViewport || shouldRenderPanViewport(next)) setViewport(next);
     },
-    endMinimapNavigation: () => finishPanPreview(true),
+    endMinimapNavigation: () => { if (minimapSession.current === previewGeneration.current) finishPanPreview(true); else if (panSessionId.current === minimapSession.current) panSession.current = false; minimapSession.current = null; },
     pendingSheetMenu,
     resetViewport,
     restoreViewport,
