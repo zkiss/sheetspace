@@ -7,9 +7,9 @@ describe('FunctionEditor', () => {
     const save = vi.fn().mockResolvedValue({ ok: true, value: {} });
     render(<FunctionEditor functions={[]} onCancel={vi.fn()} onSave={save} />);
     fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'fibonacci' } });
-    fireEvent.click(screen.getByText('Add parameter'));
+    fireEvent.click(screen.getByText('+ Add parameter'));
     fireEvent.change(screen.getByLabelText('Parameter 1 name'), { target: { value: 'a' } });
-    fireEvent.click(screen.getByText('Add parameter'));
+    fireEvent.click(screen.getByText('+ Add parameter'));
     fireEvent.change(screen.getByLabelText('Parameter 2 name'), { target: { value: 'b' } });
     fireEvent.change(screen.getByLabelText('Parameter 2 type'), { target: { value: 'float' } });
     fireEvent.click(screen.getByLabelText('Move parameter 2 up'));
@@ -27,7 +27,7 @@ describe('FunctionEditor', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('built-in');
     expect(save).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'total' } });
-    fireEvent.click(screen.getByText('Add parameter'));
+    fireEvent.click(screen.getByText('+ Add parameter'));
     fireEvent.click(screen.getByLabelText('Remove parameter 1'));
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
@@ -44,7 +44,7 @@ describe('FunctionEditor', () => {
     render(<FunctionEditor functions={[{ identity: 'one', name: 'existing', parameters: [], body: '=1' }]} onCancel={vi.fn()} onSave={save} />);
     fireEvent.change(screen.getByLabelText('Function name'), { target: { value: name } });
     parameters.forEach((parameter, index) => {
-      fireEvent.click(screen.getByText('Add parameter'));
+      fireEvent.click(screen.getByText('+ Add parameter'));
       fireEvent.change(screen.getByLabelText(`Parameter ${index + 1} name`), { target: { value: parameter } });
     });
     fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=42' } });
@@ -62,6 +62,8 @@ describe('FunctionEditor', () => {
     fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'value' } });
     fireEvent.change(screen.getByLabelText('Formula body'), { target: { value: '=42' } });
     fireEvent.keyDown(screen.getByLabelText('Formula body'), { key: 'Enter', ctrlKey: true });
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByLabelText('Function name'), { key: 'Enter', ctrlKey: true });
     await waitFor(() => expect(save).toHaveBeenCalledWith({ name: 'value', parameters: [], body: '=42' }, undefined));
   });
 });

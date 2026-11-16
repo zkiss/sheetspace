@@ -35,7 +35,7 @@ it('restores focus inside the dialog after deleting a focused row', async () => 
   fireEvent.click(screen.getByText('Delete value'));
   await waitFor(() => expect(screen.getByText('Create function')).toHaveFocus());
   fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
-  expect(screen.getByText('Retry failed saves')).toHaveFocus();
+  expect(screen.getByText('Close')).toHaveFocus();
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
   expect(close).toHaveBeenCalledOnce();
 });
@@ -43,14 +43,16 @@ it('restores focus inside the dialog after deleting a focused row', async () => 
 it('keeps keyboard focus in the draft when removing parameters', () => {
   render(<FunctionDialog functions={[]} onClose={vi.fn()} onDelete={vi.fn()} onRetry={vi.fn()} onSave={vi.fn()} />);
   fireEvent.click(screen.getByText('Create function'));
-  fireEvent.click(screen.getByText('Add parameter'));
-  fireEvent.click(screen.getByText('Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
   screen.getByLabelText('Remove parameter 1').focus();
   fireEvent.click(document.activeElement!);
   expect(screen.getByLabelText('Parameter 1 name')).toHaveFocus();
   screen.getByLabelText('Remove parameter 1').focus();
   fireEvent.click(document.activeElement!);
-  expect(screen.getByText('Add parameter')).toHaveFocus();
+  expect(screen.getByText('+ Add parameter')).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+  expect(screen.getByText('Expand editor')).toHaveFocus();
   fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
   expect(screen.getByLabelText('Formula body')).toHaveFocus();
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
@@ -63,8 +65,8 @@ it.each([
 ])('keeps keyboard focus after $button reaches a boundary', ({ button, target }) => {
   render(<FunctionDialog functions={[]} onClose={vi.fn()} onDelete={vi.fn()} onRetry={vi.fn()} onSave={vi.fn()} />);
   fireEvent.click(screen.getByText('Create function'));
-  fireEvent.click(screen.getByText('Add parameter'));
-  fireEvent.click(screen.getByText('Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
+  fireEvent.click(screen.getByText('+ Add parameter'));
   screen.getByLabelText(button).focus();
   fireEvent.click(document.activeElement!);
   expect(screen.getByLabelText(target)).toHaveFocus();
@@ -76,15 +78,17 @@ it.each([
 
 it('retains a failed save and allows retry while trapping dialog focus', async () => {
   const retry = vi.fn();
-  const save = vi.fn().mockResolvedValue({ ok: false, reason: 'persistence-failed' });
+  const save = vi.fn().mockResolvedValueOnce({ ok: false, reason: 'persistence-failed' }).mockResolvedValueOnce({ ok: true, value: {} });
   render(<><button>Outside</button><FunctionDialog functions={[]} onClose={vi.fn()} onDelete={vi.fn()} onRetry={retry} onSave={save} /></>);
   fireEvent.click(screen.getByText('Create function'));
   fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'test' } });
   fireEvent.click(screen.getByText('Save'));
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
   expect(screen.getByLabelText('Function name')).toHaveValue('test');
-  fireEvent.click(screen.getByText('Retry failed saves'));
-  expect(retry).toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'updated' } });
+  fireEvent.click(screen.getByText('Save'));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'updated' }), undefined));
+  expect(retry).not.toHaveBeenCalled();
   screen.getByText('Outside').focus();
-  expect(within(screen.getByRole('dialog')).getByLabelText('Function name')).toHaveFocus();
+  expect(within(screen.getByRole('dialog')).getByText('Create function')).toHaveFocus();
 });

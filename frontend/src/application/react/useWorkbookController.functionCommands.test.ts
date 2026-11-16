@@ -7,7 +7,7 @@ import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
 
-const declaration = { name: 'fibonacci', parameters: [{ name: 'a', type: 'int' as const }, { name: 'b', type: 'int' as const }], body: '=SUM(a,b)' };
+const declaration = { name: 'fibonacci', parameters: [{ name: 'a', type: 'int' as const }, { name: 'b', type: 'int' as const }], body: '=SUM(@a,@b)' };
 function fixture() { return workbookWithSheets([sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 1 })]); }
 
 it('recalculates previously unknown callers and downstream cells after local function edits and deletion', () => {
@@ -17,7 +17,7 @@ it('recalculates previously unknown callers and downstream cells after local fun
   act(() => { expect(result.current.commands.setFunction(declaration).result.ok).toBe(true); });
   expect(result.current.formulaResults.one.A1.display).toBe('8');
   expect(result.current.formulaResults.one.A2.display).toBe('9');
-  act(() => { expect(result.current.commands.setFunction({ ...declaration, body: '=SUM(a,b,1)' }, 'fibonacci').result.ok).toBe(true); });
+  act(() => { expect(result.current.commands.setFunction({ ...declaration, body: '=SUM(@a,@b,1)' }, 'fibonacci').result.ok).toBe(true); });
   expect(result.current.formulaResults.one.A2.display).toBe('10');
   act(() => { expect(result.current.commands.deleteFunction('fibonacci').result.ok).toBe(true); });
   expect(result.current.formulaResults.one.A1.display).toBe('#NAME!');
