@@ -82,7 +82,7 @@ class QuotaRunMonitoringTests(QuotaRunTestCase):
         self.assertEqual(checks, [False, True, True, True, False])
         quota_waits = [event["seconds"] for event in self.events()
                        if event["kind"] == "sleep" and event["seconds"] > 2]
-        self.assertEqual(quota_waits, [60, 60, 60])
+        self.assertEqual(quota_waits, [300, 300, 300])
 
     def test_quota_wait_uses_shorter_buffered_reset_deadline(self):
         self.configure_runs("quota-hang", "success")

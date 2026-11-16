@@ -114,7 +114,7 @@ wait_for_quota() {
     now=$(date +%s)
     seconds=$((target + buffer - now))
     ((seconds > 0)) || fail 'Blocked quota has a stale reset time; refusing a busy loop'
-    if ((seconds > 60)); then seconds=60; fi
+    if ((seconds > 300)); then seconds=300; fi
     printf 'Quota blocked. Checking again in %ss (reset + buffer: %s).\n' \
       "$seconds" "$(date -u -d "@$((target + buffer))" --iso-8601=seconds)"
     sleep "$seconds" & child=$!
