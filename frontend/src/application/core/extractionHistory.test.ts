@@ -88,8 +88,8 @@ describe('extraction history', () => {
     const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo', true);
     expect(redo.ok).toBe(true);
     if (!redo.ok) throw new Error(redo.reason);
-    expect(redo.workbook.documents.source!.presentation.formatOverrides).toBeUndefined();
-    expect(redo.workbook.documents[ids[0]!]!.columnNames).toBeUndefined();
+    expect(redo.workbook.documents.source!.presentation.formatOverrides).toEqual(after.documents.source!.presentation.formatOverrides);
+    expect(redo.workbook.documents[ids[0]!]!.columnNames).toEqual(after.documents[ids[0]!]!.columnNames);
   });
 
   it('undoes consecutive extractions of a formatted cell in reverse order', () => {
