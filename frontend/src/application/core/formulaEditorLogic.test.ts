@@ -35,6 +35,20 @@ const workbook = {
 const resolver = workbookFormulaReferenceResolver(workbook, budget.id);
 
 describe('formula editor logic', () => {
+  it('never completes before the formula marker but allows an empty operand after it', () => {
+    for (const raw of ['=', '=@Budget!Revenue', '=  ', ' =']) {
+      for (const automatic of [false, true]) {
+        expect(formulaCompletions(raw, { start: 0, end: 0 }, { sheetNames: ['Budget'], automatic })).toEqual([]);
+      }
+    }
+    for (const raw of ['=', '=  ']) {
+      const cursor = raw.length;
+      const sum = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: [] })
+        .find((completion) => completion.label === 'SUM');
+      expect(sum?.replacement).toEqual({ start: cursor, end: cursor });
+      expect(applyFormulaCompletion(raw, sum!)).toBe(`${raw}SUM`);
+    }
+  });
   it('highlights and hovers positional references while diagnosing missing positions', () => {
     const raw = '=SUM(@Budget!Revenue[#$1]:Cost[#2])+@Budget!Revenue[#999]';
     const analysis = analyzeFormulaEditor(raw, resolver);

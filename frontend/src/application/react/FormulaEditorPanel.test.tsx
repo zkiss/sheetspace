@@ -19,6 +19,18 @@ function Editor({ onApply = vi.fn(), onCancel = vi.fn(), onParentKeyDown = vi.fn
 }
 
 describe('FormulaEditorPanel', () => {
+  it.each(['=', '=@Budget!Revenue'])('does not complete before the formula marker in %s', (raw) => {
+    const onRawChange = vi.fn();
+    render(<FormulaEditorPanel ariaLabel="Marker formula" raw={raw} resolver={resolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);
+    const input = screen.getByRole('textbox', { name: 'Marker formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue(raw);
+    expect(onRawChange).not.toHaveBeenCalled();
+    expect(input.selectionStart).toBe(0);
+  });
   it('keeps rich-editor commands inside the panel while preserving multiline indentation', () => {
     const parent = vi.fn();
     const apply = vi.fn();

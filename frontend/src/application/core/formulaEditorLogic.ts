@@ -200,6 +200,7 @@ type CompletionContext =
 
 function referenceCompletionContext(raw: string, cursor: number): CompletionContext {
   const suppressed: CompletionContext = { kind: 'suppressed' };
+  if (cursor < 1) return suppressed;
   let operand = true;
   for (let index = 1; index < raw.length;) {
     if (index >= cursor && !(operand && /[A-Za-z]/.test(raw[index]!))) {
