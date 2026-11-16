@@ -2,7 +2,7 @@ import type { SheetFrameProjection, SheetFrameSize, WorkspacePosition } from '@w
 import type { WorkspaceViewport } from './workspaceContracts';
 import { workspaceRectForFrame, workspaceViewportBounds, type WorkspaceTargetRect } from './workspaceGeometry';
 
-const LIMIT = Number.MAX_VALUE / 4;
+const LIMIT = Number.MAX_VALUE;
 
 type Frame = Pick<SheetFrameProjection, 'position' | 'size' | 'visualScale'>;
 export type MinimapProjection = { world: WorkspaceTargetRect; scale: number; offset: WorkspacePosition };
@@ -14,6 +14,20 @@ function bounded(value: number): number {
 
 function rect(bounds: WorkspaceTargetRect): WorkspaceTargetRect {
   return { left: bounded(bounds.left), top: bounded(bounds.top), right: bounded(bounds.right), bottom: bounded(bounds.bottom) };
+}
+
+function halfSpan(start: number, end: number): number {
+  return end / 2 - start / 2;
+}
+
+function projectedDistance(start: number, end: number, scale: number): number {
+  return (end / 2 - start / 2) * scale * 2;
+}
+
+function worldCoordinate(start: number, distance: number, scale: number): number {
+  const delta = distance / scale;
+  if (Number.isFinite(delta)) return bounded(start + delta);
+  return bounded((start / 2 + distance / (scale * 2)) * 2);
 }
 
 export function minimapProjection(
@@ -31,19 +45,19 @@ export function minimapProjection(
     world.bottom = Math.max(world.bottom, sheet.bottom);
   }
   const inset = Math.max(0, Math.min(Number.isFinite(padding) ? padding : 0, size.width / 4, size.height / 4));
-  const scale = Math.min((size.width - 2 * inset) / Math.max(1, world.right - world.left),
-    (size.height - 2 * inset) / Math.max(1, world.bottom - world.top));
+  const scale = Math.min((size.width / 2 - inset) / Math.max(0.5, halfSpan(world.left, world.right)),
+    (size.height / 2 - inset) / Math.max(0.5, halfSpan(world.top, world.bottom)));
   if (!(scale > 0) || !Number.isFinite(scale)) return null;
   return {
     world, scale,
-    offset: { x: (size.width - (world.right - world.left) * scale) / 2,
-      y: (size.height - (world.bottom - world.top) * scale) / 2 },
+    offset: { x: (size.width - projectedDistance(world.left, world.right, scale)) / 2,
+      y: (size.height - projectedDistance(world.top, world.bottom, scale)) / 2 },
   };
 }
 
 export function minimapPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
-  return { x: bounded(projection.offset.x + (bounded(point.x) - projection.world.left) * projection.scale),
-    y: bounded(projection.offset.y + (bounded(point.y) - projection.world.top) * projection.scale) };
+  return { x: bounded(projection.offset.x + projectedDistance(projection.world.left, bounded(point.x), projection.scale)),
+    y: bounded(projection.offset.y + projectedDistance(projection.world.top, bounded(point.y), projection.scale)) };
 }
 
 export function minimapRect(projection: MinimapProjection, bounds: WorkspaceTargetRect): WorkspaceTargetRect {
@@ -53,8 +67,8 @@ export function minimapRect(projection: MinimapProjection, bounds: WorkspaceTarg
 }
 
 export function minimapWorldPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
-  return { x: bounded(projection.world.left + (point.x - projection.offset.x) / projection.scale),
-    y: bounded(projection.world.top + (point.y - projection.offset.y) / projection.scale) };
+  return { x: worldCoordinate(projection.world.left, point.x - projection.offset.x, projection.scale),
+    y: worldCoordinate(projection.world.top, point.y - projection.offset.y, projection.scale) };
 }
 
 export function minimapCenteredViewport(

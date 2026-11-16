@@ -64,4 +64,21 @@ describe('minimap geometry', () => {
     expect(Object.values(minimapWorldPoint(projection, point)).every(Number.isFinite)).toBe(true);
     expect(Object.values(minimapDraggedViewport(projection, { x: 0, y: 0 }, { x: 200, y: 100 }, viewport)).every(Number.isFinite)).toBe(true);
   });
+
+  it('preserves relative placement and navigation beyond a quarter of the finite range', () => {
+    const projection = minimapProjection([frame(5e307, 0), frame(1e308, 0)], surface, viewport, size)!;
+    const first = minimapPoint(projection, { x: 5e307, y: 0 });
+    const second = minimapPoint(projection, { x: 1e308, y: 0 });
+    expect(second.x - first.x).toBeCloseTo(92);
+    expect(minimapWorldPoint(projection, first).x / 5e307).toBeCloseTo(1);
+    expect(minimapCenteredViewport(projection, second, surface, viewport).x / -1e308).toBeCloseTo(1);
+  });
+
+  it('round trips across a world span larger than the finite number range', () => {
+    const projection = minimapProjection([frame(-1e308, 0), frame(1e308, 0)], surface, viewport, size)!;
+    const point = minimapPoint(projection, { x: 1e308, y: 0 });
+    expect(point.x).toBeCloseTo(192);
+    expect(minimapWorldPoint(projection, point).x / 1e308).toBeCloseTo(1);
+    expect(minimapCenteredViewport(projection, point, surface, viewport).x / -1e308).toBeCloseTo(1);
+  });
 });
