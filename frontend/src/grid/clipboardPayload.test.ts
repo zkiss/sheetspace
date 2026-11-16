@@ -37,6 +37,21 @@ describe('TSV clipboard codec', () => {
 });
 
 describe('clipboard payload provenance', () => {
+  it('exports temporal values without private encoding while retaining typed and text snapshots', () => {
+    const values = ['@date:2024-02-29', '@datetime:2024-02-29 00:00:00.1200', encodeCellTextLiteral('2024-02-29')];
+    const sheet = sheetDocument({ id: 'temporal', name: 'Dates', cells: { A1: values[0]!, B1: values[1]!, C1: values[2]! } });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const selection = { mode: 'cells' as const, anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'C1')! };
+    for (const operation of ['copy', 'cut'] as const) {
+      const result = store[operation](workbook, selection);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.value.text).toBe('2024-02-29\t2024-02-29 00:00:00.1200\t2024-02-29');
+      const parsed = store.parse(workbook, result.value);
+      if (!parsed.ok || parsed.value.kind === 'external') throw new Error('missing provenance');
+      expect(parsed.value.source.cells[0]!.map((cell) => cell.raw)).toEqual(values);
+    }
+  });
   it('rejects scattered axis selections without discarding a pending cut', () => {
     const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3 });
     const workbook = workbookWithSheets([sheet]);

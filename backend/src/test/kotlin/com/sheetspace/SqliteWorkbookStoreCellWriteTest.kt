@@ -9,6 +9,21 @@ import kotlin.test.assertFailsWith
 
 class SqliteWorkbookStoreCellWriteTest {
     @Test
+    fun `temporal and literal cell contents survive a sqlite write and read`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Dates")
+        val values = mapOf(
+            "A1" to "@date:2024-02-29",
+            "B1" to "@datetime:2024-02-29 00:00:00.120000000",
+            "C1" to "@datetime:2024-02-29 00:00",
+        )
+        store.saveWorkbook(testWorkbookOf(sheet))
+        store.writeCells(
+            listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
+            values.map { (address, raw) -> sheet.cellWrite(address, raw) },
+        )
+        assertEquals(values, store.loadSheet(SheetId(TEST_SHEET_1))!!.tabularContent.cells)
+    }
+    @Test
     fun `prepared batch cell write changes one sheet revision and leaves manifest untouched`() =
         withSqliteStore { store ->
             val first = testDocument(TEST_SHEET_1, "Inputs")

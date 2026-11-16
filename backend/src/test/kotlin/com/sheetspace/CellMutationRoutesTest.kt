@@ -2,6 +2,8 @@ package com.sheetspace
 
 import io.ktor.client.request.patch
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.testing.testApplication
+import java.nio.file.Files
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,6 +11,34 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CellMutationRoutesTest {
+    @Test
+    fun `temporal contents pass through the API and sqlite unchanged`() {
+        val path = Files.createTempFile("sheetspace-temporal-", ".sqlite")
+        try {
+            SqliteWorkbookStore(path).use { store ->
+                testApplication {
+                    application { module(DefaultWorkbookApplication(store)) }
+                    val sheet = client.createSheet()
+                    val values = mapOf(
+                        "A1" to "@date:2024-02-29",
+                        "B1" to "@datetime:2024-02-29 00:00:00.120000000",
+                        "C1" to "\"2024-02-29\"",
+                    )
+                    val writes = values.map { (address, raw) ->
+                        val column = address[0] - 'A'
+                        CellWriteRequest(sheet.id, sheet.content.rows[0], sheet.content.columns[column], raw)
+                    }
+                    val response = client.patch("/api/cells") {
+                        jsonBody(testJson.encodeToString(CellPatchRequest(listOf(CellRevisionRequest(sheet.id, 0)), writes)))
+                    }
+                    assertEquals(HttpStatusCode.OK, response.status)
+                    assertEquals(values, client.loadWorkbook().sheets.single().cells)
+                }
+            }
+        } finally {
+            Files.deleteIfExists(path)
+        }
+    }
     @Test
     fun `batch cell update commits multiple sheets in cell appearance order and preserves no-op revisions`() =
         testWorkbookApplication { workbookApplication ->

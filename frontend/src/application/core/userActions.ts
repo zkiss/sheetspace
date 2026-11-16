@@ -10,7 +10,7 @@ import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/c
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
-import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { prepareExternalPasteInput } from './cellInputPreparation';
 import { copyCanonicalFormula, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { copyStoredFormula } from '@workbook/formula/storedFormulaCopy';
 import { moveStoredFormula } from '@workbook/formula/storedFormulaMove';
@@ -90,7 +90,7 @@ export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperatio
 /** A rejected write leaves the workbook untouched and reports a stable reason. */
 export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
-export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
+export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed' | 'invalid-temporal-value';
 export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
 export type MovePreparationFailureReason = 'invalid-destination' | 'invalid-move-footprint' | 'invalid-move-source' | 'stale-move-source' | 'unrepresentable-range';
 export type MoveCellIdentityMapping = {
@@ -153,9 +153,9 @@ function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, des
       const targetIdentity = `${destinationSheetId}\u0000${rowId}\u0000${columnId}`;
       if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
       targetIdentities.add(targetIdentity);
-      let raw = grid.rows[rowOffset]![columnOffset]!;
-      if (!source && raw !== '' && (decodeCellTextLiteral(raw) !== undefined || raw.startsWith('@date:') || raw.startsWith('@datetime:')
-        || classifyCellValue(raw).kind === 'text')) raw = encodeCellTextLiteral(raw);
+      const prepared = source ? grid.rows[rowOffset]![columnOffset]! : prepareExternalPasteInput(grid.rows[rowOffset]![columnOffset]!);
+      if (prepared === undefined) return { ok: false, reason: 'invalid-temporal-value' };
+      let raw = prepared;
       if (source) {
         const sourceCell = source.cells[rowOffset]![columnOffset]!;
         const sourceIdentity = `${source.sheetId}\u0000${sourceCell.identity.rowId}\u0000${sourceCell.identity.columnId}`;

@@ -5,6 +5,7 @@ import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { decodeTemporalValue } from '@workbook/core/temporal';
 import type {
   ClipboardDimensions,
   ClipboardGrid,
@@ -108,7 +109,7 @@ export class ClipboardPayloadStore {
       const raw = sheet.content.cells[cellIdentityKey(identity)] ?? '';
       return { identity, raw };
     }));
-    const displayRows = cells.map((row) => row.map((cell) => decodeCellTextLiteral(cell.raw) ?? (cell.raw.startsWith('=') ? projectStoredFormula(cell.raw, workbook, sheet.id).text : cell.raw)));
+    const displayRows = cells.map((row) => row.map((cell) => decodeCellTextLiteral(cell.raw) ?? decodeTemporalValue(cell.raw)?.value ?? (cell.raw.startsWith('=') ? projectStoredFormula(cell.raw, workbook, sheet.id).text : cell.raw)));
     const text = encodeTsv(displayRows);
     const source: ClipboardSourceSnapshot = {
       sheetId: sheet.id,

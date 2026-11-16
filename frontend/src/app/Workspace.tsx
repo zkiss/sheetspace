@@ -896,6 +896,7 @@ export function Workspace({
       const pasted = commands.pasteStoredCells(destination.id, destinationKey, parsed);
       if (!pasted.ok) reportWriteAdmissionFailure(pasted.reason);
       if (!pasted.ok && pasted.reason === 'malformed-tsv') setCalculatedCellFeedback('The clipboard contains malformed tabular text. Check quoted fields and try again. No cells were changed.');
+      if (!pasted.ok && pasted.reason === 'invalid-temporal-value') setCalculatedCellFeedback('The clipboard contains an invalid date or time. Use a valid year-first local date and time. No cells were changed.');
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!pasted.ok && pasted.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
     }
