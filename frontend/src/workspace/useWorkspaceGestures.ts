@@ -12,7 +12,8 @@ function consume(event: Event) {
   event.stopPropagation();
 }
 
-type Pan = { pointerId: number; x: number; y: number; button: number; space: boolean };
+type PanHandle = { move: (x: number, y: number) => void; end: () => void };
+type Pan = { pointerId: number; x: number; y: number; button: number; space: boolean; handle: PanHandle };
 type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
 
 /** Native capture runs before sheet handlers; non-passive wheel permits selective cancellation. */
@@ -20,7 +21,7 @@ export function useWorkspaceGestures(
   surfaceRef: RefObject<HTMLElement>,
   actions: {
     start: () => void | boolean;
-    panStart?: () => void;
+    panStart?: () => void | PanHandle;
     panEnd?: () => void;
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
@@ -49,7 +50,7 @@ export function useWorkspaceGestures(
     function endPan() {
       const previous = pan;
       pan = null;
-      if (previous) current.current.panEnd?.();
+      previous?.handle.end();
       setPanning(false);
       if (previous && surface!.hasPointerCapture?.(previous.pointerId)) {
         surface!.releasePointerCapture(previous.pointerId);
@@ -91,10 +92,13 @@ export function useWorkspaceGestures(
       current.current.clearSelection();
       suppressClick = true;
       if (current.current.start() === false) return;
-      current.current.panStart?.();
+      const handle = current.current.panStart?.() ?? {
+        move: (x: number, y: number) => current.current.pan(x, y),
+        end: () => current.current.panEnd?.(),
+      };
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-        button: event.button, space: event.button === 0 && space };
+        button: event.button, space: event.button === 0 && space, handle };
       suppressClick = true;
       setPanning(true);
       surface!.setPointerCapture?.(event.pointerId);
@@ -105,7 +109,7 @@ export function useWorkspaceGestures(
       if (!(event.buttons & (pan.button === 1 ? 4 : 1))) { endPan(); return; }
       const delta = surfaceDeltaFromClient(pan, { x: event.clientX, y: event.clientY });
       pan = { ...pan, x: event.clientX, y: event.clientY };
-      current.current.pan(delta.x, delta.y);
+      pan.handle.move(delta.x, delta.y);
     }
     function pointerEnd(event: PointerEvent) {
       if (!pan || pan.pointerId !== event.pointerId) return;

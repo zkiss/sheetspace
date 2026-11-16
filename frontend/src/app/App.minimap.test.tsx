@@ -12,6 +12,61 @@ class TestPointerEvent extends MouseEvent {
 }
 
 describe('workspace minimap integration', () => {
+  it('keeps a successor canvas preview when an interrupted map pointer ends', () => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    try {
+      render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'near', name: 'Near' }), smallSheetDocument({ id: 'far', name: 'Far', position: { x: 4000, y: 0 } })])} />);
+      const surface = screen.getByTestId('workspace-surface');
+      const map = screen.getByRole('img', { name: 'Workspace map' });
+      map.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 200, height: 130 });
+      Object.assign(map, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+      const outline = map.querySelector('.workspace-minimap-viewport')!;
+      const x = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+      const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      fireEvent.pointerDown(map, { pointerId: 20, button: 0, clientX: x, clientY: y });
+      fireEvent.pointerDown(surface, { pointerId: 10, button: 1, buttons: 4, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { pointerId: 10, buttons: 4, clientX: 30, clientY: 0 });
+      fireEvent.pointerUp(map, { pointerId: 20, clientX: x, clientY: y });
+      fireEvent.pointerMove(window, { pointerId: 10, buttons: 4, clientX: 50, clientY: 0 });
+      fireEvent.pointerUp(window, { pointerId: 10, button: 1 });
+      expect(Number(surface.dataset.viewportX)).toBe(50);
+      expect(surface.dataset.viewportScale).toBe('1');
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it.each(['primary', 'middle', 'space'])('fences an older %s canvas pan during a minimap drag', (kind) => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    try {
+      render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'near', name: 'Near' }), smallSheetDocument({ id: 'far', name: 'Far', position: { x: 4000, y: 0 } })])} />);
+      const surface = screen.getByTestId('workspace-surface');
+      const map = screen.getByRole('img', { name: 'Workspace map' });
+      map.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 200, height: 130 });
+      Object.assign(map, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+      if (kind === 'space') fireEvent.keyDown(document.body, { key: ' ', code: 'Space' });
+      const button = kind === 'middle' ? 1 : 0;
+      const buttons = button === 1 ? 4 : 1;
+      fireEvent.pointerDown(surface, { pointerId: 10, button, buttons, clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(window, { pointerId: 10, buttons, clientX: 30, clientY: 10 });
+      const outline = map.querySelector('.workspace-minimap-viewport')!;
+      const x = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+      const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      fireEvent.pointerDown(map, { pointerId: 20, button: 0, clientX: x, clientY: y });
+      fireEvent.pointerMove(map, { pointerId: 20, clientX: x + 20, clientY: y });
+      const before = surface.dataset.viewportX;
+      fireEvent.pointerMove(window, { pointerId: 10, buttons, clientX: 100, clientY: 10 });
+      fireEvent.pointerUp(window, { pointerId: 10, button });
+      expect(surface.dataset.viewportX).toBe(before);
+      fireEvent.pointerMove(map, { pointerId: 20, clientX: x + 40, clientY: y });
+      fireEvent.pointerUp(map, { pointerId: 20, clientX: x + 40, clientY: y });
+      expect(Number(surface.dataset.viewportX)).toBeLessThan(Number(before));
+      expect(surface.dataset.viewportScale).toBe('1');
+      if (kind === 'space') fireEvent.keyUp(document.body, { key: ' ', code: 'Space' });
+      const settled = Number(surface.dataset.viewportX);
+      fireEvent.pointerDown(surface, { pointerId: 30, button: 1, buttons: 4, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { pointerId: 30, buttons: 4, clientX: 25, clientY: 0 });
+      fireEvent.pointerUp(window, { pointerId: 30, button: 1 });
+      expect(Number(surface.dataset.viewportX)).toBe(settled + 25);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('preserves an active draft and ignores zoom gestures over the map', () => {
     vi.stubGlobal('PointerEvent', TestPointerEvent);
     try {
