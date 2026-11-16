@@ -203,6 +203,20 @@ function propertyCandidates(names: readonly string[], query: string, replacement
 
 function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {
   if (selectionEnd > cursor) return { start: cursor, end: selectionEnd };
+  if (raw[minimum] === "'" && minimum < cursor) {
+    let end = minimum + 1;
+    while (end < raw.length) {
+      if (raw[end] === "'") {
+        if (raw[end + 1] === "'") { end += 2; continue; }
+        return { start: minimum, end: end + 1 };
+      }
+      end += 1;
+    }
+    end = cursor;
+    while (end < raw.length && /[A-Za-z0-9_.' ]/.test(raw[end]!)) end += 1;
+    while (end > cursor && raw[end - 1] === ' ') end -= 1;
+    return { start: minimum, end };
+  }
   let start = cursor;
   let end = cursor;
   while (start > minimum && /[A-Za-z0-9_.']/.test(raw[start - 1]!)) start -= 1;

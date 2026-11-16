@@ -136,4 +136,21 @@ describe('FormulaEditorPanel', () => {
     expect(input).toHaveValue('=@Budget!');
     expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument();
   });
+
+  it('inserts a qualified quoted column over the full partial name', () => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: () => 'budget', namedColumnNames: () => ['Sales total'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState("=@Budget!'Sales t");
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Sheet formula' });
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected a formula textarea');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Sales total' }));
+
+    expect(input).toHaveValue("=@Budget!'Sales total'");
+  });
 });

@@ -81,6 +81,20 @@ describe('formula editor logic', () => {
     expect(resolver.namedColumnNames?.('missing')).toEqual([]);
   });
 
+  it.each([
+    { raw: "=@Budget!'Sales t", cursor: 16, name: 'Sales total', expected: "=@Budget!'Sales total'" },
+    { raw: "=@Budget!'Sales tax'[1]+1", cursor: 16, name: 'Sales total', expected: "=@Budget!'Sales total'[1]+1" },
+    { raw: "=@Budget!'Owner''s ta", cursor: 20, name: "Owner's tax", expected: "=@Budget!'Owner''s tax'" },
+    { raw: "=@Budget!'Owner''s tax'[1]", cursor: 20, name: "Owner's total", expected: "=@Budget!'Owner''s total'[1]" },
+  ])('replaces a partially typed quoted column including its suffix', ({ raw, cursor, name, expected }) => {
+    const completion = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: [], propertyNamesForSheet: () => [name],
+    }).find((suggestion) => suggestion.label === name);
+
+    expect(completion).toBeDefined();
+    expect(applyFormulaCompletion(raw, completion!)).toBe(expected);
+  });
+
   it('formats grouped expressions without treating parentheses as function calls', () => {
     expect(formatFormula('=(1+2)*3', { start: 0, end: 0 }).raw).toBe('=(1 + 2) * 3');
   });
