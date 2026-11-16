@@ -53,6 +53,24 @@ describe('workspace map', () => {
     fireEvent.pointerMove(map, { pointerId: 1, clientX: 90, clientY: 90 });
     expect(move).toHaveBeenCalledOnce();
   });
+  it('ends captured drags once on release, capture loss, concealment and unmount', () => {
+    const { map, props, rerender, surfaceRef, unmount } = setup();
+    const start = () => fireEvent.pointerDown(map, { button: 0, pointerId: 1, clientX: 50, clientY: 60 });
+    start();
+    fireEvent.pointerUp(map, { pointerId: 1 });
+    fireEvent.lostPointerCapture(map, { pointerId: 1 });
+    expect(props.finish).toHaveBeenCalledTimes(1);
+    start();
+    fireEvent.lostPointerCapture(map, { pointerId: 1 });
+    expect(props.finish).toHaveBeenCalledTimes(2);
+    start();
+    rerender(<section ref={surfaceRef}><WorkspaceMinimap {...props} concealed /></section>);
+    expect(props.finish).toHaveBeenCalledTimes(3);
+    rerender(<section ref={surfaceRef}><WorkspaceMinimap {...props} /></section>);
+    start();
+    unmount();
+    expect(props.finish).toHaveBeenCalledTimes(4);
+  });
   it('reflects preview events without parent publication and ignores disabled input', () => {
     const { map, begin, surfaceRef } = setup(true);
     const outline = map.querySelector('.workspace-minimap-viewport')!;

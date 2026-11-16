@@ -39,6 +39,10 @@ function restoreInteractionPreview(session: SheetFrameInteractionSession | null)
   }
 }
 
+function publishLayoutPreview(session: SheetFrameInteractionSession, preview: SheetFrameLayoutPreview | null) {
+  session.frameElement?.dispatchEvent(new CustomEvent('workspace-frame-preview', { bubbles: true, detail: preview }));
+}
+
 export function useSheetFrameInteractions({
   commands,
   interactionsEnabled = true,
@@ -70,6 +74,7 @@ export function useSheetFrameInteractions({
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
     if (restorePreview) restoreInteractionPreview(previous);
+    if (previous) publishLayoutPreview(previous, null);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }
@@ -112,12 +117,13 @@ export function useSheetFrameInteractions({
     );
     // Move the frame element directly. A React state commit per pointermove
     // re-renders every mounted sheet grid while the sheet is dragged.
-    if (current.frameElement) {
-      paintFrame(current.frameElement, {
-        x: Math.round(drag.startPosition.x + delta.x),
-        y: Math.round(drag.startPosition.y + delta.y),
-      });
-    }
+    const position = {
+      x: Math.round(drag.startPosition.x + delta.x),
+      y: Math.round(drag.startPosition.y + delta.y),
+    };
+    if (current.frameElement) paintFrame(current.frameElement, position);
+    const sheet = findSheetById(workbook, drag.sheetId);
+    if (sheet) publishLayoutPreview(current, { sheetId: drag.sheetId, position, size: sheet.frame.size });
   }
 
   function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -202,6 +208,7 @@ export function useSheetFrameInteractions({
     // Resize the frame element directly. A React state commit per pointermove
     // re-renders every mounted sheet grid while the sheet is resized.
     if (current.frameElement) paintFrame(current.frameElement, nextLayout.position, nextLayout.frameSize);
+    publishLayoutPreview(current, { sheetId: resize.sheetId, position: nextLayout.position, size: nextLayout.frameSize });
   }
 
   function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
@@ -248,6 +255,7 @@ export function useSheetFrameInteractions({
     const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
     restoreInteractionPreview(previous);
+    if (previous) publishLayoutPreview(previous, null);
     if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
       previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
     }

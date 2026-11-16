@@ -3,6 +3,7 @@ import type { SheetFrameProjection, SheetFrameSize, WorkspacePosition } from '@w
 import type { WorkspaceViewport } from './workspaceContracts';
 import { minimapCenteredViewport, minimapDraggedViewport, minimapProjection, minimapRect, type MinimapProjection } from './minimapGeometry';
 import { workspaceRectForFrame, workspaceViewportBounds } from './workspaceGeometry';
+import type { SheetFrameLayoutPreview } from './useSheetFrameInteractions';
 import './WorkspaceMinimap.css';
 
 const size = { width: 200, height: 130 };
@@ -17,6 +18,7 @@ export function WorkspaceMinimap({ frames, surface, viewport, surfaceRef, disabl
   const [visible, setVisible] = useState(true);
   const [displayed, setDisplayed] = useState(viewport);
   const [dragging, setDragging] = useState(false);
+  const [framePreview, setFramePreview] = useState<SheetFrameLayoutPreview | null>(null);
   const drag = useRef<Drag | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const finishRef = useRef(finish);
@@ -25,8 +27,10 @@ export function WorkspaceMinimap({ frames, surface, viewport, surfaceRef, disabl
   useEffect(() => {
     const element = surfaceRef.current;
     const update = (event: Event) => setDisplayed((event as CustomEvent<WorkspaceViewport>).detail);
+    const updateFrame = (event: Event) => setFramePreview((event as CustomEvent<SheetFrameLayoutPreview | null>).detail);
     element?.addEventListener('workspace-viewport', update);
-    return () => element?.removeEventListener('workspace-viewport', update);
+    element?.addEventListener('workspace-frame-preview', updateFrame);
+    return () => { element?.removeEventListener('workspace-viewport', update); element?.removeEventListener('workspace-frame-preview', updateFrame); };
   }, [surfaceRef]);
   useEffect(() => () => { if (drag.current) { drag.current = null; finishRef.current(); } }, []);
   useEffect(() => {
@@ -35,7 +39,9 @@ export function WorkspaceMinimap({ frames, surface, viewport, surfaceRef, disabl
     drag.current = null; setDragging(false); finishRef.current();
     if (svgRef.current?.hasPointerCapture(pointer)) svgRef.current.releasePointerCapture(pointer);
   }, [disabled, concealed, visible]);
-  const projection = drag.current?.projection ?? (surface && minimapProjection(frames, surface, displayed, size));
+  const displayedFrames = framePreview ? frames.map((frame) => frame.id === framePreview.sheetId
+    ? { ...frame, position: framePreview.position, size: framePreview.size } : frame) : frames;
+  const projection = drag.current?.projection ?? (surface && minimapProjection(displayedFrames, surface, displayed, size));
   const point = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return { x: (event.clientX - bounds.left) * size.width / bounds.width, y: (event.clientY - bounds.top) * size.height / bounds.height };
@@ -65,7 +71,7 @@ export function WorkspaceMinimap({ frames, surface, viewport, surfaceRef, disabl
       <div className="workspace-minimap-heading"><span>Workspace map</span><button type="button" aria-label="Hide workspace map" disabled={disabled} onPointerDown={(event) => event.preventDefault()} onClick={() => setVisible(false)}>×</button></div>
       <svg ref={svgRef} aria-label="Workspace map" role="img" viewBox={`0 0 ${size.width} ${size.height}`} onPointerDown={down} onPointerMove={(event) => { event.stopPropagation(); const active = drag.current; if (active && active.pointer === event.pointerId) move(minimapDraggedViewport(active.projection, active.start, point(event), active.viewport)); }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} className={dragging ? 'dragging' : ''}>
         {projection && surface && <>
-          {frames.map((frame) => <rect className="workspace-minimap-sheet" key={frame.id} {...rectangle(minimapRect(projection, workspaceRectForFrame(frame)))} />)}
+          {displayedFrames.map((frame) => <rect className="workspace-minimap-sheet" key={frame.id} {...rectangle(minimapRect(projection, workspaceRectForFrame(frame)))} />)}
           <rect className="workspace-minimap-viewport" {...rectangle(minimapRect(projection, workspaceViewportBounds(surface, displayed)))} />
         </>}
       </svg>
