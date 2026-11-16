@@ -20,14 +20,39 @@ function halfSpan(start: number, end: number): number {
   return end / 2 - start / 2;
 }
 
-function projectedDistance(start: number, end: number, scale: number): number {
-  return (end / 2 - start / 2) * scale * 2;
+type Term = { factors: number[]; divisor?: number };
+
+function affine(terms: Term[]): number {
+  const normalized = terms.map(({ factors, divisor = 1 }) => {
+    let mantissa = 1;
+    let exponent = 0;
+    for (const [value, direction] of [...factors.map((factor) => [factor, 1]), [divisor, -1]]) {
+      if (value === 0) return { mantissa: 0, exponent: 0 };
+      const power = Math.max(-1074, Math.min(1023, Math.floor(Math.log2(Math.abs(value)))));
+      const part = value / 2 ** power;
+      mantissa = direction === 1 ? mantissa * part : mantissa / part;
+      exponent += direction * power;
+    }
+    return { mantissa, exponent };
+  }).filter(({ mantissa }) => mantissa !== 0);
+  if (normalized.length === 0) return 0;
+  const exponent = Math.max(...normalized.map((term) => term.exponent));
+  const sum = normalized.map((term) => term.exponent - exponent < -1074
+    ? 0 : term.mantissa * 2 ** (term.exponent - exponent))
+    .sort((a, b) => Math.abs(b) - Math.abs(a)).reduce((value, term) => value + term, 0);
+  if (sum === 0) return 0;
+  const power = Math.floor(Math.log2(Math.abs(sum)));
+  const finalExponent = exponent + power;
+  if (finalExponent > 1023) return Math.sign(sum) * LIMIT;
+  if (finalExponent < -1075) return 0;
+  if (finalExponent === -1075) return (sum / 2 ** power / 2) * Number.MIN_VALUE;
+  return bounded((sum / 2 ** power) * 2 ** finalExponent);
 }
 
-function worldCoordinate(start: number, distance: number, scale: number): number {
-  const delta = distance / scale;
-  if (Number.isFinite(delta)) return bounded(start + delta);
-  return bounded((start / 2 + distance / (scale * 2)) * 2);
+function projectedDistance(start: number, end: number, scale: number): number {
+  const difference = end - start;
+  if (Number.isFinite(difference) && Number.isFinite(difference * scale)) return difference * scale;
+  return affine([{ factors: [end, scale] }, { factors: [-start, scale] }]);
 }
 
 export function minimapProjection(
@@ -56,8 +81,11 @@ export function minimapProjection(
 }
 
 export function minimapPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
-  return { x: bounded(projection.offset.x + projectedDistance(projection.world.left, bounded(point.x), projection.scale)),
-    y: bounded(projection.offset.y + projectedDistance(projection.world.top, bounded(point.y), projection.scale)) };
+  const coordinate = (value: number, start: number, offset: number) => affine([
+    { factors: [offset] }, { factors: [bounded(value), projection.scale] }, { factors: [-start, projection.scale] },
+  ]);
+  return { x: coordinate(point.x, projection.world.left, projection.offset.x),
+    y: coordinate(point.y, projection.world.top, projection.offset.y) };
 }
 
 export function minimapRect(projection: MinimapProjection, bounds: WorkspaceTargetRect): WorkspaceTargetRect {
@@ -67,21 +95,32 @@ export function minimapRect(projection: MinimapProjection, bounds: WorkspaceTarg
 }
 
 export function minimapWorldPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
-  return { x: worldCoordinate(projection.world.left, point.x - projection.offset.x, projection.scale),
-    y: worldCoordinate(projection.world.top, point.y - projection.offset.y, projection.scale) };
+  const coordinate = (value: number, start: number, offset: number) => affine([
+    { factors: [start] }, { factors: [value], divisor: projection.scale }, { factors: [-offset], divisor: projection.scale },
+  ]);
+  return { x: coordinate(point.x, projection.world.left, projection.offset.x),
+    y: coordinate(point.y, projection.world.top, projection.offset.y) };
 }
 
 export function minimapCenteredViewport(
   projection: MinimapProjection, point: WorkspacePosition, surface: SheetFrameSize, viewport: WorkspaceViewport,
 ): WorkspaceViewport {
-  const world = minimapWorldPoint(projection, point);
-  return { x: bounded(surface.width / 2 - world.x * viewport.scale),
-    y: bounded(surface.height / 2 - world.y * viewport.scale), scale: viewport.scale };
+  const coordinate = (value: number, start: number, offset: number, extent: number) => affine([
+    { factors: [extent / 2] }, { factors: [-start, viewport.scale] },
+    { factors: [-value, viewport.scale], divisor: projection.scale },
+    { factors: [offset, viewport.scale], divisor: projection.scale },
+  ]);
+  return { x: coordinate(point.x, projection.world.left, projection.offset.x, surface.width),
+    y: coordinate(point.y, projection.world.top, projection.offset.y, surface.height), scale: viewport.scale };
 }
 
 export function minimapDraggedViewport(
   projection: MinimapProjection, start: WorkspacePosition, current: WorkspacePosition, viewport: WorkspaceViewport,
 ): WorkspaceViewport {
-  return { x: bounded(viewport.x - (current.x - start.x) / projection.scale * viewport.scale),
-    y: bounded(viewport.y - (current.y - start.y) / projection.scale * viewport.scale), scale: viewport.scale };
+  const coordinate = (initial: number, from: number, to: number) => from === to ? initial : affine([
+    { factors: [initial] }, { factors: [-to, viewport.scale], divisor: projection.scale },
+    { factors: [from, viewport.scale], divisor: projection.scale },
+  ]);
+  return { x: coordinate(viewport.x, start.x, current.x),
+    y: coordinate(viewport.y, start.y, current.y), scale: viewport.scale };
 }

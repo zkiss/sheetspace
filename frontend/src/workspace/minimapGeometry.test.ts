@@ -81,4 +81,43 @@ describe('minimap geometry', () => {
     expect(minimapWorldPoint(projection, point).x / 1e308).toBeCloseTo(1);
     expect(minimapCenteredViewport(projection, point, surface, viewport).x / -1e308).toBeCloseTo(1);
   });
+
+  it('combines extreme drag deltas with zoom and pan before saturation', () => {
+    const projection = minimapProjection([frame(-1e308, -1e308), frame(1e308, 1e308)], surface, viewport, size)!;
+    const pixels = 1e308 * projection.scale;
+    const start = { x: 0, y: 0 };
+    const end = { x: pixels * 2, y: pixels * 2 };
+    const small = minimapDraggedViewport(projection, start, end, { x: 0, y: 0, scale: 0.1 });
+    expect(small.x / -2e307).toBeCloseTo(1);
+    expect(small.y / -2e307).toBeCloseTo(1);
+    expect(minimapDraggedViewport(projection, end, start, { x: 0, y: 0, scale: 0.1 }).x / 2e307).toBeCloseTo(1);
+    expect(minimapDraggedViewport(projection, start, end, { x: 1e308, y: 0, scale: 1 }).x / -1e308).toBeCloseTo(1);
+    expect(minimapDraggedViewport(projection, end, start, { x: -1e308, y: 0, scale: 1 }).x / 1e308).toBeCloseTo(1);
+    expect(minimapDraggedViewport(projection, start, end, { x: 0, y: 0, scale: 8 }).x).toBe(-Number.MAX_VALUE);
+    expect(minimapDraggedViewport(projection, start, start, viewport)).toEqual(viewport);
+  });
+
+  it('centers beyond a finite world endpoint without clamping before zoom', () => {
+    const projection = minimapProjection([frame(-1e308, 0), frame(1e308, 0)], surface, viewport, size)!;
+    const centered = minimapCenteredViewport(projection, { x: 200, y: 60 }, surface, { ...viewport, scale: 0.1 });
+    expect(centered.x / (-0.1 * (1e308 + 8 / projection.scale))).toBeCloseTo(1);
+    expect(minimapWorldPoint(projection, { x: 192, y: 60 }).x / 1e308).toBeCloseTo(1);
+  });
+
+  it('handles tiny pointer movements without overflowing the zoom to projection ratio', () => {
+    const projection = { world: { left: 0, top: 0, right: 1, bottom: 1 }, scale: 1e-308, offset: { x: 0, y: 0 } };
+    const dragged = minimapDraggedViewport(projection, { x: 0, y: 0 }, { x: 1e-308, y: 0 }, { x: 0, y: 0, scale: 8 });
+    expect(dragged.x).toBeCloseTo(-8);
+    expect(minimapPoint({ ...projection, scale: 1 }, { x: Number.MIN_VALUE, y: 0 }).x).toBe(Number.MIN_VALUE);
+  });
+
+  it('preserves mirrored extreme positions and saturates only unrepresentable navigation', () => {
+    const projection = minimapProjection([frame(-1e308, 0), frame(-5e307, 0)], surface, viewport, size)!;
+    const left = minimapPoint(projection, { x: -1e308, y: 0 });
+    const right = minimapPoint(projection, { x: -5e307, y: 0 });
+    expect(right.x - left.x).toBeCloseTo(92);
+    expect(minimapWorldPoint(projection, right).x / -5e307).toBeCloseTo(1);
+    expect(minimapCenteredViewport(projection, left, surface, { ...viewport, scale: 0.1 }).x / 1e307).toBeCloseTo(1);
+    expect(minimapCenteredViewport(projection, left, surface, { ...viewport, scale: 8 }).x).toBe(Number.MAX_VALUE);
+  });
 });
