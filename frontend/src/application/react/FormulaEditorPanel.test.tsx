@@ -155,4 +155,24 @@ describe('FormulaEditorPanel', () => {
     expect(input).toHaveValue("=@'Sales@2026'!'Sales@total'");
     expect(input).toHaveFocus();
   });
+
+  it.each([
+    { initial: `=@'Sales"2026'!'Sales"t`, label: 'Sales"total', expected: `=@'Sales"2026'!'Sales"total'` },
+    { initial: '=@Revenue-SU', label: 'SUM', expected: '=@Revenue-SUM' },
+  ])('completes quoted names and subtraction in the editor', async ({ initial, label, expected }) => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Sales"2026' ? 'target' : undefined, namedColumnNames: (id) => id === 'target' ? ['Sales"total'] : ['Decoy'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState(initial);
+      return <FormulaEditorPanel ariaLabel="Completion formula" raw={raw} resolver={sheetResolver} sheetNames={[]} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Completion formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(initial.length, initial.length);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: label }));
+    await waitFor(() => expect(input).toHaveValue(expected));
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(expected.length);
+  });
 });

@@ -127,6 +127,46 @@ describe('formula editor logic', () => {
     })).toEqual([]);
   });
 
+  it.each([
+    { raw: `=@'Sales"2026'!Re`, qualifier: 'Sales"2026', name: 'Revenue', expected: `=@'Sales"2026'!Revenue` },
+    { raw: `=@Budget!'Sales"ta`, qualifier: 'Budget', name: 'Sales"tax', expected: `=@Budget!'Sales"tax'` },
+    { raw: `=@Budget-2026!Re`, qualifier: 'Budget-2026', name: 'Revenue', expected: `=@Budget-2026!Revenue` },
+    { raw: `=@Budget.v2 ! Re`, qualifier: 'Budget.v2', name: 'Revenue', expected: `=@Budget.v2 ! Revenue` },
+    { raw: `=@2026_Plan!Re`, qualifier: '2026_Plan', name: 'Revenue', expected: `=@2026_Plan!Revenue` },
+    { raw: `=@_Plan!Re`, qualifier: '_Plan', name: 'Revenue', expected: `=@_Plan!Revenue` },
+  ])('resolves completion using the actual qualifier in $raw', ({ raw, qualifier, name, expected }) => {
+    const lookup = vi.fn((sheet: string) => sheet === qualifier ? [name] : []);
+    const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, {
+      sheetNames: [], propertyNames: ['Decoy'], propertyNamesForSheet: lookup,
+    });
+    expect(lookup).toHaveBeenCalledWith(qualifier);
+    expect(completion.map((item) => [item.kind, item.label])).toEqual([['property', name]]);
+    expect(applyFormulaCompletion(raw, completion[0]!)).toBe(expected);
+  });
+
+  it.each(['+', '-', '*', '/', '=', '<>', '<', '<=', '>', '>='])('completes after %s without a row selector', (operator) => {
+    for (const reference of ['@Revenue', '@Budget!Revenue']) {
+      for (const automatic of [false, true]) {
+        const raw = `=${reference}${operator}SU`;
+        const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [], automatic })
+          .find((item) => item.label === 'SUM')!;
+        expect(completion.replacement).toEqual({ start: raw.length - 2, end: raw.length });
+        expect(applyFormulaCompletion(raw, completion)).toBe(`=${reference}${operator}SUM`);
+      }
+    }
+  });
+
+  it('distinguishes double quotes in names from real literals', () => {
+    const literal = `=@'Sales"2026'!Revenue+"a@!'""b"`;
+    const cursor = literal.indexOf('@!') + 2;
+    expect(formulaCompletions(literal, { start: cursor, end: cursor }, { sheetNames: [] })).toEqual([]);
+    for (const raw of [`=@'Sales"2026'!Revenue+SU`, `="a@!'""b"+SU`]) {
+      const sum = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] })
+        .find((item) => item.label === 'SUM')!;
+      expect(applyFormulaCompletion(raw, sum)).toBe(raw + 'M');
+    }
+  });
+
   it('formats grouped expressions without treating parentheses as function calls', () => {
     expect(formatFormula('=(1+2)*3', { start: 0, end: 0 }).raw).toBe('=(1 + 2) * 3');
   });
