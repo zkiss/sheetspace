@@ -1,9 +1,8 @@
-import { referenceColour } from '@reference-navigation/contextualReferenceProjection';
+import { identityForTarget, referenceColour } from '@reference-navigation/contextualReferenceProjection';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 
 export function errorReferenceKey(reference: FormulaInspectionReference): string {
-  const target = reference.target;
-  return target.kind === 'cell' ? JSON.stringify([target.sheetId, target.identity?.rowId, target.identity?.columnId]) : JSON.stringify(target);
+  return JSON.stringify(identityForTarget(reference.target) ?? reference.target);
 }
 
 export function allocateErrorReferenceColors(references: readonly FormulaInspectionReference[], allocated: ReadonlyMap<string, string> = new Map()): ReadonlyMap<string, string> {

@@ -74,13 +74,16 @@ export function prepareExtraction(workbook: Workbook, request: ExtractionRequest
     mappings.push({ source: { sheetId: source.id, cell: identity }, destination: { sheetId: request.targetSheetId, cell: target } });
     return { identity, raw: Object.prototype.hasOwnProperty.call(source.content.cells, key) ? source.content.cells[key]! : '' };
   }));
+  const columnNames = copyAxis(source.columnNames, sourceColumns, columns);
+  const formats = overrides && { rows: copyAxis(overrides.rows, sourceRows, rows), columns: copyAxis(overrides.columns, sourceColumns, columns), cells: cellFormats };
+  const hasFormats = formats && Object.values(formats).some((entries) => Object.keys(entries).length > 0);
   const target: SheetDocument = {
     id: request.targetSheetId, revision: 0, name: name.name,
     frame: { position: { ...frame.position }, size: { ...frame.size }, zIndex: frame.zIndex, visualScale: source.frame.visualScale },
     content: { kind: 'tabular', rows, columns, cells: {} },
-    columnNames: copyAxis(source.columnNames, sourceColumns, columns),
+    ...(Object.keys(columnNames).length ? { columnNames } : {}),
     presentation: { rowHeights: copyAxis(source.presentation.rowHeights, sourceRows, rows), columnWidths: copyAxis(source.presentation.columnWidths, sourceColumns, columns),
-      ...(overrides ? { formatOverrides: { rows: copyAxis(overrides.rows, sourceRows, rows), columns: copyAxis(overrides.columns, sourceColumns, columns), cells: cellFormats } } : {}) },
+      ...(hasFormats ? { formatOverrides: formats } : {}) },
   };
   const extents = { rowCount: sourceRows.length, columnCount: sourceColumns.length };
   return { ok: true, value: { workbook: { ...workbook, manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds, target.id] }, documents: { ...workbook.documents, [target.id]: target } }, sourceSheetId: source.id, targetSheetId: target.id, sourceRows, sourceColumns, origin: { row: selected.rows[0], column: selected.columns[0] }, extents, mappings, snapshot: { sheetId: source.id, dimensions: extents, cells } } };

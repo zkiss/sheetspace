@@ -1,5 +1,5 @@
 import { referenceIdentityColor } from '@workbook/core/referenceIdentity';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { parseFormula, parseFormulaSyntax } from '@workbook/formula/syntax';
@@ -35,6 +35,20 @@ const workbook = {
 const resolver = workbookFormulaReferenceResolver(workbook, budget.id);
 
 describe('formula editor logic', () => {
+  it('never completes before the formula marker but allows an empty operand after it', () => {
+    for (const raw of ['=', '=@Budget!Revenue', '=  ', ' =']) {
+      for (const automatic of [false, true]) {
+        expect(formulaCompletions(raw, { start: 0, end: 0 }, { sheetNames: ['Budget'], automatic })).toEqual([]);
+      }
+    }
+    for (const raw of ['=', '=  ']) {
+      const cursor = raw.length;
+      const sum = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: [] })
+        .find((completion) => completion.label === 'SUM');
+      expect(sum?.replacement).toEqual({ start: cursor, end: cursor });
+      expect(applyFormulaCompletion(raw, sum!)).toBe(`${raw}SUM`);
+    }
+  });
   it('highlights and hovers positional references while diagnosing missing positions', () => {
     const raw = '=SUM(@Budget!Revenue[#$1]:Cost[#2])+@Budget!Revenue[#999]';
     const analysis = analyzeFormulaEditor(raw, resolver);
@@ -60,11 +74,150 @@ describe('formula editor logic', () => {
   });
   it('handles completion within qualified references and escaped strings', () => {
     expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [] })).toEqual([]);
-    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Revenue'] }))
+    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Wrong'], propertyNamesForSheet: (sheet) => sheet === 'Budget' ? ['Revenue'] : [] }))
       .toContainEqual(expect.objectContaining({ label: 'Revenue', kind: 'property' }));
     const raw = '="a""b"+SU';
     expect(formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] }))
       .toContainEqual(expect.objectContaining({ label: 'SUM' }));
+  });
+
+  it('offers only the named columns of the qualified sheet, including quoted sheet names', () => {
+    const names = vi.fn((sheet: string) => sheet === "Owner's Plan" ? ['Sales total', 'Sales tax'] : []);
+    const raw = "=@'Owner''s Plan'!Sa[1]";
+    const cursor = raw.indexOf('[1]');
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ["Owner's Plan"], propertyNames: ['Same sheet'], propertyNamesForSheet: names,
+    });
+    expect(names).toHaveBeenCalledWith("Owner's Plan");
+    expect(suggestions.map((item) => item.label)).toEqual(['Sales total', 'Sales tax']);
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe("=@'Owner''s Plan'!'Sales total'[1]");
+    expect(resolver.namedColumnNames?.('budget')).toEqual(['Revenue', 'Cost']);
+    expect(resolver.namedColumnNames?.('missing')).toEqual([]);
+  });
+
+  it.each([
+    { raw: "=@Budget!'Sales t", cursor: 16, name: 'Sales total', expected: "=@Budget!'Sales total'" },
+    { raw: "=@Budget!'Sales tax'[1]+1", cursor: 16, name: 'Sales total', expected: "=@Budget!'Sales total'[1]+1" },
+    { raw: "=@Budget!'Owner''s ta", cursor: 20, name: "Owner's tax", expected: "=@Budget!'Owner''s tax'" },
+    { raw: "=@Budget!'Owner''s tax'[1]", cursor: 20, name: "Owner's total", expected: "=@Budget!'Owner''s total'[1]" },
+  ])('replaces a partially typed quoted column including its suffix', ({ raw, cursor, name, expected }) => {
+    const completion = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: [], propertyNamesForSheet: () => [name],
+    }).find((suggestion) => suggestion.label === name);
+
+    expect(completion).toBeDefined();
+    expect(applyFormulaCompletion(raw, completion!)).toBe(expected);
+  });
+
+  it.each([
+    { raw: "=@'Sales@2026'!Re", name: 'Revenue', qualifier: 'Sales@2026', expected: "=@'Sales@2026'!Revenue" },
+    { raw: "=@Budget!'Sales@t", name: 'Sales@total', qualifier: 'Budget', expected: "=@Budget!'Sales@total'" },
+    { raw: "=@'Owner''s @Plan!'!$'Sales@tax'[$1]+2", prefix: "'Sales@", name: 'Sales@total', qualifier: "Owner's @Plan!", expected: "=@'Owner''s @Plan!'!$'Sales@total'[$1]+2" },
+    { raw: "=@'A!,+ [é]''@' ! 'X!,+ [é]''@'", name: "X!,+ [é]'@", qualifier: "A!,+ [é]'@", expected: "=@'A!,+ [é]''@' ! 'X!,+ [é]''@'" },
+    { raw: '=@Budget!$', name: 'Revenue', qualifier: 'Budget', expected: '=@Budget!$Revenue' },
+    { raw: '="x@!""y"+@Budget!Re', name: 'Revenue', qualifier: 'Budget', expected: '="x@!""y"+@Budget!Revenue' },
+  ])('uses decoded names and exact spans for $raw', ({ raw, name, qualifier, expected, prefix }) => {
+    const cursor = prefix ? raw.indexOf(prefix) + prefix.length : raw.length;
+    const lookup = vi.fn((sheet: string) => sheet === qualifier ? [name] : []);
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ['Decoy'], propertyNames: ['Decoy'], propertyNamesForSheet: lookup,
+    });
+    expect(lookup).toHaveBeenCalledWith(qualifier);
+    expect(suggestions.map((item) => item.label)).toEqual([name]);
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe(expected);
+  });
+
+  it('replaces a quoted sheet name without duplicating its existing separator', () => {
+    const raw = "=@'Owner''s @Plan!' !A[1]";
+    const cursor = raw.indexOf('@Plan') + 2;
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: ["Owner's @Plan!"] });
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe(raw);
+  });
+
+  it('does not fall back to active columns for unknown quoted qualifiers', () => {
+    const raw = "=@'Unknown@sheet'!Re";
+    expect(formulaCompletions(raw, { start: raw.length, end: raw.length }, {
+      sheetNames: [], propertyNames: ['Revenue'], propertyNamesForSheet: () => [],
+    })).toEqual([]);
+  });
+
+  it.each([
+    '=@Revenue[|1]', '=@Revenue[1|]', '=@Revenue[$|1]', '=@Revenue[#|1]', '=@Revenue[#$|1]',
+    '=@Revenue[|', '=@Revenue[#|', '=@Revenue[$|', '=@Revenue[#$|', '=@Revenue[1|',
+    '=@Revenue[SU|]', '=@Revenue[@SU|+1]', '=@Revenue[1]:|', '=@Revenue[1]:Co|st[2]',
+    '=@Revenue[1]:$Co|st', "=@Revenue[1]:'Co|st'[2]", '=@Revenue[1]|',
+    '=@Revenue.|SU', '=@%SU|', '=@~SU|', '=@$|$Revenue',
+  ])('suppresses completion in structural reference text: %s', (marked) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    for (const automatic of [false, true]) {
+      expect(formulaCompletions(raw, { start: cursor, end: cursor }, {
+        sheetNames: ['Budget'], propertyNames: ['Revenue'], automatic,
+      })).toEqual([]);
+    }
+  });
+
+  it.each([
+    { marked: '=@$Bu|', kind: 'property', expected: '=@$Budget', start: 3, end: 5 },
+    { marked: '=@Bu|!Revenue[1]', kind: 'sheet', expected: '=@Budget!Revenue[1]', start: 2, end: 4 },
+    { marked: '=@Bu|[1]:Cost[2]', kind: 'property', expected: '=@Budget[1]:Cost[2]', start: 2, end: 4 },
+    { marked: '=@$Bu|[$1]', kind: 'property', expected: '=@$Budget[$1]', start: 3, end: 5 },
+  ])('limits completion kinds and preserves reference ownership for $marked', ({ marked, kind, expected, start, end }) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    const completions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ['Budget'], propertyNames: ['Budget'],
+    });
+    expect(completions.map((item) => [item.kind, item.label, item.replacement])).toEqual([[kind, 'Budget', { start, end }]]);
+    expect(applyFormulaCompletion(raw, completions[0]!)).toBe(expected);
+  });
+
+  it('resumes function completion only after a reference expression boundary', () => {
+    for (const raw of ['=@Revenue[1]+SU', '=@Revenue[1]:Cost[2]+SU']) {
+      const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] })
+        .find((item) => item.label === 'SUM')!;
+      expect(applyFormulaCompletion(raw, completion)).toBe(raw + 'M');
+    }
+  });
+
+  it.each([
+    { raw: `=@'Sales"2026'!Re`, qualifier: 'Sales"2026', name: 'Revenue', expected: `=@'Sales"2026'!Revenue` },
+    { raw: `=@Budget!'Sales"ta`, qualifier: 'Budget', name: 'Sales"tax', expected: `=@Budget!'Sales"tax'` },
+    { raw: `=@Budget-2026!Re`, qualifier: 'Budget-2026', name: 'Revenue', expected: `=@Budget-2026!Revenue` },
+    { raw: `=@Budget.v2 ! Re`, qualifier: 'Budget.v2', name: 'Revenue', expected: `=@Budget.v2 ! Revenue` },
+    { raw: `=@2026_Plan!Re`, qualifier: '2026_Plan', name: 'Revenue', expected: `=@2026_Plan!Revenue` },
+    { raw: `=@_Plan!Re`, qualifier: '_Plan', name: 'Revenue', expected: `=@_Plan!Revenue` },
+  ])('resolves completion using the actual qualifier in $raw', ({ raw, qualifier, name, expected }) => {
+    const lookup = vi.fn((sheet: string) => sheet === qualifier ? [name] : []);
+    const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, {
+      sheetNames: [], propertyNames: ['Decoy'], propertyNamesForSheet: lookup,
+    });
+    expect(lookup).toHaveBeenCalledWith(qualifier);
+    expect(completion.map((item) => [item.kind, item.label])).toEqual([['property', name]]);
+    expect(applyFormulaCompletion(raw, completion[0]!)).toBe(expected);
+  });
+
+  it.each(['+', '-', '*', '/', '=', '<>', '<', '<=', '>', '>='])('completes after %s without a row selector', (operator) => {
+    for (const reference of ['@Revenue', '@Budget!Revenue']) {
+      for (const automatic of [false, true]) {
+        const raw = `=${reference}${operator}SU`;
+        const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [], automatic })
+          .find((item) => item.label === 'SUM')!;
+        expect(completion.replacement).toEqual({ start: raw.length - 2, end: raw.length });
+        expect(applyFormulaCompletion(raw, completion)).toBe(`=${reference}${operator}SUM`);
+      }
+    }
+  });
+
+  it('distinguishes double quotes in names from real literals', () => {
+    const literal = `=@'Sales"2026'!Revenue+"a@!'""b"`;
+    const cursor = literal.indexOf('@!') + 2;
+    expect(formulaCompletions(literal, { start: cursor, end: cursor }, { sheetNames: [] })).toEqual([]);
+    for (const raw of [`=@'Sales"2026'!Revenue+SU`, `="a@!'""b"+SU`]) {
+      const sum = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] })
+        .find((item) => item.label === 'SUM')!;
+      expect(applyFormulaCompletion(raw, sum)).toBe(raw + 'M');
+    }
   });
 
   it('formats grouped expressions without treating parentheses as function calls', () => {
@@ -109,6 +262,36 @@ describe('formula editor logic', () => {
     expect(builtInFormulaFunctions.has(sum!.insertText)).toBe(true);
   });
 
+  it.each([
+    '=|@Revenue[1]', '=1+|@Revenue[1]', '=|1', '=|.5', '=|"x"', '=|TRUE',
+    '=|(1)', '=|-1', '= | @Revenue[1]', '=| SUM(1)', '=1<|=2', '=1>|=2',
+    '=1<|>2', '=1e+|2', '=SU|@Revenue[1]', '=SU| "x"', '=@|1',
+    '=@Re|@Cost', '=@Budget!|1',
+  ])('does not insert into an occupied or ambiguous operand: %s', (marked) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    for (const automatic of [false, true]) {
+      expect(formulaCompletions(raw, { start: cursor, end: cursor }, {
+        sheetNames: ['Budget'], propertyNames: ['Revenue'], propertyNamesForSheet: () => ['Revenue'], automatic,
+      })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ['=|', '=SUM'], ['=   |', '=   SUM'], ['=SUM(|)', '=SUM(SUM)'],
+    ['=SUM(1, |)', '=SUM(1, SUM)'], ['=1+|', '=1+SUM'],
+    ['=SU|', '=SUM'], ['=|SUM(1)', '=SUM(1)'],
+    ['=S|UM (1)+2', '=SUM (1)+2'], ['=SU| + @A[1]', '=SUM + @A[1]'],
+    ['=-SU|', '=-SUM'], ['=(SU|)', '=(SUM)'],
+  ])('completes a proven operand slot or whole identifier: %s', (marked, expected) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    const completions = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: [] });
+    const sum = completions.find((completion) => completion.label === 'SUM')!;
+    expect(sum).toBeDefined();
+    expect(applyFormulaCompletion(raw, sum)).toBe(expected);
+  });
+
   it('completes quoted sheets and model properties with escaped names', () => {
     const sheets = formulaCompletions('=@Ow', { start: 4, end: 4 }, { sheetNames: ["Owner's Plan"], propertyNames: ['Revenue'] });
     const properties = formulaCompletions("=@'Re + 1", { start: 5, end: 5 }, { sheetNames: [], propertyNames: ["Revenue's Net"] });
@@ -131,7 +314,7 @@ describe('formula editor logic', () => {
 
   it.each([
     { raw: '=@$Re[$1]', cursor: 5, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@$Revenue[$1]" },
-    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$Revenue[$1]" },
+    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNamesForSheet: () => ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$Revenue[$1]" },
     { raw: '=@A[1]-SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]-SUM' },
     { raw: '=@A[1]+SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]+SUM' },
     { raw: '=@A[1]*SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]*SUM' },

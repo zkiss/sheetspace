@@ -37,7 +37,7 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   maximise, extraction,
   selectionSettlement, restoreSelection,
-  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
+  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onOpenFunctions, onSortSheet, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   selectionSettlement?: Pick<ReturnType<typeof import('@grid/useCellEditing').useCellEditing>, 'queuedSelection' | 'beginSelectionSettlement' | 'ownsSelectionSettlement' | 'cancelSelectionSettlement' | 'reconcileSelectionPublication'>;
@@ -52,6 +52,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   closePalette: (restoreFocus?: boolean) => void; openPanel: () => void;
   onCreateSheet: () => void;
   onOpenDataModels?: (modelId?: string) => void; onRename: (sheet: SheetDocument) => void;
+  onOpenFunctions?: () => void; onSortSheet?: (sheetId: string) => void;
   onDelete: (sheet: SheetDocument) => void; onEdit: (target: CellTarget) => void; onClear: (target: CellTarget) => void;
   onSelectAxis: (axis: 'rows' | 'columns', target: CellTarget) => void; onSelectAll: (sheet: SheetDocument) => void;
   onRowDeleted: (sheet: SheetDocument, target: CellTarget) => void;
@@ -121,6 +122,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
 
   add('new-sheet', 'New sheet…', 'Workspace', run(onCreateSheet, false));
   add('data-models', 'Data models…', 'Workspace', run(() => onOpenDataModels?.(), false), onOpenDataModels ? undefined : 'Data models unavailable');
+  add('functions', 'Functions…', 'Workspace', run(() => onOpenFunctions?.(), false), onOpenFunctions ? undefined : 'Functions unavailable');
   add('toggle-references', referencesVisible ? 'Hide references' : 'Show references', 'Workspace', run(onToggleReferences));
   add('back', 'Back', 'Navigation', run(() => navigation.traverse('back'), false), navigation.canGoBack ? undefined : 'No previous location', ['navigation']);
   add('forward', 'Forward', 'Navigation', run(() => navigation.traverse('forward'), false), navigation.canGoForward ? undefined : 'No forward location', ['navigation']);
@@ -137,6 +139,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     add('append-column', 'Append column', 'Sheet', run(() => sheet && commands.appendColumn(sheet.id)), noSheet);
   }
   add('rename-sheet', 'Rename sheet…', 'Sheet', run(() => sheet && onRename(sheet), false), noSheet);
+  add('sort-sheet', 'Sort sheet…', 'Sheet', run(() => sheet && onSortSheet?.(sheet.id), false), noSheet ?? (onSortSheet ? undefined : 'Sorting unavailable'));
   add('delete-row', 'Delete row', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
     const revision = selectionRevision.current.revision;

@@ -11,12 +11,12 @@ const definition = (body: string, names: string[] = ['a', 'b']): CustomFunction 
 
 describe('function body syntax', () => {
   it('parses parameters lexically with precedence, calls, strings and exact spans', () => {
-    const body = '=SUM(a, b*2, "a", a(3))';
+    const body = '=SUM(@a, @b*2, "a", a(3))';
     const analysis = analyzeFunctionBody(definition(body), workbook, first.id);
     expect(analysis.diagnostics).toEqual([]);
     expect(analysis.syntax.tokens.map((token) => body.slice(token.sourceSpan.start, token.sourceSpan.end)).join('')).toBe(body);
     expect(analysis.syntax.result).toMatchObject({ kind: 'formula', expression: { kind: 'function', arguments: [
-      { kind: 'parameter', name: 'A', sourceSpan: { start: 5, end: 6 } },
+      { kind: 'parameter', name: 'A', sourceSpan: { start: 5, end: 7 } },
       { kind: 'binary', operator: '*', left: { kind: 'parameter', name: 'B' } },
       { kind: 'text', value: 'a' }, { kind: 'function', functionName: 'A' },
     ] } });
@@ -26,14 +26,14 @@ describe('function body syntax', () => {
 
   it('accepts zero or many parameters and reports unrelated names and malformed text', () => {
     expect(analyzeFunctionBody(definition('=later()', []), workbook, first.id).diagnostics).toEqual([]);
-    expect(analyzeFunctionBody(definition('=p99', Array.from({ length: 100 }, (_, i) => `p${i}`)), workbook, first.id).diagnostics).toEqual([]);
-    for (const body of ['=aa+1', '=SUM(a,', 'plain']) {
+    expect(analyzeFunctionBody(definition('=@p99', Array.from({ length: 100 }, (_, i) => `p${i}`)), workbook, first.id).diagnostics).toEqual([]);
+    for (const body of ['=a+1', '=aa+1', '=SUM(@a,', 'plain']) {
       expect(analyzeFunctionBody(definition(body), workbook, first.id).diagnostics[0].code).toBe('#PARSE!');
     }
   });
 
   it('binds caller and explicitly named sheets without trusting internal identity spelling', () => {
-    const body = '=a+@A[1]+@Second!B[2]';
+    const body = '=@a+@A[1]+@Second!B[2]';
     const one = analyzeFunctionBody(definition(body), workbook, first.id);
     const two = analyzeFunctionBody(definition(body), workbook, second.id);
     expect(one.diagnostics).toEqual([]);

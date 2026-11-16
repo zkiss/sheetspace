@@ -84,6 +84,7 @@ export function SheetGrid({
   onNativeFocusTarget,
   pendingCutCells,
   columnLabels,
+  sorting,
   calculatedColumnIds,
   onScrollContainerAvailable,
   onUserViewportMovement,
@@ -495,6 +496,7 @@ export function SheetGrid({
         columnHeaderRef={columnHeaderRef}
         columns={columns}
         columnLabels={columnLabels}
+        sorting={sorting}
         virtualColumns={virtualColumns}
         resize={onWriteAxisSizes ? resize : undefined}
         selectedColumnIndices={(selectionPresentation.mode ?? selectionMode) === 'columns' ? selectionPresentation.columns : undefined}

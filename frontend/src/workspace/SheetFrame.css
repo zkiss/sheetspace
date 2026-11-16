@@ -197,6 +197,12 @@
   white-space: nowrap;
 }
 
+.sheet-frame h2 code {
+  font-family: monospace;
+  font-size: 0.9em;
+  font-weight: normal;
+}
+
 .sheet-frame-maximise {
   display: grid;
   place-items: center;

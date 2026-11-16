@@ -17,20 +17,29 @@ function fixture() {
 }
 
 describe('contextual reference projection', () => {
-  it('shares stable identity but assigns distinct colours to repeated tokens', () => {
+  it('shares stable identity and colour for repeated tokens', () => {
     const { inspection } = fixture();
     const repeated = contextualReferences([inspection.references[0]!, inspection.references[0]!]);
     expect(repeated).toHaveLength(2);
     expect(repeated[0]!.identity).toEqual(repeated[1]!.identity);
-    expect(repeated[0]!.color).not.toBe(repeated[1]!.color);
+    expect(repeated[0]!.color).toBe(repeated[1]!.color);
   });
 
-  it('shares identity but distinguishes ranges written with reversed endpoints', () => {
+  it('shares identity and colour for ranges written with reversed endpoints', () => {
     const { formula, workbook, inspection } = fixture();
     const reversed = inspectFormula('=@source!A[1]:B[2]', workbook, formula)!;
     const references = contextualReferences([inspection.references[1]!, reversed.references[0]!]);
     expect(references[0]!.identity).toEqual(references[1]!.identity);
-    expect(references[0]!.color).not.toBe(references[1]!.color);
+    expect(references[0]!.color).toBe(references[1]!.color);
+  });
+
+  it('uses one colour per target and recognizes the other diagonal of a range', () => {
+    const { formula, workbook } = fixture();
+    const inspection = inspectFormula('=@source!A[1]:B[2]+@source!B[1]:A[2]+@source!A[1]+@source!B[2]', workbook, formula)!;
+    const references = contextualReferences(inspection.references);
+    expect(references[0]!.identity).toEqual(references[1]!.identity);
+    expect(references[0]!.color).toBe(references[1]!.color);
+    expect(new Set([references[0]!.color, references[2]!.color, references[3]!.color]).size).toBe(3);
   });
 
   it('colours unresolved tokens but not broken references', () => {
@@ -53,6 +62,28 @@ describe('contextual reference projection', () => {
     const changed = { ...source, presentation: { ...source.presentation, columnWidths: { [source.content.columns[0]!]: 60, [source.content.columns[1]!]: 140 }, rowHeights: { [source.content.rows[0]!]: 30, [source.content.rows[1]!]: 70 } } };
     const result = projectReferenceGeometry({ reference: inspection.references[1]!, workbook: { ...workbook, documents: { ...workbook.documents, source: changed } }, frames, gridViewports: { source: { ...viewport, scrollLeft: 20, scrollTop: 10 } }, workspaceViewport: { x: 10, y: 20, scale: 0.5 }, surfaceSize: { width: 900, height: 700 } });
     expect(result).toEqual({ kind: 'visible', rect: { left: 101, top: 104.4, right: 281, bottom: 194.4 } });
+  });
+
+  it('projects the visible portion of a range clipped by the workspace edge', () => {
+    const { workbook, inspection, frames } = fixture();
+    const base = { reference: inspection.references[1]!, workbook, frames, gridViewports: { source: viewport }, workspaceViewport: { x: 0, y: 0, scale: 1 } };
+    const full = projectReferenceGeometry({ ...base, surfaceSize: { width: 1200, height: 900 } });
+    expect(full.kind).toBe('visible');
+    if (full.kind !== 'visible') throw new Error('Expected a visible range');
+    const clipped = projectReferenceGeometry({ ...base, surfaceSize: { width: 1200, height: full.rect.top + 30 } });
+    expect(clipped).toEqual({ kind: 'visible', rect: { ...full.rect, bottom: full.rect.top + 30 } });
+  });
+
+  it('clips a range to each grid edge while retaining fully offscreen fallback', () => {
+    const { workbook, inspection, frames } = fixture();
+    const base = { reference: inspection.references[1]!, workbook, frames, workspaceViewport: { x: 0, y: 0, scale: 1 }, surfaceSize: { width: 1200, height: 900 } };
+    const project = (scrollLeft: number, scrollTop: number, width: number, height: number) =>
+      projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, scrollLeft, scrollTop, size: { width, height } } } });
+    expect(project(30, 0, 400, 300)).toMatchObject({ kind: 'visible', rect: { left: 182 } });
+    expect(project(0, 10, 400, 300)).toMatchObject({ kind: 'visible', rect: { top: 168.8 } });
+    expect(project(0, 0, 120, 300)).toMatchObject({ kind: 'visible', rect: { right: 342 } });
+    expect(project(0, 0, 400, 60)).toMatchObject({ kind: 'visible', rect: { bottom: 236 } });
+    expect(project(1000, 0, 400, 300).kind).toBe('offscreen');
   });
 
   it('uses a durable frame projection during live movement and resize rather than persisted sheet frame values', () => {

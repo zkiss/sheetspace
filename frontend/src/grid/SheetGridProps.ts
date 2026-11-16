@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
 import type { CellRange } from '@workbook/core/address';
 import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
-import type { AxisSizeWrite, DataModel, SheetPresentation, SheetTabularProjection } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, SheetPresentation, SheetTabularProjection, SortCriterion } from '@workbook/core/model';
 import type { GridAxisProjection } from './gridAxisProjection';
 import type { EntryCommands } from './ModelEntryRow';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
@@ -27,6 +27,7 @@ export type SheetGridProps = {
   onNativeFocusTarget?: (target: CellTarget) => void;
   pendingCutCells?: ReadonlySet<string>;
   columnLabels?: ReadonlyMap<string, string>;
+  sorting?: readonly SortCriterion[];
   calculatedColumnIds?: ReadonlySet<string>;
   /** Announces the committed scroll container to workspace integrations. */
   onScrollContainerAvailable?: (element: HTMLElement | null) => void;

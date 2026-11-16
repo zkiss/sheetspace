@@ -6,8 +6,6 @@ import {
   SheetDocument,
   SheetZOrderDirection,
 } from '@workbook/core/model';
-import { SheetSortingControls, type SortingSubmission } from './SheetSortingControls';
-import type { SortCriterion } from '@workbook/core/model';
 import type { PendingSheetMenu } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import '@workspace/SheetContextMenu.css';
@@ -15,7 +13,7 @@ import '@workspace/SheetContextMenu.css';
 export function SheetContextMenu({
   menu,
   modelControls,
-  sorting,
+  onSort,
   extraction,
   onAppendColumn,
   onAppendRow,
@@ -27,7 +25,7 @@ export function SheetContextMenu({
 }: {
   menu: PendingSheetMenu;
   modelControls?: ReactNode;
-  sorting?: { labels?: ReadonlyMap<string, string>; apply: (sheetId: string, criteria: readonly SortCriterion[]) => SortingSubmission };
+  onSort?: () => void;
   extraction?: { run: () => void; unavailable?: string };
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
@@ -91,7 +89,7 @@ export function SheetContextMenu({
         </label>
         <button onClick={commitScale} type="button">Set scale</button>
       </div>
-      {sorting && <SheetSortingControls sheet={sheet} labels={sorting.labels} onApply={sorting.apply} />}
+      {onSort && <button type="button" role="menuitem" onClick={onSort}>Sort…</button>}
       {modelControls}
       <button type="button" role="menuitem" onClick={() => onChangeZOrder(sheet.id, 'top')}>
         Bring to front

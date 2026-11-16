@@ -1,6 +1,7 @@
 import type { Workbook } from '@workbook/core/model';
 import type { ModelEntrySessions } from '@application/core/modelEntrySession';
 import type { TransitionFailure } from './workbookControllerTypes';
+import { equal, semanticSheet } from '@application/core/extractionHistory';
 
 export function modelTransitionRejection(options: {
   before: Workbook; after: Workbook; protectEntryContents: boolean;
@@ -10,7 +11,7 @@ export function modelTransitionRejection(options: {
   const { before, after } = options;
   if (Object.keys(before.documents).some((id) =>
     (options.admissionLocks.has(id) && before.documents[id] !== after.documents[id]) ||
-    (options.protectEntryContents && options.entrySessions.hasUnfinished(id) && JSON.stringify({ ...before.documents[id], revision: 0 }) !== JSON.stringify({ ...after.documents[id], revision: 0 })) ||
+    (options.protectEntryContents && options.entrySessions.hasUnfinished(id) && (!after.documents[id] || !equal(semanticSheet(before.documents[id]!), semanticSheet(after.documents[id])))) ||
     options.entrySessions.protectsTransition(before, after, id))) {
     return { ok: false, reason: 'pending-model-transition' };
   }

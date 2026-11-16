@@ -5,7 +5,7 @@ import { ContentHistory, CONTENT_HISTORY_MAX_BYTES, EXTRACTION_HISTORY_MAX_BYTES
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { calculatedProperty, declaration, modelWorkbook } from '@test-support/modelLifecycleFixtures';
 import { extractSelection } from './extractSelection';
-import { prepareExtractionReplay } from './extractionHistory';
+import { prepareExtractionReplay, replayDelta, semantic } from './extractionHistory';
 
 const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`);
 function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
@@ -24,6 +24,107 @@ function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
 }
 
 describe('extraction history', () => {
+  it('normalizes empty metadata without discarding nonempty formatting or names', () => {
+    const { after } = extraction('cells');
+    const omitted = structuredClone(after);
+    const empty = structuredClone(after);
+    delete omitted.documents.source!.columnNames;
+    delete omitted.documents.source!.presentation.formatOverrides;
+    empty.documents.source!.columnNames = {};
+    empty.documents.source!.presentation.formatOverrides = { rows: {}, columns: {}, cells: {} };
+    expect(semantic(empty)).toEqual(semantic(omitted));
+    empty.documents.source!.columnNames = { column: 'Amount' };
+    empty.documents.source!.presentation.formatOverrides.cells.cell = { horizontalAlignment: 'right' };
+    expect(semantic(empty).documents.source!.columnNames).toEqual({ column: 'Amount' });
+    expect(semantic(empty).documents.source!.presentation.formatOverrides?.cells.cell).toEqual({ horizontalAlignment: 'right' });
+  });
+
+  it('preserves independent changes and rejects conflicts in a replay delta', () => {
+    expect(replayDelta({ changed: 2, independent: 3 }, { changed: 2, independent: 1 }, { changed: 1, independent: 1 }))
+      .toEqual({ ok: true, value: { changed: 1, independent: 3 } });
+    expect(replayDelta({ changed: 4 }, { changed: 2 }, { changed: 1 })).toEqual({ ok: false });
+  });
+
+  it('allows undo after moving and resizing the extracted sheet but still rejects edited content', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    const target = current.documents[ids[0]!]!;
+    target.frame.position = { x: 500, y: 600 };
+    target.frame.size = { width: 400, height: 300 };
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true).ok).toBe(true);
+    target.content.cells[cellIdentityKey(cellIdentityAt(target.content, 'A1')!)] = 'changed';
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
+  });
+  it('rejects other changes to the extracted sheet after moving it', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    current.documents[ids[0]!]!.frame.position = { x: 500, y: 600 };
+    current.documents[ids[0]!]!.name = 'Changed';
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
+  });
+  it('replays when persistence omits empty source formatting and target column names', () => {
+    const extracted = extraction('cells');
+    const before = structuredClone(extracted.before), after = structuredClone(extracted.after);
+    const source = before.documents.source!;
+    const identity = cellIdentityAt(source.content, 'A1')!;
+    source.presentation.formatOverrides = { rows: {}, columns: {}, cells: { [cellIdentityKey(identity)]: { horizontalAlignment: 'right' } } };
+    after.documents.source!.presentation.formatOverrides = { rows: {}, columns: {}, cells: {} };
+    after.documents[ids[0]!]!.columnNames = {};
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const persisted = structuredClone(after);
+    delete persisted.documents.source!.presentation.formatOverrides;
+    delete persisted.documents[ids[0]!]!.columnNames;
+
+    const undo = prepareExtractionReplay(persisted, history.peekUndo()!, 'undo', true);
+    expect(undo.ok).toBe(true);
+    if (!undo.ok) throw new Error(undo.reason);
+    expect(undo.workbook.documents.source!.presentation.formatOverrides).toEqual(source.presentation.formatOverrides);
+    history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo', true);
+    expect(redo.ok).toBe(true);
+    if (!redo.ok) throw new Error(redo.reason);
+    expect(redo.workbook.documents.source!.presentation.formatOverrides).toEqual(after.documents.source!.presentation.formatOverrides);
+    expect(redo.workbook.documents[ids[0]!]!.columnNames).toEqual(after.documents[ids[0]!]!.columnNames);
+  });
+
+  it('undoes consecutive extractions of a formatted cell in reverse order', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
+    const cell = cellIdentityAt(source.content, 'A1')!;
+    source.content.cells[cellIdentityKey(cell)] = '42';
+    source.presentation.formatOverrides = { rows: {}, columns: {}, cells: { [cellIdentityKey(cell)]: { horizontalAlignment: 'right' } } };
+    let current = workbookWithSheets([source]);
+    let sourceId = source.id;
+    const history = new ContentHistory();
+    const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+    for (let index = 0; index < 3; index++) {
+      const before = current;
+      const identity = cellIdentityAt(before.documents[sourceId]!.content, 'A1')!;
+      const targetId = uuid(index * 3 + 1);
+      const result = extractSelection(before, { sourceSheetId: sourceId, selection: { kind: 'cells', start: identity, end: identity }, targetSheetId: targetId, targetName: `Target ${index}`, targetRows: [uuid(index * 3 + 2)], targetColumns: [uuid(index * 3 + 3)], frame: { position: { x: index * 200, y: 0 }, size: { width: 100, height: 100 }, zIndex: 1 } });
+      if (!result.ok) throw new Error(result.reason);
+      history.recordExtraction(before, result.workbook, uuid(index + 20));
+      current = semantic(result.workbook);
+      sourceId = targetId;
+    }
+
+    for (let index = 2; index >= 0; index--) {
+      const undo = prepareExtractionReplay(current, history.peekUndo()!, 'undo', true);
+      expect(undo.ok).toBe(true);
+      if (!undo.ok) throw new Error(undo.reason);
+      current = semantic(undo.workbook);
+      history.commitUndo();
+      expect(current.documents[uuid(index * 3 + 1)]).toBeUndefined();
+    }
+    expect(current.documents.source!.content.cells[cellIdentityKey(cell)]).toBe('42');
+    expect(current.documents.source!.presentation.formatOverrides?.cells[cellIdentityKey(cell)]).toEqual({ horizontalAlignment: 'right' });
+  });
+
   it.each([false, true])('accounts for the exact UTF-8 capacity boundary (online: %s)', (online) => {
     const { before, after } = extraction('cells');
     before.documents.source!.content.cells.padding = 'é';
@@ -164,7 +265,7 @@ describe('extraction history', () => {
     history.commitUndo();
     const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo');
     expect(redo.ok).toBe(true); if (!redo.ok) return;
-    expect(redo.workbook).toEqual(after);
+    expect(semantic(redo.workbook)).toEqual(semantic(after));
     expect(redo.persistence.kind).toBe('model-lifecycle');
   });
 

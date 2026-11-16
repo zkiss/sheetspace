@@ -90,8 +90,3 @@
   color: #fff;
   background: var(--accent);
 }
-
-.sheet-sorting { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: .3rem; border-top: 1px solid #e3eaed; padding: .45rem; font-size: .8rem; }
-.sheet-sorting [role="group"], .sheet-sorting-criterion, .sheet-sorting label { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: .25rem; }
-.sheet-sorting-criterion { border-top: 1px solid #e3eaed; padding-top: .3rem; }
-.sheet-sorting select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }

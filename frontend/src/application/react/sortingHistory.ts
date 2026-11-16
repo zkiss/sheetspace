@@ -20,7 +20,7 @@ export function createSortingHistory(options: {
     const expected = direction === 'undo' ? after : before;
     const target = direction === 'undo' ? before : after;
     options.submit((current) => {
-      const delta = replayDelta(semantic(current), semantic(expected), semantic(target));
+      const delta = replayDelta(semantic(current), semantic(expected), semantic(target), current, target);
       if (!delta.ok) return { ok: false, reason: 'stale-history' };
       const next = delta.value as Workbook;
       next.manifest.revision = current.manifest.revision;

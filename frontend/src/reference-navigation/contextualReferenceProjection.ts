@@ -33,9 +33,18 @@ export type ProjectedReferenceGeometry =
  * editor token colours, source highlights, and reference links.
  */
 export function contextualReferences(references: readonly FormulaInspectionReference[]): readonly ContextualReference[] {
-  return references.map((reference, index) => {
+  const colors = new Map<string, string>();
+  let nextColor = 0;
+  return references.map((reference) => {
     const identity = identityForTarget(reference.target);
-    return { reference, identity, color: reference.broken ? undefined : referenceColour(index) };
+    if (reference.broken) return { reference, identity, color: undefined };
+    const key = identity && JSON.stringify(identity);
+    let color = key && colors.get(key);
+    if (!color) {
+      color = referenceColour(nextColor++);
+      if (key) colors.set(key, color);
+    }
+    return { reference, identity, color };
   });
 }
 
@@ -103,12 +112,11 @@ export function projectReferenceGeometry({
   };
   const clipped = intersect(target, viewport);
   if (!clipped) return intersects(target, surface) ? { kind: 'unavailable', reason: 'offscreen' } : offscreenPointer(target, workspaceViewport);
-  // A partly hidden range is safe only when the visible portion remains a rectangle
-  // entirely inside the body; cell targets fall back instead of suggesting a false anchor.
+  // Cell targets fall back when clipped rather than suggesting a false anchor.
   if (reference.target.kind === 'cell' && !sameRect(target, clipped)) return { kind: 'unavailable', reason: 'clipped' };
   const visible = intersect(clipped, surface);
   if (!visible) return offscreenPointer(clipped, workspaceViewport);
-  if (!sameRect(clipped, visible)) return { kind: 'unavailable', reason: 'clipped' };
+  if (reference.target.kind === 'cell' && !sameRect(clipped, visible)) return { kind: 'unavailable', reason: 'clipped' };
   if (frames.some((candidate) => candidate.id !== frame.id && candidate.zIndex > frame.zIndex
     && workspaceRectsIntersect(workspaceRectForFrame(candidate), visible))) {
     return { kind: 'unavailable', reason: 'occluded' };
@@ -116,7 +124,7 @@ export function projectReferenceGeometry({
   return { kind: 'visible', rect: toSurfaceRect(visible, workspaceViewport) };
 }
 
-function identityForTarget(target: FormulaReferenceTarget): FormulaReferenceIdentity | undefined {
+export function identityForTarget(target: FormulaReferenceTarget): FormulaReferenceIdentity | undefined {
   if (target.kind === 'cell') return target.identity && { kind: 'cell', sheetId: target.sheetId, ...target.identity };
   return target.range && rangeReferenceIdentity(target.sheetId, target.range.start, target.range.end);
 }

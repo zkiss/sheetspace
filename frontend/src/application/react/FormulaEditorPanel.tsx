@@ -12,13 +12,15 @@ import type { FormulaInspectionReference } from '@workbook/formula/formulaInspec
 import { referenceTextTokens } from '@application/core/referenceTextTokens';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onEscape, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   readOnly?: boolean;
   readOnlyText?: boolean;
   onReferenceElementHover?: (reference: FormulaInspectionReference | undefined, element?: HTMLElement) => void;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
+  parameters?: readonly string[];
+  onEscape?: () => void;
   onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }, destination: EventTarget | null) => void;
   onViewChange?: (view: FormulaEditorSelection & { scrollTop: number }) => void;
   cellMode?: 'light' | 'heavy';
@@ -54,7 +56,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const analysis = useMemo(() => readOnlyText ? {
     result: { kind: 'not-formula' as const, raw }, tokens: referenceTextTokens(raw, inspectionReferences ?? []),
     references: [], referenceIdentities: [], diagnostics: [],
-  } : analyzeFormulaEditor(raw, resolver), [raw, resolver, readOnlyText, inspectionReferences]);
+  } : analyzeFormulaEditor(raw, resolver, parameters), [raw, resolver, readOnlyText, inspectionReferences, parameters]);
   const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
   useLayoutEffect(() => {
     if (!autoFocus || !input.current) return;
@@ -81,7 +83,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     return () => { element.removeEventListener('beforeinput', preventEdit); element.removeEventListener('input', restoreValue); };
   }, [readOnly, raw]);
   const completions = !readOnly && completionRequest
-    ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, automatic: completionRequest.automatic }) : [];
+    ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, propertyNamesForSheet: (qualifier) => {
+      const sheetId = resolver.sheetByQualifier(qualifier);
+      return sheetId ? resolver.namedColumnNames?.(sheetId) ?? [] : [];
+    }, automatic: completionRequest.automatic }) : [];
   const completionOpen = completions.length > 0;
   const setEditor = (next: { raw: string; selection: FormulaEditorSelection }) => { setCompletionRequest(null); onRawChange(next.raw); requestAnimationFrame(() => input.current?.setSelectionRange(next.selection.start, next.selection.end)); };
   useEffect(() => {
@@ -96,7 +101,22 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const acceptCompletion = (index = completionIndex) => {
     const completion = completions[index]; if (!completion) return;
     const next = applyFormulaCompletion(raw, completion); onRawChange(next); setCompletionRequest(null);
-    requestAnimationFrame(() => input.current?.setSelectionRange(completion.replacement.start + completion.insertText.length, completion.replacement.start + completion.insertText.length));
+    requestAnimationFrame(() => {
+      let position = completion.replacement.start + completion.insertText.length;
+      if (completion.kind === 'sheet') {
+        const separator = next.slice(position).match(/^\s*!\s*\$?/);
+        if (separator) position += separator[0].length;
+        else {
+          const suffix = next.slice(position).match(/^\s*\$?/);
+          position += suffix?.[0].length ?? 0;
+        }
+      }
+      input.current?.setSelectionRange(position, position);
+      if (completion.kind === 'sheet') {
+        setCompletionIndex(0); setCompletionChosen(false);
+        setCompletionRequest({ selection: { start: position, end: position }, automatic: true });
+      }
+    });
   };
   function updateRaw(value: string) {
     if (readOnly) return;
@@ -166,6 +186,9 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       setCompletionRequest(null);
       return;
     }
+    if (onEscape && matchesShortcut(event, 'editor-close')) {
+      event.preventDefault(); event.stopPropagation(); onEscape(); return;
+    }
     if (cellMode === 'light' && matchesShortcut(event, 'editor-close')) {
       event.preventDefault(); event.stopPropagation(); onCancel(); return;
     }
@@ -210,7 +233,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       ? { start: modifierReferenceStart, end: modifierReferenceEnd } : null);
     return () => onReferenceModifierHover?.(null);
   }, [onReferenceModifierHover, modifierReferenceStart, modifierReferenceEnd]);
-  return <section aria-label={`${ariaLabel} editor`} className={`formula-editor-panel${cellMode ? ` sheet-grid-cell-formula-editor sheet-grid-cell-formula-editor-${cellMode}` : ''}`}
+  return <section aria-label={`${ariaLabel} editor`} className={`formula-editor-panel${cellMode ? ` sheet-grid-cell-formula-editor sheet-grid-cell-formula-editor-${cellMode}` : ''}`} onKeyDown={(event) => {
+    if (!completionOpen || !matchesShortcut(event, 'completion-dismiss')) return;
+    event.preventDefault(); event.stopPropagation(); setHoveredReference(undefined); setCompletionRequest(null);
+  }}
     data-editor-mode={cellMode ?? 'heavy'} data-workspace-sheet-editor={sheetId} data-workspace-navigation ref={panelRef} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     setCompletionRequest(null);

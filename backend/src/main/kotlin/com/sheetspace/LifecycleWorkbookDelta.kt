@@ -11,7 +11,15 @@ internal fun CustomFunction.hasSameBindingSource(other: CustomFunction): Boolean
 
 /** Compare semantic identities rather than transport list positions or storage revisions. */
 internal fun replayLifecycleWorkbook(current: WorkbookState, expected: WorkbookState, target: WorkbookState, provenance: List<ReplayBindingProvenance> = emptyList()): WorkbookState {
-    val a = lifecycleProjection(expected)
+    val expectedDocuments = expected.documents.mapValues { (id, sheet) ->
+        val live = current.documents[id]
+        if (id !in target.documents && live != null) {
+            sheet.copy(frame = sheet.frame.copy(position = live.frame.position, size = live.frame.size))
+        } else {
+            sheet
+        }
+    }
+    val a = lifecycleProjection(expected.copy(documents = expectedDocuments))
     val b = lifecycleProjection(target)
     val c = lifecycleProjection(current)
     val merged = replayLifecycleDelta(

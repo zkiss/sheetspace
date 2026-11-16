@@ -4,12 +4,15 @@ import type { FunctionDeclaration } from '@application/core/functionCommands';
 import type { FunctionResult } from '@application/react/workbookControllerTypes';
 import { validateCustomFunction } from '@calculation/customFunctions';
 import { parseFormulaSyntax } from '@workbook/formula/syntax';
-import type { CustomFunction, ModelColumnType } from '@workbook/core/model';
+import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
+import type { CustomFunction, ModelColumnType, Workbook } from '@workbook/core/model';
 
 type Props = {
   initial?: CustomFunction;
   savedName?: string;
   functions: readonly CustomFunction[];
+  workbook?: Workbook;
   onCancel: () => void;
   onSave: (draft: FunctionDeclaration, previousName?: string) => Promise<FunctionResult>;
 };
@@ -24,12 +27,15 @@ const messages: Record<string, string> = {
   'unknown-function': 'This function no longer exists. Cancel and reopen the manager.',
 };
 
-export function FunctionEditor({ initial, savedName, functions, onCancel, onSave }: Props) {
+export function FunctionEditor({ initial, savedName, functions, workbook, onCancel, onSave }: Props) {
   const [draft, setDraft] = useState<FunctionDeclaration>(() => initial
     ? { name: initial.name, parameters: initial.parameters.map((parameter) => ({ ...parameter })), body: initial.body }
     : { name: '', parameters: [], body: '=' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [formulaMode, setFormulaMode] = useState<'light' | 'heavy'>('light');
+  const formulaBeforeEdit = useRef(draft.body);
+  const formulaInput = useRef<HTMLTextAreaElement>(null);
   const parametersRef = useRef<HTMLFieldSetElement>(null);
   const focusParameter = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -59,31 +65,59 @@ export function FunctionEditor({ initial, savedName, functions, onCancel, onSave
     setSaving(true);
     try {
       const result = await onSave(draft, savedName ?? initial?.name);
-      if (!result.ok) setError(messages[result.reason] ?? 'The function could not be saved. Retry failed saves and try again.');
+      if (!result.ok) setError(messages[result.reason] ?? 'The function could not be saved. Check your connection and try again.');
     } catch {
-      setError('The function could not be saved. Retry failed saves and try again.');
+      setError('The function could not be saved. Check your connection and try again.');
     } finally { setSaving(false); }
   }
-  return <form aria-label={initial ? 'Edit function' : 'Create function'} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save')) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
-    <h2>{initial ? 'Edit function' : 'Create function'}</h2>
+  const resolver = workbook ? workbookFormulaReferenceResolver(workbook, '') : { currentSheetId: '', sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined };
+  const parameters = draft.parameters.map((parameter) => parameter.name).filter(Boolean);
+  function dismiss() {
+    if (saving) return;
+    if (formulaMode === 'light') { onCancel(); return; }
+    if (document.activeElement instanceof Element && document.activeElement.closest('.formula-editor-actions')) formulaInput.current?.focus();
+    setFormulaMode('light');
+  }
+  return <form className="function-editor" aria-label={initial ? 'Edit function' : 'Create function'} onKeyDown={(event) => {
+    if (!matchesShortcut(event, 'editor-close')) return;
+    event.preventDefault(); event.stopPropagation(); dismiss();
+  }} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save') && !(event.target instanceof Element && event.target.closest('.formula-editor-panel'))) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
+    <div className="function-editor-heading"><h2>{initial ? 'Edit function' : 'Create function'}</h2><p>Define a reusable formula and its inputs.</p></div>
     <label>Function name<input autoFocus disabled={saving} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-    <fieldset disabled={saving} ref={parametersRef}><legend>Parameters</legend>
-      {draft.parameters.map((parameter, index) => <div className="model-property-row" key={index}>
-        <input aria-label={`Parameter ${index + 1} name`} value={parameter.name} onChange={(event) => updateParameter(index, { name: event.target.value })} />
+    <fieldset className="function-parameters" disabled={saving} ref={parametersRef}><legend>Parameters</legend>
+      {draft.parameters.map((parameter, index) => <div className="function-parameter-row" key={index}>
+        <input aria-label={`Parameter ${index + 1} name`} placeholder="Parameter name" value={parameter.name} onChange={(event) => updateParameter(index, { name: event.target.value })} />
         <select aria-label={`Parameter ${index + 1} type`} value={parameter.type} onChange={(event) => updateParameter(index, { type: event.target.value as ModelColumnType })}>
           {(['int', 'float', 'string', 'boolean'] as const).map((type) => <option key={type}>{type}</option>)}
         </select>
-        <button aria-label={`Move parameter ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)} type="button">↑</button>
-        <button aria-label={`Move parameter ${index + 1} down`} disabled={index === draft.parameters.length - 1} onClick={() => move(index, 1)} type="button">↓</button>
-        <button aria-label={`Remove parameter ${index + 1}`} onClick={() => { focusParameter.current = Math.min(index, draft.parameters.length - 2); setDraft({ ...draft, parameters: draft.parameters.filter((_, i) => i !== index) }); }} type="button">×</button>
+        <div className="function-parameter-actions">
+          <button aria-label={`Move parameter ${index + 1} up`} title="Move up" disabled={index === 0} onClick={() => move(index, -1)} type="button">↑</button>
+          <button aria-label={`Move parameter ${index + 1} down`} title="Move down" disabled={index === draft.parameters.length - 1} onClick={() => move(index, 1)} type="button">↓</button>
+          <button aria-label={`Remove parameter ${index + 1}`} title="Remove parameter" onClick={() => { focusParameter.current = Math.min(index, draft.parameters.length - 2); setDraft({ ...draft, parameters: draft.parameters.filter((_, i) => i !== index) }); }} type="button">×</button>
+        </div>
       </div>)}
-      <button data-add-parameter onClick={() => setDraft({ ...draft, parameters: [...draft.parameters, { name: '', type: 'int' }] })} type="button">Add parameter</button>
+      <button className="function-secondary function-add-parameter" data-add-parameter onClick={() => setDraft({ ...draft, parameters: [...draft.parameters, { name: '', type: 'int' }] })} type="button">+ Add parameter</button>
     </fieldset>
-    <label>Formula body<textarea disabled={saving} value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></label>
+    <div className="function-formula-field">
+      <div className="function-formula-header"><span>Formula body</span><button className="function-secondary" type="button" disabled={saving} onClick={() => { setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light'); formulaInput.current?.focus(); }}>{formulaMode === 'light' ? 'Expand editor' : 'Collapse editor'}</button></div>
+      <div className={`function-formula-editor function-formula-editor-${formulaMode}`} onFocus={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) formulaBeforeEdit.current = draft.body; }}>
+        <FormulaEditorPanel ariaLabel="Formula body" disabled={saving} cellMode={formulaMode} onToggleMode={() => setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light')}
+          onApply={() => setFormulaMode('light')} onEscape={dismiss} onCancel={() => { setDraft((current) => ({ ...current, body: formulaBeforeEdit.current })); setFormulaMode('light'); }}
+          inputRef={formulaInput} onCommitAndNavigate={(request) => {
+            setFormulaMode('light');
+            const form = formulaInput.current?.form;
+            const controls = [...(form?.querySelectorAll<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)') ?? [])];
+            const index = controls.indexOf(formulaInput.current!);
+            controls[request.key === 'Tab' && request.shift ? index - 1 : index + 1]?.focus();
+          }} onRawChange={(body) => setDraft((current) => ({ ...current, body }))}
+          raw={draft.body} resolver={resolver} sheetNames={workbook ? Object.values(workbook.documents).map((sheet) => sheet.name) : []} propertyNames={parameters} parameters={parameters} />
+      </div>
+      <small>Use @ before parameter names, for example <code>=@amount * 2</code>.</small>
+    </div>
     {malformed ? <p>Formula body is malformed. You can save it and correct it later.</p> : null}
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     {savedName ? <p role="status">The failed save was applied. Continue editing or cancel to keep the saved version.</p> : null}
     {saving ? <p role="status">Saving function…</p> : null}
-    <div className="dialog-actions"><button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
+    <div className="dialog-actions function-editor-actions"><button className="button-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
   </form>;
 }

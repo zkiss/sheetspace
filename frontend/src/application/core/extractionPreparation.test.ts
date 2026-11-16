@@ -23,6 +23,21 @@ function mappings(rows: string[], columns: string[], targetRows: string[], targe
 }
 
 describe('extraction preparation', () => {
+  it('omits empty optional column names and formats from the extracted sheet', () => {
+    const workbook = fixture();
+    const result = prepareExtraction(workbook, {
+      ...request(),
+      selection: { kind: 'cells', start: { rowId: 'r1', columnId: 'c1' }, end: { rowId: 'r1', columnId: 'c1' } },
+      targetRows: [request().targetRows[0]!],
+      targetColumns: [request().targetColumns[0]!],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected extraction');
+    const target = result.value.workbook.documents[request().targetSheetId]!;
+    expect(target.columnNames).toBeUndefined();
+    expect(target.presentation.formatOverrides).toBeUndefined();
+  });
+
   it('normalizes a reversed rectangle and preserves scoped appearance without copying content', () => {
     const workbook = fixture(), before = structuredClone(workbook);
     const result = prepareExtraction(workbook, request());

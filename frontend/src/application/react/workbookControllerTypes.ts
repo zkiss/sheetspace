@@ -109,6 +109,7 @@ export type WorkbookController = {
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
+  hasPendingSaves: boolean;
   saveStatus: ReturnType<typeof useSavedSheetAutosave>['saveStatus'];
   startupLoad: ReturnType<typeof useStartupWorkbookLoad>['startupLoad'];
   workbook: Workbook;

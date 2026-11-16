@@ -2,7 +2,7 @@ import type { CSSProperties, RefObject } from 'react';
 import type { GridAxisEntry } from '@grid/gridAxisProjection';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import { columnIndexToLabel } from '@workbook/core/address';
-import { type ColumnId } from '@workbook/core/model';
+import { type ColumnId, type SortCriterion } from '@workbook/core/model';
 import './SheetGrid.css';
 import { AxisResizeHandle } from './AxisResizeHandle';
 import type { useAxisResize } from './useAxisResize';
@@ -11,6 +11,7 @@ export function SheetGridHeaders({
   columnHeaderRef,
   columns,
   columnLabels,
+  sorting,
   selectedColumnIndices,
   virtualColumns,
   resize,
@@ -19,6 +20,7 @@ export function SheetGridHeaders({
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
   columnLabels?: ReadonlyMap<ColumnId, string>;
+  sorting?: readonly SortCriterion[];
   selectedColumnIndices?: ReadonlySet<number>;
   virtualColumns: readonly VirtualItem[];
 }) {
@@ -40,6 +42,7 @@ export function SheetGridHeaders({
       {virtualColumns.map((virtualColumn) => {
         const column = columns[virtualColumn.index];
         if (!column) return null;
+        const sort = column.kind === 'saved' ? sorting?.find((criterion) => criterion.columnId === column.id) : undefined;
         return (
           <div
             aria-hidden={column.kind === 'creating' ? true : undefined}
@@ -54,6 +57,7 @@ export function SheetGridHeaders({
             key={column.kind === 'creating' ? column.operationId : column.id}
             ref={column.kind === 'saved' && column.durableIndex === 0 ? columnHeaderRef : undefined}
             aria-colindex={column.kind === 'saved' ? column.durableIndex + 2 : undefined}
+            aria-sort={sort?.direction}
             role="columnheader"
             style={{
               // The horizontal virtualizer's padding starts after the row header.
@@ -66,6 +70,7 @@ export function SheetGridHeaders({
             } as CSSProperties}
           >
             {column.kind === 'creating' ? 'Creating…' : columnLabels?.get(column.id) ?? columnIndexToLabel(column.durableIndex)}
+            {sort && <span className="sheet-grid-sort-arrow" aria-hidden="true">{sort.direction === 'ascending' ? '↓' : '↑'}</span>}
             {column.kind === 'saved' && resize && <AxisResizeHandle axis="column" id={column.id}
               label={columnIndexToLabel(column.durableIndex)} size={virtualColumn.size} resize={resize} />}
           </div>

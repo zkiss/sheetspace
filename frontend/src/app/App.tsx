@@ -33,7 +33,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, recordDeletion, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, hasPendingSaves, mutationFailure, recordDeletion, recordReplay, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -222,7 +222,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         </> : null}
       </div> : null}
 
-      {functionsOpen ? <FunctionDialog functions={workbook.functions ?? []} saveStatus={saveStatus} onClose={() => { setFunctionsOpen(false); queueMicrotask(() => document.getElementById('functions-button')?.focus()); }} onRetry={commands.retryFailedSaves} onSave={async (draft, previousName) => { const submission = commands.setFunction(draft, previousName); return submission.result.ok ? submission.completion : submission.result; }} onDelete={async (name) => { const submission = commands.deleteFunction(name); return submission.result.ok ? submission.completion : submission.result; }} /> : null}
+      {functionsOpen ? <FunctionDialog workbook={workbook} functions={workbook.functions ?? []} saveStatus={saveStatus} hasPendingSaves={hasPendingSaves} onClose={() => { setFunctionsOpen(false); queueMicrotask(() => document.getElementById('functions-button')?.focus()); }} onRetry={commands.retryFailedSaves} onSave={async (draft, previousName) => { const submission = commands.setFunction(draft, previousName); return submission.result.ok ? submission.completion : submission.result; }} onDelete={async (name) => { const submission = commands.deleteFunction(name); return submission.result.ok ? submission.completion : submission.result; }} /> : null}
       {dataModelsOpen ? (
         <DataModelDialog
           formulaResults={formulaResults}

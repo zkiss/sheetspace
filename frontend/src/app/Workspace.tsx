@@ -21,6 +21,7 @@ import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
+import { SheetSortingControls } from '@workspace/SheetSortingControls';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { extractionStacking } from '@workspace/extractionStacking';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -187,6 +188,7 @@ export function Workspace({
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [modifierReferenceSpan, setModifierReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [sortingSheetId, setSortingSheetId] = useState<string | null>(null);
   const [errorsOpen, setErrorsOpen] = useState(false);
   const [errorReferenceHover, setErrorReferenceHover] = useState<ErrorReferenceHover>(null);
   const [errorsFocusRequest, setErrorsFocusRequest] = useState(0);
@@ -241,7 +243,7 @@ export function Workspace({
     ? inspectStoredFormula(inspectedRaw, workbook, selectedSheet)
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
-  const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
+  const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen && !sortingSheetId;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
   const panViewportNeedsRender = useRef<(viewport: import('@workspace/workspaceContracts').WorkspaceViewport) => boolean>(() => true);
@@ -1035,7 +1037,7 @@ export function Workspace({
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
     openPanel: () => { setPaletteChoices(null); setRowPickerOpen(false); setPaletteView((view) => view + 1); setCommandPaletteOpen(true); },
-    onOpenDataModels, onRename: handleOpenRenameDialog,
+    onOpenDataModels, onOpenFunctions, onSortSheet: setSortingSheetId, onRename: handleOpenRenameDialog,
     onDelete: (sheet) => { if (editingCell?.target.sheetId === sheet.id) onCancelEdit(); return commands.deleteSheet(sheet.id); },
     onEdit: onStartEdit, onClear: (target) => reportWriteOutcome(onClearCell(target)),
     onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
@@ -1140,6 +1142,13 @@ export function Workspace({
   }, [activeCell?.sheetId, editingCell, gridFocusLease, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
+      {sortingSheetId && workbook.documents[sortingSheetId] && <SheetSortingControls
+        key={sortingSheetId}
+        sheet={workbook.documents[sortingSheetId]}
+        labels={modelColumnPresentation(workbook.documents[sortingSheetId], workbook.dataModels).columnLabels}
+        onApply={commands.configureSorting}
+        onClose={() => { setSortingSheetId(null); onRestoreGridFocus(); }}
+      />}
       <WorkspaceToolbar
         canMaximise={Boolean(selectedSheet) || modeActive}
         titles={{
@@ -1203,8 +1212,8 @@ export function Workspace({
          },
        } : undefined} /> : null}
       <WorkspaceSurface
-        concealBackground={modeActive && maximise.state.mode !== 'restoring'}
-        concealPeers={modeActive && maximise.state.mode !== 'restoring'}
+        concealBackground={maximise.state.mode === 'maximised'}
+        concealPeers={maximise.state.mode === 'maximised'}
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
             key={menuSheet.id}
@@ -1213,7 +1222,7 @@ export function Workspace({
               const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
               return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
             })()}
-            sorting={{ labels: modelColumnPresentation(menuSheet, workbook.dataModels).columnLabels, apply: commands.configureSorting }}
+            onSort={() => { setSortingSheetId(menuSheet.id); workspaceController.closeSheetMenu(); }}
             modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
@@ -1302,6 +1311,7 @@ export function Workspace({
             : undefined;
           return (
             <SheetFrame
+              modelName={model?.name}
               extractionHandoff={extractionHandoff.handoff?.targetId === sheet.id}
               extractionSource={extractionHandoff.handoff?.source.id === sheet.id}
               extractionReady={extractionHandoff.handoff?.ready}
@@ -1395,6 +1405,7 @@ export function Workspace({
                     presentation={sheet.presentation}
                     pendingCutCells={pendingCutCells}
                     columnLabels={columnLabels}
+                    sorting={sheet.sorting}
                     calculatedColumnIds={calculatedColumnIds}
                     logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}

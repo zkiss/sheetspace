@@ -6,7 +6,37 @@ import { measuredElementGeometry } from '@test-support/domGeometry';
 import userEvent from '@testing-library/user-event';
 import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it('keeps the workspace visible during both maximise and restore transitions', () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
+  const sheet = smallSheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 48, y: 96 } });
+  const peer = smallSheetDocument({ id: 'peer', name: 'Peer', position: { x: 400, y: 96 } });
+  render(<App initialWorkbook={workbookWithSheets([sheet, peer])} />);
+  const surface = screen.getByTestId('workspace-surface');
+  measuredElementGeometry(surface, { width: 800, height: 600 });
+  const plane = screen.getByTestId('workspace-plane');
+  const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+  fireEvent.click(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }));
+  let now = 1_000, nextFrame = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.set(++nextFrame, callback); return nextFrame; });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => { frames.delete(id); });
+
+  fireEvent.click(within(frame).getByRole('button', { name: 'Maximise Inputs' }));
+  expect(surface).not.toHaveClass('workspace-surface-concealed');
+  expect(plane).not.toHaveAttribute('data-conceal-peers');
+  now += 500;
+  const pending = [...frames.values()];
+  frames.clear();
+  act(() => pending.forEach((callback) => callback(now)));
+  expect(surface).toHaveClass('workspace-surface-concealed');
+  expect(plane).toHaveAttribute('data-conceal-peers', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
+  expect(surface).not.toHaveClass('workspace-surface-concealed');
+  expect(plane).not.toHaveAttribute('data-conceal-peers');
+});
 
 it('maximises the existing grid, isolates zoom and restores the unchanged frame', () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));

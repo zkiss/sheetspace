@@ -14,6 +14,7 @@ import type {
   FormulaNamedColumnPredicate,
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
+import { syntaxDiagnostic } from './syntaxDiagnostic';
 import { decodeStableId } from './stableId';
 import { completeUserReferenceStart, endpointFamily, makeFormulaReference, parseOpenEndpoint, parseEscapedColumnEndpoint, parseCanonicalPositionalEndpoint, qualifierPayloadSpan, readPublicRow, readPublicA1Token, referencePayloadSpans } from './syntaxReference';
 import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
@@ -222,7 +223,16 @@ export class FormulaParser {
       this.diagnostics.push({ kind: 'reference', code: '#REF!', sourceSpan });
       return { ok: true, value: { kind: 'invalid-reference', sourceSpan } };
     }
-    if (this.peek() === '@') return this.readReference();
+    if (this.peek() === '@') {
+      const parameter = /^@([A-Za-z][A-Za-z0-9_]*)/.exec(this.input.slice(this.index));
+      const following = parameter && this.input.slice(this.index + parameter[0].length).trimStart();
+      if (parameter && this.parameters?.has(parameter[1]!.toUpperCase()) && !/^(?:!|\[|:)/.test(following ?? '')) {
+        this.index += parameter[0].length;
+        this.recordToken('text', start, this.index);
+        return { ok: true, value: { kind: 'parameter', name: parameter[1]!.toUpperCase(), sourceSpan: this.span(start) } };
+      }
+      return this.readReference();
+    }
     const number = this.readNumber();
     if (number) return { ok: true, value: number };
 
@@ -243,11 +253,6 @@ export class FormulaParser {
       }
       this.skipWhitespace();
       if (this.peek() === '(') return this.readFunction(normalized, identifierStart);
-      if (this.parameters?.has(normalized)) {
-        this.index = identifierStart + identifier.length;
-        this.recordToken('text', identifierStart, this.index);
-        return { ok: true, value: { kind: 'parameter', name: normalized, sourceSpan: this.span(identifierStart) } };
-      }
       this.index = identifierStart;
     }
     return this.readReference();
@@ -529,13 +534,7 @@ export class FormulaParser {
   }
 
   private recordSyntaxDiagnostic(start: number, end: number): void {
-    if (this.input.length === 0) {
-      this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: { start: 0, end: 1 } });
-      return;
-    }
-    const boundedStart = Math.min(Math.max(start, 0), this.input.length - 1);
-    const boundedEnd = Math.min(Math.max(end, boundedStart + 1), this.input.length);
-    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(boundedStart, boundedEnd) });
+    this.diagnostics.push(syntaxDiagnostic(this.input, start, end));
   }
 
   private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {

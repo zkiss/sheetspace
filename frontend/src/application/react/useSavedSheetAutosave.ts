@@ -143,6 +143,7 @@ export function useSavedSheetAutosave({
 
   return {
     enqueue,
+    hasPendingSaves,
     hasRetryableFailures,
     markSaved: useCallback(() => undefined, []),
     outboxSnapshot: snapshot,

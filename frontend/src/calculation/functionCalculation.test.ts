@@ -71,7 +71,7 @@ describe('function calculation dependencies', () => {
   });
 
   it('tracks argument references and supplies definitions to stored calculations', () => {
-    let workbook: Workbook = { ...workbookWithSheets([sheetDocument({ id: 'first', name: 'First', cells: { A1: '2', B1: '=identity(@A[1])' } })]), functions: [{ name: 'identity', body: '=x', parameters: [{ name: 'x', type: 'int' }] }] };
+    let workbook: Workbook = { ...workbookWithSheets([sheetDocument({ id: 'first', name: 'First', cells: { A1: '2', B1: '=identity(@A[1])' } })]), functions: [{ name: 'identity', body: '=@x', parameters: [{ name: 'x', type: 'int' }] }] };
     workbook = commitCellRawContent(workbook, 'first', 'B1', '=identity(@A[1])');
     const calculation = new FormulaCalculation();
     const projection = () => ({ sheets: calculationProjection(workbook).sheets });

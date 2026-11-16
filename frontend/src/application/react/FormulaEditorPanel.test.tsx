@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { FormulaEditorPanel } from './FormulaEditorPanel';
@@ -19,6 +19,31 @@ function Editor({ onApply = vi.fn(), onCancel = vi.fn(), onParentKeyDown = vi.fn
 }
 
 describe('FormulaEditorPanel', () => {
+  it.each(['=@Revenue[1]', '=123'])('does not open completion before an existing operand in %s', (raw) => {
+    const onRawChange = vi.fn();
+    render(<FormulaEditorPanel ariaLabel="Occupied formula" raw={raw} resolver={resolver} sheetNames={[]} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);
+    const input = screen.getByRole('textbox', { name: 'Occupied formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(1, 1);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue(raw);
+    expect(input.selectionStart).toBe(1);
+    expect(onRawChange).not.toHaveBeenCalled();
+  });
+
+  it.each(['=', '=@Budget!Revenue'])('does not complete before the formula marker in %s', (raw) => {
+    const onRawChange = vi.fn();
+    render(<FormulaEditorPanel ariaLabel="Marker formula" raw={raw} resolver={resolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);
+    const input = screen.getByRole('textbox', { name: 'Marker formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue(raw);
+    expect(onRawChange).not.toHaveBeenCalled();
+    expect(input.selectionStart).toBe(0);
+  });
   it('keeps rich-editor commands inside the panel while preserving multiline indentation', () => {
     const parent = vi.fn();
     const apply = vi.fn();
@@ -101,9 +126,128 @@ describe('FormulaEditorPanel', () => {
     expect(references[0]!.style.color).not.toBe(references[1]!.style.color);
   });
 
+  it('renders repeated cells and opposite range diagonals in matching colours', () => {
+    const tokenResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: (_sheet, address) => ({ columnId: `column-${address.columnIndex}`, rowId: `row-${address.rowIndex}` }) };
+    render(<FormulaEditorPanel ariaLabel="Repeated references" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1]+@A[1]+@A[1]:B[2]+@B[1]:A[2]" resolver={tokenResolver} sheetNames={[]} />);
+
+    const references = document.querySelectorAll<HTMLElement>('.formula-syntax-token-reference');
+    expect(references).toHaveLength(4);
+    expect(references[0]!.style.color).not.toBe('');
+    expect(references[0]!.style.color).toBe(references[1]!.style.color);
+    expect(references[2]!.style.color).toBe(references[3]!.style.color);
+    expect(references[0]!.style.color).not.toBe(references[2]!.style.color);
+  });
+
   it('disables formatting for an incomplete formula draft', () => {
     render(<FormulaEditorPanel ariaLabel="Incomplete formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(" resolver={resolver} sheetNames={[]} />);
 
     expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
+  });
+
+  it('offers the selected sheet’s columns after completing its name', async () => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget@2026!' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Revenue', 'Cost'] : [] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState('=@Bu');
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget@2026!']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Sheet formula' });
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected a formula textarea');
+    input.focus();
+    input.setSelectionRange(4, 4);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget@2026!' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Revenue' })).toBeInTheDocument());
+    expect(input).toHaveValue("=@'Budget@2026!'!");
+    expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument();
+  });
+
+  it.each(['!', ' ! ', ' ! $'])('chains sheet completion across an existing %s separator', async (separator) => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget' ? 'target' : undefined, namedColumnNames: (id) => id === 'target' ? ['Revenue', 'Cost'] : ['Decoy'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState(`=@Bu${separator}Revenue[1]`);
+      return <FormulaEditorPanel ariaLabel="Chained formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} propertyNames={['Decoy']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Chained formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(4, 4);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument());
+    expect(screen.queryByRole('option', { name: 'Decoy' })).not.toBeInTheDocument();
+    expect(input).toHaveValue(`=@Budget${separator}Revenue[1]`);
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(`=@Budget${separator}`.length);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Cost' }));
+    await waitFor(() => expect(input).toHaveValue(`=@Budget${separator}Cost[1]`));
+    expect(input).toHaveFocus();
+    await waitFor(() => expect(input.selectionStart).toBe(`=@Budget${separator}Cost`.length));
+  });
+
+  it('inserts a qualified quoted column over the full partial name', () => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Sales@2026' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Sales@total'] : ['Sales@decoy'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState("=@'Sales@2026'!'Sales@t");
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} propertyNames={['Sales@decoy']} sheetNames={['Sales@2026']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Sheet formula' });
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected a formula textarea');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('option', { name: 'Sales@decoy' })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Sales@total' }));
+
+    expect(input).toHaveValue("=@'Sales@2026'!'Sales@total'");
+    expect(input).toHaveFocus();
+  });
+
+  it.each([
+    { initial: `=@'Sales"2026'!'Sales"t`, label: 'Sales"total', expected: `=@'Sales"2026'!'Sales"total'` },
+    { initial: '=@Revenue-SU', label: 'SUM', expected: '=@Revenue-SUM' },
+  ])('completes quoted names and subtraction in the editor', async ({ initial, label, expected }) => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Sales"2026' ? 'target' : undefined, namedColumnNames: (id) => id === 'target' ? ['Sales"total'] : ['Decoy'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState(initial);
+      return <FormulaEditorPanel ariaLabel="Completion formula" raw={raw} resolver={sheetResolver} sheetNames={[]} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Completion formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(initial.length, initial.length);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: label }));
+    await waitFor(() => expect(input).toHaveValue(expected));
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(expected.length);
+  });
+
+  it('does not open completion inside a row selector', () => {
+    render(<FormulaEditorPanel ariaLabel="Row formula" raw="=@Revenue[1]" resolver={resolver} sheetNames={['Revenue']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} />);
+    const input = screen.getByRole('textbox', { name: 'Row formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(10, 10);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue('=@Revenue[1]');
+  });
+
+  it('inserts an anchored property instead of a colliding sheet', async () => {
+    function AnchoredEditor() {
+      const [raw, setRaw] = useState('=@$Bu');
+      return <FormulaEditorPanel ariaLabel="Anchored formula" raw={raw} resolver={resolver} sheetNames={['Budget']} propertyNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<AnchoredEditor />);
+    const input = screen.getByRole('textbox', { name: 'Anchored formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(5, 5);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.getAllByRole('option', { name: 'Budget' })).toHaveLength(1);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    await waitFor(() => expect(input).toHaveValue('=@$Budget'));
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(9);
   });
 });
