@@ -1,3 +1,4 @@
+import { compareTemporalValues } from '@workbook/core/temporal';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 
 export type FormulaComparisonOperator = '=' | '<>' | '<' | '<=' | '>' | '>=';
@@ -16,6 +17,9 @@ export function compareFormulaScalars(
   left: FormulaScalarValue,
   right: FormulaScalarValue,
 ): FormulaComparison | undefined {
+  if ((left.kind === 'date' || left.kind === 'datetime') && left.kind === right.kind) {
+    return compareTemporalValues(left.value, right.value);
+  }
   if (left.kind === 'number' && right.kind === 'number') {
     return left.value < right.value ? -1 : left.value > right.value ? 1 : 0;
   }

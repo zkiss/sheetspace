@@ -1,3 +1,4 @@
+import { decodeTemporalValue, encodeTemporalValue } from '@workbook/core/temporal';
 import type { CellKey } from '@workbook/core/address';
 import { APPLICATION_DEFAULT_NUMBER_FORMAT } from '@workbook/core/numberFormat';
 import type { ModelColumnType, NumberFormat } from '@workbook/core/model';
@@ -5,6 +6,7 @@ import type { FormulaErrorCode } from '@workbook/formula/syntax';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
 export type FormulaScalarValue =
+  | { kind: 'date' | 'datetime'; value: string }
   | { kind: 'number'; value: number }
   | { kind: 'text'; value: string }
   | { kind: 'boolean'; value: boolean }
@@ -62,6 +64,7 @@ export function diagnosticAtCell(value: FormulaScalarValue, cell: FormulaDiagnos
 }
 
 export type FormulaDisplayResult =
+  | { kind: 'date' | 'datetime'; value: string; display: string }
   | { kind: 'number'; value: number; display: string }
   | { kind: 'text'; value: string; display: string }
   | { kind: 'boolean'; value: boolean; display: 'TRUE' | 'FALSE' }
@@ -87,6 +90,8 @@ export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaSc
 export function classifyCellValue(raw: string): FormulaScalarValue {
   const literal = decodeCellTextLiteral(raw);
   if (literal !== undefined) return { kind: 'text', value: literal };
+  const temporal = decodeTemporalValue(raw);
+  if (temporal) return temporal;
   if (raw.length === 0) {
     return { kind: 'blank' };
   }
@@ -117,6 +122,8 @@ export function matchesModelColumnType(value: FormulaScalarValue, type: ModelCol
 /** Freezes underlying values, independently of display formatting. */
 export function materializeFormulaValue(value: FormulaScalarValue): string {
   switch (value.kind) {
+    case 'date':
+    case 'datetime': return encodeTemporalValue(value);
     case 'text': return encodeCellTextLiteral(value.value);
     case 'error': return encodeCellTextLiteral(value.error);
     case 'number': return Object.is(value.value, -0) ? '-0' : String(value.value);
@@ -140,6 +147,8 @@ export function displayFormulaValue(
         value: value.value,
         display: formatNumber(value.value, format),
       };
+    case 'date':
+    case 'datetime':
     case 'text':
       return { ...value, display: value.value };
     case 'boolean':

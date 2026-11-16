@@ -18,7 +18,6 @@ import { refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
-
 export type WorkbookOperationId = string;
 /** A stable workbook-wide cell target. The raw content is the final persisted value. */
 export type CellWrite = { sheetId: SheetId; rowId: RowId; columnId: ColumnId; raw: string };
@@ -155,7 +154,7 @@ function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, des
       if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
       targetIdentities.add(targetIdentity);
       let raw = grid.rows[rowOffset]![columnOffset]!;
-      if (!source && raw !== '' && (decodeCellTextLiteral(raw) !== undefined
+      if (!source && raw !== '' && (decodeCellTextLiteral(raw) !== undefined || raw.startsWith('@date:') || raw.startsWith('@datetime:')
         || classifyCellValue(raw).kind === 'text')) raw = encodeCellTextLiteral(raw);
       if (source) {
         const sourceCell = source.cells[rowOffset]![columnOffset]!;

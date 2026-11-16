@@ -1,3 +1,4 @@
+import { decodeTemporalValue } from '@workbook/core/temporal';
 import { classifyCellValue } from '@calculation/formulaValue';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type { Workbook } from '@workbook/core/model';
@@ -9,6 +10,6 @@ export function prepareCellInput(text: string, workbook: Workbook, sheetId: stri
   if (text.startsWith('=')) return original?.startsWith('=')
     ? prepareFormulaEdit(text, requireStoredFormula(original), workbook, sheetId)
     : prepareUserFormula(text, workbook, sheetId);
-  if (text && (decodeCellTextLiteral(text) !== undefined || classifyCellValue(text).kind === 'text')) return encodeCellTextLiteral(text);
+  if (text && (decodeCellTextLiteral(text) !== undefined || decodeTemporalValue(text) !== undefined || classifyCellValue(text).kind === 'text')) return encodeCellTextLiteral(text);
   return text;
 }
