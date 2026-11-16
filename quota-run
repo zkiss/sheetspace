@@ -68,11 +68,15 @@ latest() {
   api get "/api/session/$session/message?order=desc&limit=1" | jq -ec '.data[0] // {}'
 }
 
+latest_idle() {
+  api get "/api/session/$session/message?order=desc&limit=1&type=idle" | jq -ec '.data[0] // {}'
+}
+
 quota_error() {
   jq -e '
     [.error.type // "", .error.message // "", .error.response.body // ""]
     | join(" ") | ascii_downcase
-    | test("usage_limit_reached|insufficient_quota|quota_exceeded|usage limit|quota exhausted|quota exceeded|exceeded your current quota")
+    | test("provider[.]quota|usage_limit_reached|insufficient_quota|quota_exceeded|usage limit|quota exhausted|quota exceeded|exceeded your current quota")
   ' >/dev/null <<<"$1"
 }
 
@@ -110,7 +114,8 @@ wait_for_quota() {
     now=$(date +%s)
     seconds=$((target + buffer - now))
     ((seconds > 0)) || fail 'Blocked quota has a stale reset time; refusing a busy loop'
-    printf 'Quota blocked. Waiting %ss until %s (reset + buffer).\n' \
+    if ((seconds > 60)); then seconds=60; fi
+    printf 'Quota blocked. Checking again in %ss (reset + buffer: %s).\n' \
       "$seconds" "$(date -u -d "@$((target + buffer))" --iso-8601=seconds)"
     sleep "$seconds" & child=$!
     wait "$child"
@@ -120,11 +125,43 @@ wait_for_quota() {
 }
 
 running=false
+terminate_run() {
+  local attempt
+  kill -TERM -- "-$child" 2>/dev/null || true
+  for ((attempt = 0; attempt < 30; attempt++)); do
+    kill -0 "$child" 2>/dev/null || return 0
+    sleep 1
+  done
+  kill -KILL -- "-$child" 2>/dev/null || true
+}
+
+monitor_run() {
+  local terminal
+  while kill -0 "$child" 2>/dev/null; do
+    if ! terminal=$(latest_idle); then
+      terminate_run
+      wait "$child" 2>/dev/null || true
+      running=false child=
+      fail 'Cannot read session outcome; stopped the CLI without retrying'
+    fi
+    if [[ $(jq -r '.id // ""' <<<"$terminal") != "$previous_idle" && \
+          $(jq -r '.type' <<<"$terminal") == idle && \
+          $(jq -r '.outcome' <<<"$terminal") == failed ]] && quota_error "$terminal"; then
+      # CLI cleanup can append an interrupted outcome, so preserve quota before signalling it.
+      result=$terminal
+      save_phase quota
+      terminate_run
+      return
+    fi
+    sleep 2
+  done
+}
+
 stop() {
   trap '' INT TERM
   if [[ $running == true ]]; then
     api post "/api/session/$session/interrupt" --data '{}' >/dev/null 2>&1 || true
-    kill -TERM -- "-$child" 2>/dev/null || true
+    terminate_run
   elif [[ -n $child ]]; then
     kill "$child" 2>/dev/null || true
   fi
@@ -194,6 +231,7 @@ while [[ $phase != done ]]; do
   jq -e --arg session "$session" '.data | has($session) | not' >/dev/null <<<"$active" ||
     fail 'Session already running; refusing concurrent work'
   previous=$(latest | jq -r '.id // ""')
+  previous_idle=$(latest_idle | jq -r '.id // ""')
   if [[ $phase == ready ]]; then
     message=$(jq -er '.prompt' <<<"$state")
   else
@@ -210,10 +248,12 @@ while [[ $phase != done ]]; do
   setsid opencode run --session "$session" "${options[@]}" \
     <<<"$message" > >(tee -a "$root/$session.log" 9>&-) 2>&1 9>&- & child=$!
   running=true
+  result=
+  monitor_run
   status=0
   wait "$child" || status=$?
   running=false child=
-  result=$(latest)
+  if [[ -z $result ]]; then result=$(latest); fi
   [[ $(jq -r '.id // ""' <<<"$result") != "$previous" && \
      $(jq -r '.type' <<<"$result") == idle ]] ||
     fail "No new terminal outcome (CLI exit $status); inspect session before resuming"
