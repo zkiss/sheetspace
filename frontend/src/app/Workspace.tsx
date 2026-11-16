@@ -41,6 +41,7 @@ import type { MaximiseState } from '@workspace/maximiseState';
 import { displayedExtractionFramePosition, extractionOverlayPresentation } from './extractionGeometry';
 import type { ExtractionHandoffResult } from './useExtractionHandoff';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
+import { WorkspaceMinimap } from '@workspace/WorkspaceMinimap';
 import { isOwnedPortalTarget, eventTargetElement, isNativeContentTarget, isSheetMenuTarget } from '@workspace/workspaceEventPolicy';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
@@ -1256,6 +1257,7 @@ export function Workspace({
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <>
+            <WorkspaceMinimap frames={projectedFrames} surface={workspaceController.workspaceSurfaceSize} viewport={workspaceController.viewport} surfaceRef={workspaceController.workspaceSurfaceRef} concealed={modeActive} disabled={!interactionsEnabled || modeActive || Boolean(workspaceController.pendingSheetMenu)} begin={workspaceController.beginMinimapNavigation} move={workspaceController.moveMinimapViewport} finish={workspaceController.endMinimapNavigation} />
             {formulaInspection && !modeActive ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}

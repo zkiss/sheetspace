@@ -2,7 +2,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
-import { isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget, isSheetMenuTarget } from './workspaceEventPolicy';
+import { eventTargetElement, isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget, isSheetMenuTarget } from './workspaceEventPolicy';
 
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
@@ -81,7 +81,7 @@ export function useWorkspaceGestures(
       if (pan?.space) endPan();
     }
     function pointerDown(event: PointerEvent) {
-      if (event.defaultPrevented || pan) return;
+      if (event.defaultPrevented || pan || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       suppressClick = false;
       const explicit = event.button === 1 || (event.button === 0 && space);
       if (!explicit && (event.button !== 0 || !isBackgroundTarget(event.target, surface!))) return;
@@ -119,7 +119,7 @@ export function useWorkspaceGestures(
       if (pan) consume(event);
     }
     function wheel(event: WheelEvent) {
-      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target) || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       if (!event.ctrlKey && !event.metaKey) {
         // Ordinary scrolling belongs to native sheet/control scrollports. Keep
         // background input inert, including with Space held and at sheet edges.
@@ -137,7 +137,7 @@ export function useWorkspaceGestures(
       );
     }
     function gesture(event: Event) {
-      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target) || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
       if (event.type !== 'gesturestart' && gestureScale === null) return;

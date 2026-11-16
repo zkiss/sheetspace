@@ -241,11 +241,13 @@ export function useWorkspaceController({
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
     surface.dataset.viewportScale = String(next.scale);
+    surface.dispatchEvent(new CustomEvent('workspace-viewport', { detail: next }));
     const grid = surface.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
     if (grid) drawWorkspaceGrid(grid, activeViewportMotion.current ? displayedWorkspaceViewport(plane) ?? next : next);
   }
 
   function paintWorkspaceGrid(next: WorkspaceViewport) {
+    workspaceSurfaceRef.current?.dispatchEvent(new CustomEvent('workspace-viewport', { detail: next }));
     const grid = workspaceSurfaceRef.current?.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
     if (grid) drawWorkspaceGrid(grid, next);
   }
@@ -517,6 +519,14 @@ export function useWorkspaceController({
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
+    beginMinimapNavigation: () => { if (!interruptNavigation()) return null; beginPanPreview(); return viewportRef.current; },
+    moveMinimapViewport: (next: WorkspaceViewport) => {
+      invalidateCreationSequence();
+      panPreview.current = next;
+      paintPanViewport(next);
+      if (!shouldRenderPanViewport || shouldRenderPanViewport(next)) setViewport(next);
+    },
+    endMinimapNavigation: () => finishPanPreview(true),
     pendingSheetMenu,
     resetViewport,
     restoreViewport,
