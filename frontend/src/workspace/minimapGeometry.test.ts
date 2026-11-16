@@ -120,4 +120,40 @@ describe('minimap geometry', () => {
     expect(minimapCenteredViewport(projection, left, surface, { ...viewport, scale: 0.1 }).x / 1e307).toBeCloseTo(1);
     expect(minimapCenteredViewport(projection, left, surface, { ...viewport, scale: 8 }).x).toBe(Number.MAX_VALUE);
   });
+
+  it('projects nearby representable positions before scaling large common origins', () => {
+    for (const origin of [1e20, -1e20]) {
+      const end = origin + 1e6;
+      const projection = { world: { left: origin, top: origin, right: end, bottom: end },
+        scale: 184 / (end - origin), offset: { x: 8, y: 8 } };
+      const middle = origin + 16384;
+      expect(minimapPoint(projection, { x: origin, y: origin })).toEqual({ x: 8, y: 8 });
+      const point = minimapPoint(projection, { x: middle, y: middle });
+      expect(point.x).toBeCloseTo(8 + (middle - origin) * projection.scale, 10);
+      expect(point.y).toBeCloseTo(point.x, 10);
+      expect(minimapPoint(projection, { x: end, y: end }).x).toBeCloseTo(192, 10);
+      expect(point.x).toBeGreaterThan(8);
+      expect(point.x).toBeLessThan(192);
+    }
+  });
+
+  it('groups nearby pointer and offset coordinates for inverse, click and drag', () => {
+    for (const origin of [1e20, -1e20]) {
+      const projection = { world: { left: 100, top: -100, right: 200, bottom: 200 },
+        scale: 2, offset: { x: origin, y: origin } };
+      const point = { x: origin + 16384, y: origin + 16384 };
+      const delta = point.x - origin;
+      expect(minimapWorldPoint(projection, point)).toEqual({ x: 100 + delta / 2, y: -100 + delta / 2 });
+      for (const zoom of [0.1, 1, 8]) {
+        const current = { x: 20, y: -30, scale: zoom };
+        const centered = minimapCenteredViewport(projection, point, surface, current);
+        expect(centered.x).toBeCloseTo(400 - (100 + delta / 2) * zoom, 8);
+        expect(centered.y).toBeCloseTo(200 - (-100 + delta / 2) * zoom, 8);
+        const dragged = minimapDraggedViewport(projection, projection.offset, point, current);
+        expect(dragged.x).toBeCloseTo(20 - delta * zoom / 2, 8);
+        expect(dragged.y).toBeCloseTo(-30 - delta * zoom / 2, 8);
+        expect(dragged.scale).toBe(zoom);
+      }
+    }
+  });
 });

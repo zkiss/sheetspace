@@ -22,6 +22,13 @@ function halfSpan(start: number, end: number): number {
 
 type Term = { factors: number[]; divisor?: number };
 
+function differenceTerms(value: number, start: number, factors: number[], divisor?: number): Term[] {
+  const difference = value - start;
+  return Number.isFinite(difference)
+    ? [{ factors: [difference, ...factors], divisor }]
+    : [{ factors: [value, ...factors], divisor }, { factors: [-start, ...factors], divisor }];
+}
+
 function affine(terms: Term[]): number {
   const normalized = terms.map(({ factors, divisor = 1 }) => {
     let mantissa = 1;
@@ -82,7 +89,7 @@ export function minimapProjection(
 
 export function minimapPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
   const coordinate = (value: number, start: number, offset: number) => affine([
-    { factors: [offset] }, { factors: [bounded(value), projection.scale] }, { factors: [-start, projection.scale] },
+    { factors: [offset] }, ...differenceTerms(bounded(value), start, [projection.scale]),
   ]);
   return { x: coordinate(point.x, projection.world.left, projection.offset.x),
     y: coordinate(point.y, projection.world.top, projection.offset.y) };
@@ -96,7 +103,7 @@ export function minimapRect(projection: MinimapProjection, bounds: WorkspaceTarg
 
 export function minimapWorldPoint(projection: MinimapProjection, point: WorkspacePosition): WorkspacePosition {
   const coordinate = (value: number, start: number, offset: number) => affine([
-    { factors: [start] }, { factors: [value], divisor: projection.scale }, { factors: [-offset], divisor: projection.scale },
+    { factors: [start] }, ...differenceTerms(value, offset, [], projection.scale),
   ]);
   return { x: coordinate(point.x, projection.world.left, projection.offset.x),
     y: coordinate(point.y, projection.world.top, projection.offset.y) };
@@ -107,8 +114,7 @@ export function minimapCenteredViewport(
 ): WorkspaceViewport {
   const coordinate = (value: number, start: number, offset: number, extent: number) => affine([
     { factors: [extent / 2] }, { factors: [-start, viewport.scale] },
-    { factors: [-value, viewport.scale], divisor: projection.scale },
-    { factors: [offset, viewport.scale], divisor: projection.scale },
+    ...differenceTerms(value, offset, [-viewport.scale], projection.scale),
   ]);
   return { x: coordinate(point.x, projection.world.left, projection.offset.x, surface.width),
     y: coordinate(point.y, projection.world.top, projection.offset.y, surface.height), scale: viewport.scale };
@@ -118,8 +124,7 @@ export function minimapDraggedViewport(
   projection: MinimapProjection, start: WorkspacePosition, current: WorkspacePosition, viewport: WorkspaceViewport,
 ): WorkspaceViewport {
   const coordinate = (initial: number, from: number, to: number) => from === to ? initial : affine([
-    { factors: [initial] }, { factors: [-to, viewport.scale], divisor: projection.scale },
-    { factors: [from, viewport.scale], divisor: projection.scale },
+    { factors: [initial] }, ...differenceTerms(to, from, [-viewport.scale], projection.scale),
   ]);
   return { x: coordinate(viewport.x, start.x, current.x),
     y: coordinate(viewport.y, start.y, current.y), scale: viewport.scale };
