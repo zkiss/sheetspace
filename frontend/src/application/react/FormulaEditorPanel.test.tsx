@@ -101,6 +101,18 @@ describe('FormulaEditorPanel', () => {
     expect(references[0]!.style.color).not.toBe(references[1]!.style.color);
   });
 
+  it('renders repeated cells and opposite range diagonals in matching colours', () => {
+    const tokenResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: (_sheet, address) => ({ columnId: `column-${address.columnIndex}`, rowId: `row-${address.rowIndex}` }) };
+    render(<FormulaEditorPanel ariaLabel="Repeated references" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1]+@A[1]+@A[1]:B[2]+@B[1]:A[2]" resolver={tokenResolver} sheetNames={[]} />);
+
+    const references = document.querySelectorAll<HTMLElement>('.formula-syntax-token-reference');
+    expect(references).toHaveLength(4);
+    expect(references[0]!.style.color).not.toBe('');
+    expect(references[0]!.style.color).toBe(references[1]!.style.color);
+    expect(references[2]!.style.color).toBe(references[3]!.style.color);
+    expect(references[0]!.style.color).not.toBe(references[2]!.style.color);
+  });
+
   it('disables formatting for an incomplete formula draft', () => {
     render(<FormulaEditorPanel ariaLabel="Incomplete formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(" resolver={resolver} sheetNames={[]} />);
 

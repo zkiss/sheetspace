@@ -74,6 +74,18 @@ describe('contextual reference projection', () => {
     expect(clipped).toEqual({ kind: 'visible', rect: { ...full.rect, bottom: full.rect.top + 30 } });
   });
 
+  it('clips a range to each grid edge while retaining fully offscreen fallback', () => {
+    const { workbook, inspection, frames } = fixture();
+    const base = { reference: inspection.references[1]!, workbook, frames, workspaceViewport: { x: 0, y: 0, scale: 1 }, surfaceSize: { width: 1200, height: 900 } };
+    const project = (scrollLeft: number, scrollTop: number, width: number, height: number) =>
+      projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, scrollLeft, scrollTop, size: { width, height } } } });
+    expect(project(30, 0, 400, 300)).toMatchObject({ kind: 'visible', rect: { left: 182 } });
+    expect(project(0, 10, 400, 300)).toMatchObject({ kind: 'visible', rect: { top: 168.8 } });
+    expect(project(0, 0, 120, 300)).toMatchObject({ kind: 'visible', rect: { right: 342 } });
+    expect(project(0, 0, 400, 60)).toMatchObject({ kind: 'visible', rect: { bottom: 236 } });
+    expect(project(1000, 0, 400, 300).kind).toBe('offscreen');
+  });
+
   it('uses a durable frame projection during live movement and resize rather than persisted sheet frame values', () => {
     const { workbook, inspection, frames } = fixture();
     const moved = frames.map((frame) => frame.id === 'source' ? { ...frame, position: { x: 300, y: 200 }, size: { width: 600, height: 500 } } : frame);
