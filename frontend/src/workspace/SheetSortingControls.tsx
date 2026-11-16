@@ -8,6 +8,13 @@ type DraftCriterion = SortCriterion & { key: number };
 type SortingResult = { ok: true } | { ok: false; reason: string };
 export type SortingSubmission = { result: SortingResult; completion: Promise<SortingResult> };
 
+function reconcileFocus(dialog: HTMLDivElement | null) {
+  if (!dialog) return;
+  const active = document.activeElement;
+  if (active !== dialog && dialog.contains(active) && !active?.matches(':disabled')) return;
+  (dialog.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)') ?? dialog).focus();
+}
+
 function sortingFailure(reason: string): string {
   switch (reason) {
     case 'sorting-history-too-large': return 'Sorting is too large to undo. Reduce the sheet size or sorting changes and try again.';
@@ -32,15 +39,19 @@ export function SheetSortingControls({ sheet, labels, onApply, onClose }: {
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState('');
   const editor = useRef<HTMLDivElement>(null);
+  const closing = useRef(false);
   useLayoutEffect(() => {
-    if (!editor.current?.contains(document.activeElement) || document.activeElement?.matches(':disabled')) {
-      editor.current?.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)')?.focus();
-    }
-  }, [draft.length]);
+    if (!closing.current) reconcileFocus(editor.current);
+  });
+  useLayoutEffect(() => {
+    const containFocus = () => { if (!closing.current) reconcileFocus(editor.current); };
+    document.addEventListener('focusin', containFocus);
+    return () => document.removeEventListener('focusin', containFocus);
+  }, []);
   const name = (id: string) => labels?.get(id) ?? sheet.columnNames?.[id] ?? columnIndexToLabel(sheet.content.columns.indexOf(id));
   const valid = <T extends SortCriterion,>(criteria: readonly T[]) => criteria.filter((criterion) => sheet.content.columns.includes(criterion.columnId));
   const criteria = valid(draft);
-  const close = () => onClose();
+  const close = () => { closing.current = true; onClose(); };
   const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation();
@@ -70,7 +81,7 @@ export function SheetSortingControls({ sheet, labels, onApply, onClose }: {
     });
   };
   return <div className="sheet-sorting-backdrop">
-    <div ref={editor} className="sheet-sorting-dialog" data-sheet-sorting-editor data-workspace-navigation role="dialog" aria-modal="true" aria-label={`Sort ${sheet.name}`} onKeyDown={keyboard}>
+    <div ref={editor} tabIndex={-1} className="sheet-sorting-dialog" data-sheet-sorting-editor data-workspace-navigation role="dialog" aria-modal="true" aria-label={`Sort ${sheet.name}`} onKeyDown={keyboard}>
       <div className="sheet-sorting-heading">
         <h2>Sort sheet</h2>
         <p>Choose how to sort rows in {sheet.name}.</p>

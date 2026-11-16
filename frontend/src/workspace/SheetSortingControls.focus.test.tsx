@@ -51,3 +51,31 @@ it('returns focus to Add when clearing disables the focused Clear button', async
 
   expect(screen.getByRole('button', { name: /Add another sort column/ })).toHaveFocus();
 });
+
+it.each(['up', 'down'])('reconciles focus when moving a rule %s disables the focused action', async (direction) => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 2 });
+  const sorting = sheet.content.columns.map((columnId) => ({ columnId, direction: 'ascending' as const }));
+  const result = { ok: true as const };
+  render(<SheetSortingControls sheet={{ ...sheet, sorting }} onApply={() => ({ result, completion: Promise.resolve(result) })} onClose={vi.fn()} />);
+
+  await user.click(screen.getByRole('button', { name: `Move sort rule ${direction === 'up' ? 2 : 1} ${direction}` }));
+
+  expect(screen.getByLabelText('Column 1')).toHaveFocus();
+});
+
+it('promotes disabled Add focus and preserves legitimate selection focus across edits', async () => {
+  const user = userEvent.setup();
+  const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 1 });
+  const result = { ok: true as const };
+  const view = render(<SheetSortingControls sheet={sheet} onApply={() => ({ result, completion: Promise.resolve(result) })} onClose={vi.fn()} />);
+  expect(screen.getByRole('button', { name: /Add another sort column/ })).toHaveFocus();
+  await user.click(screen.getByRole('button', { name: /Add another sort column/ }));
+  expect(screen.getByLabelText('Column 1')).toHaveFocus();
+  await user.selectOptions(screen.getByLabelText('Sort order 1'), 'descending');
+  expect(screen.getByLabelText('Sort order 1')).toHaveFocus();
+
+  view.rerender(<SheetSortingControls sheet={{ ...sheet, content: { ...sheet.content, columns: [] } }} onApply={() => ({ result, completion: Promise.resolve(result) })} onClose={vi.fn()} />);
+
+  expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+});
