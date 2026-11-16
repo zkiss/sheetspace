@@ -43,4 +43,18 @@ class LifecycleWorkbookDeltaTest {
         val other = (createSheetDocument("Other") as SheetNameResult.Valid).value
         assertFailsWith<WorkbookApplicationException> { replayLifecycleWorkbook(after.addSheet(other), after, before) }
     }
+
+    @Test
+    fun `replay removes a moved resized sheet but rejects changed content`() {
+        val sheet = (createSheetDocument("Extracted") as SheetNameResult.Valid).value
+        val before = WorkbookState()
+        val after = before.addSheet(sheet)
+        val moved = sheet.copy(frame = sheet.frame.copy(position = WorkspacePosition(123.0, 456.0), size = SheetFrameSize(500.0, 400.0)))
+        val current = after.replaceSheet(moved)
+
+        assertEquals(before, replayLifecycleWorkbook(current, after, before).copy(manifest = before.manifest))
+        val coordinate = CellCoordinate(sheet.tabularContent.rows[0], sheet.tabularContent.columns[0])
+        val edited = moved.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, mapOf(coordinate to "changed")))
+        assertFailsWith<WorkbookApplicationException> { replayLifecycleWorkbook(after.replaceSheet(edited), after, before) }
+    }
 }

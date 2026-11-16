@@ -24,6 +24,18 @@ function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
 }
 
 describe('extraction history', () => {
+  it('allows undo after moving and resizing the extracted sheet but still rejects edited content', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    const target = current.documents[ids[0]!]!;
+    target.frame.position = { x: 500, y: 600 };
+    target.frame.size = { width: 400, height: 300 };
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true).ok).toBe(true);
+    target.content.cells[cellIdentityKey(cellIdentityAt(target.content, 'A1')!)] = 'changed';
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
+  });
   it('replays when persistence omits empty source formatting and target column names', () => {
     const extracted = extraction('cells');
     const before = structuredClone(extracted.before), after = structuredClone(extracted.after);

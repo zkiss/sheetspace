@@ -73,7 +73,14 @@ export function prepareExtractionReplay(current: Workbook, transaction: ContentT
   }
   const expected = direction === 'undo' ? after : before;
   const target = direction === 'undo' ? before : after;
-  const replayed = replayDelta(semantic(current), { ...semantic(expected), functions: current.functions }, { ...semantic(target), functions: current.functions });
+  const comparable = semantic(expected);
+  for (const [id, sheet] of Object.entries(comparable.documents)) {
+    const live = current.documents[id];
+    if (!target.documents[id] && live) {
+      sheet.frame = { ...sheet.frame, position: live.frame.position, size: live.frame.size };
+    }
+  }
+  const replayed = replayDelta(semantic(current), { ...comparable, functions: current.functions }, { ...semantic(target), functions: current.functions });
   if (!replayed.ok) return { ok: false, reason: 'stale-extraction-history' };
   const next = replayed.value as Workbook;
   next.manifest.revision = current.manifest.revision;

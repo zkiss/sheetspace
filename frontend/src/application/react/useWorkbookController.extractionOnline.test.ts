@@ -504,17 +504,21 @@ describe('online extraction replay', () => {
     expect(result.current.canRedo).toBe(false);
   });
 
-  it('reports stale replay without persisting or consuming history', async () => {
-    const { result, request, saves, save } = setup();
+  it('undoes extraction after moving and resizing the extracted sheet', async () => {
+    const { result, request, saves, replay } = setup();
     act(() => { result.current.commands.extractSelection(request); });
     await settle(saves, 0);
-    act(() => { result.current.commands.moveSheetFrame('00000000-0000-0000-0000-000000000001', { x: 99, y: 99 }); });
+    act(() => {
+      result.current.commands.moveSheetFrame(request.targetSheetId, { x: 99, y: 99 });
+      result.current.commands.resizeSheetFrame(request.targetSheetId, { x: 99, y: 99 }, { width: 500, height: 400 });
+    });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     act(() => result.current.commands.undo());
-    expect(result.current.extractionReplayFailure).toBe('stale-extraction-history');
-    expect(result.current.canUndo).toBe(true);
-    expect(result.current.workbook.documents['00000000-0000-0000-0000-000000000001']!.frame.position).toEqual({ x: 99, y: 99 });
-    expect(save).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(replay).toHaveBeenCalledOnce());
+    await settle(saves, 1);
+    expect(result.current.extractionReplayFailure).toBeUndefined();
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(result.current.canRedo).toBe(true);
   });
 
   it('does not consume extraction history or admit a replacement when replay conflicts', async () => {
