@@ -44,21 +44,18 @@ export function formulaCompletions(
 ): FormulaCompletion[] {
   if (!raw.startsWith('=') || selection.start !== selection.end) return [];
   const cursor = clamp(selection.start, 0, raw.length);
-  const end = clamp(selection.end, cursor, raw.length);
   const context = referenceCompletionContext(raw, cursor);
-  if (context.literal) return [];
-  const reference = context.reference;
-  if (reference) {
-    const replacement = reference.replacement;
-    const candidates = reference.qualifier !== undefined
-      ? propertyCandidates(options.propertyNamesForSheet?.(reference.qualifier) ?? [], reference.query, replacement)
-      : [
-        ...sheetCandidates(options.sheetNames, reference.query, raw, replacement),
-        ...propertyCandidates(options.propertyNames ?? [], reference.query, replacement),
-      ];
-    return candidates;
+  if (context.kind === 'suppressed') return [];
+  if (context.kind === 'reference') {
+    const properties = context.qualifier !== undefined
+      ? options.propertyNamesForSheet?.(context.qualifier) ?? []
+      : options.propertyNames ?? [];
+    return [
+      ...(context.sheets ? sheetCandidates(options.sheetNames, context.query, raw, context.replacement) : []),
+      ...(context.properties ? propertyCandidates(properties, context.query, context.replacement) : []),
+    ];
   }
-  const replacement = completionReplacement(raw, cursor, end);
+  const replacement = context.replacement;
   const query = raw.slice(replacement.start, cursor).toUpperCase();
   if (options.automatic && (query.length < 2 || !/^[A-Z][A-Z0-9_]*$/.test(query))) return [];
   return [...builtInFormulaFunctions.keys()]
@@ -196,41 +193,96 @@ function decodedName(raw: string, name: CompletionName, end = name.end): string 
   return payload.replace(/''/g, "'");
 }
 
-function referenceCompletionContext(raw: string, cursor: number): {
-  literal: boolean;
-  reference?: { replacement: FormulaSourceSpan; query: string; qualifier?: string };
-} {
-  let literal = false;
-  for (let index = 0; index < cursor; index += 1) {
+type CompletionContext =
+  | { kind: 'suppressed' }
+  | { kind: 'function'; replacement: FormulaSourceSpan }
+  | { kind: 'reference'; replacement: FormulaSourceSpan; query: string; qualifier?: string; sheets: boolean; properties: boolean };
+
+function referenceCompletionContext(raw: string, cursor: number): CompletionContext {
+  const suppressed: CompletionContext = { kind: 'suppressed' };
+  let operand = true;
+  for (let index = 1; index < raw.length;) {
+    if (index >= cursor && !(operand && /[A-Za-z]/.test(raw[index]!))) {
+      return operand ? { kind: 'function', replacement: { start: cursor, end: cursor } } : suppressed;
+    }
+    if (/\s/.test(raw[index]!)) { index += 1; continue; }
     if (raw[index] === '"') {
-      if (literal && raw[index + 1] === '"') { index += 1; continue; }
-      literal = !literal;
+      let end = index + 1;
+      while (end < raw.length) {
+        if (raw[end] === '"') {
+          if (raw[end + 1] === '"') { end += 2; continue; }
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      if (cursor > index && cursor < end || cursor === end && raw[end - 1] !== '"') return suppressed;
+      index = end;
+      operand = false;
       continue;
     }
-    if (literal || raw[index] !== '@') continue;
-    const qualifier = completionName(raw, index + 1, cursor, true);
-    let separator = qualifier.end;
-    while (/\s/.test(raw[separator] ?? '') && separator < raw.length) separator += 1;
-    const qualified = qualifier.closed && qualifier.end > qualifier.start && raw[separator] === '!';
-    const firstStart = index + 1 + (raw[index + 1] === '$' ? 1 : 0);
-    const first = qualified ? qualifier : completionName(raw, firstStart, cursor);
-    if (cursor >= first.start && cursor <= first.end) {
-      return { literal: false, reference: { replacement: { start: first.start, end: first.end }, query: decodedName(raw, first, cursor) } };
-    }
-    if (qualified) {
-      let start = separator + 1;
-      while (/\s/.test(raw[start] ?? '') && start < raw.length) start += 1;
-      if (raw[start] === '$') start += 1;
-      const property = completionName(raw, start, cursor);
-      if (cursor >= property.start && cursor <= property.end) {
-        return { literal: false, reference: { replacement: { start: property.start, end: property.end }, query: decodedName(raw, property, cursor), qualifier: decodedName(raw, first) } };
+    if (raw[index] === '@' && operand) {
+      const qualifier = completionName(raw, index + 1, cursor, true);
+      let separator = qualifier.end;
+      while (/\s/.test(raw[separator] ?? '') && separator < raw.length) separator += 1;
+      const qualified = qualifier.closed && qualifier.end > qualifier.start && raw[separator] === '!';
+      const firstStart = index + 1 + (raw[index + 1] === '$' ? 1 : 0);
+      const first = qualified ? qualifier : completionName(raw, firstStart, cursor);
+      if (cursor >= first.start && cursor <= first.end) {
+        if (raw[first.start] === '$') return suppressed;
+        if (raw[first.start] === "'" && raw[cursor - 1] === "'" && raw[cursor] === "'") return suppressed;
+        const suffix = raw.slice(first.end).trimStart();
+        const anchored = raw[index + 1] === '$';
+        return { kind: 'reference', replacement: { start: first.start, end: first.end }, query: decodedName(raw, first, cursor),
+          sheets: qualified || (!anchored && !suffix.startsWith('[') && !suffix.startsWith(':')), properties: !qualified };
       }
-      index = Math.max(index, property.end - 1);
-    } else {
-      index = Math.max(index, first.end - 1);
+      if (qualified) {
+        let start = separator + 1;
+        while (/\s/.test(raw[start] ?? '') && start < raw.length) start += 1;
+        if (raw[start] === '$') start += 1;
+        const property = completionName(raw, start, cursor);
+        if (cursor >= property.start && cursor <= property.end) {
+          if (raw[property.start] === "'" && raw[cursor - 1] === "'" && raw[cursor] === "'") return suppressed;
+          return { kind: 'reference', replacement: { start: property.start, end: property.end }, query: decodedName(raw, property, cursor), qualifier: decodedName(raw, first), sheets: false, properties: true };
+        }
+        index = property.end;
+      } else {
+        index = first.end;
+      }
+      if (cursor <= index) return suppressed;
+      // Rows and range endpoints belong to the reference, even when malformed.
+      let bracket = false;
+      let quoted = false;
+      while (index < raw.length) {
+        const char = raw[index]!;
+        if (char === "'" && !bracket) {
+          if (quoted && raw[index + 1] === "'") { index += 2; continue; }
+          quoted = !quoted;
+        } else if (!quoted && char === '[') bracket = true;
+        else if (!quoted && char === ']') bracket = false;
+        else if (!quoted && !bracket && /[+\-*/=<>(),]/.test(char)) break;
+        index += 1;
+      }
+      if (cursor <= index) return suppressed;
+      operand = false;
+      continue;
     }
+    if (/[+\-*/=<>(),]/.test(raw[index]!)) {
+      operand = raw[index] !== ')';
+      index += 1;
+      continue;
+    }
+    if (operand && /[A-Za-z]/.test(raw[index]!)) {
+      const start = index;
+      while (/[A-Za-z0-9_]/.test(raw[index] ?? '')) index += 1;
+      if (cursor >= start && cursor <= index) return { kind: 'function', replacement: { start, end: index } };
+      operand = false;
+      continue;
+    }
+    operand = false;
+    index += 1;
   }
-  return { literal };
+  return operand ? { kind: 'function', replacement: { start: cursor, end: cursor } } : suppressed;
 }
 
 function sheetCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
@@ -242,15 +294,6 @@ function sheetCandidates(names: readonly string[], query: string, raw: string, r
 function propertyCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
   return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
     .map((name) => ({ kind: 'property' as const, label: name, insertText: formatPropertyReferenceToken(name), replacement }));
-}
-
-function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {
-  if (selectionEnd > cursor) return { start: cursor, end: selectionEnd };
-  let start = cursor;
-  let end = cursor;
-  while (start > minimum && /[A-Za-z0-9_.']/.test(raw[start - 1]!)) start -= 1;
-  while (end < raw.length && /[A-Za-z0-9_.']/.test(raw[end]!)) end += 1;
-  return { start, end };
 }
 
 function clamp(value: number, minimum: number, maximum: number): number { return Math.min(maximum, Math.max(minimum, value)); }

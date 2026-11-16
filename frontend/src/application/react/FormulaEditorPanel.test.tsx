@@ -175,4 +175,31 @@ describe('FormulaEditorPanel', () => {
     expect(input).toHaveFocus();
     expect(input.selectionStart).toBe(expected.length);
   });
+
+  it('does not open completion inside a row selector', () => {
+    render(<FormulaEditorPanel ariaLabel="Row formula" raw="=@Revenue[1]" resolver={resolver} sheetNames={['Revenue']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} />);
+    const input = screen.getByRole('textbox', { name: 'Row formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(10, 10);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue('=@Revenue[1]');
+  });
+
+  it('inserts an anchored property instead of a colliding sheet', async () => {
+    function AnchoredEditor() {
+      const [raw, setRaw] = useState('=@$Bu');
+      return <FormulaEditorPanel ariaLabel="Anchored formula" raw={raw} resolver={resolver} sheetNames={['Budget']} propertyNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<AnchoredEditor />);
+    const input = screen.getByRole('textbox', { name: 'Anchored formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(5, 5);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.getAllByRole('option', { name: 'Budget' })).toHaveLength(1);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    await waitFor(() => expect(input).toHaveValue('=@$Budget'));
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(9);
+  });
 });

@@ -128,6 +128,45 @@ describe('formula editor logic', () => {
   });
 
   it.each([
+    '=@Revenue[|1]', '=@Revenue[1|]', '=@Revenue[$|1]', '=@Revenue[#|1]', '=@Revenue[#$|1]',
+    '=@Revenue[|', '=@Revenue[#|', '=@Revenue[$|', '=@Revenue[#$|', '=@Revenue[1|',
+    '=@Revenue[SU|]', '=@Revenue[@SU|+1]', '=@Revenue[1]:|', '=@Revenue[1]:Co|st[2]',
+    '=@Revenue[1]:$Co|st', "=@Revenue[1]:'Co|st'[2]", '=@Revenue[1]|',
+    '=@Revenue.|SU', '=@%SU|', '=@~SU|', '=@$|$Revenue',
+  ])('suppresses completion in structural reference text: %s', (marked) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    for (const automatic of [false, true]) {
+      expect(formulaCompletions(raw, { start: cursor, end: cursor }, {
+        sheetNames: ['Budget'], propertyNames: ['Revenue'], automatic,
+      })).toEqual([]);
+    }
+  });
+
+  it.each([
+    { marked: '=@$Bu|', kind: 'property', expected: '=@$Budget', start: 3, end: 5 },
+    { marked: '=@Bu|!Revenue[1]', kind: 'sheet', expected: '=@Budget!Revenue[1]', start: 2, end: 4 },
+    { marked: '=@Bu|[1]:Cost[2]', kind: 'property', expected: '=@Budget[1]:Cost[2]', start: 2, end: 4 },
+    { marked: '=@$Bu|[$1]', kind: 'property', expected: '=@$Budget[$1]', start: 3, end: 5 },
+  ])('limits completion kinds and preserves reference ownership for $marked', ({ marked, kind, expected, start, end }) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    const completions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ['Budget'], propertyNames: ['Budget'],
+    });
+    expect(completions.map((item) => [item.kind, item.label, item.replacement])).toEqual([[kind, 'Budget', { start, end }]]);
+    expect(applyFormulaCompletion(raw, completions[0]!)).toBe(expected);
+  });
+
+  it('resumes function completion only after a reference expression boundary', () => {
+    for (const raw of ['=@Revenue[1]+SU', '=@Revenue[1]:Cost[2]+SU']) {
+      const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] })
+        .find((item) => item.label === 'SUM')!;
+      expect(applyFormulaCompletion(raw, completion)).toBe(raw + 'M');
+    }
+  });
+
+  it.each([
     { raw: `=@'Sales"2026'!Re`, qualifier: 'Sales"2026', name: 'Revenue', expected: `=@'Sales"2026'!Revenue` },
     { raw: `=@Budget!'Sales"ta`, qualifier: 'Budget', name: 'Sales"tax', expected: `=@Budget!'Sales"tax'` },
     { raw: `=@Budget-2026!Re`, qualifier: 'Budget-2026', name: 'Revenue', expected: `=@Budget-2026!Revenue` },
