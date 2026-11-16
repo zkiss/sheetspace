@@ -115,6 +115,7 @@ describe('FormulaEditorPanel', () => {
     }
     render(<SheetEditor />);
     const input = screen.getByRole('textbox', { name: 'Sheet formula' });
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected a formula textarea');
     input.focus();
     input.setSelectionRange(4, 4);
     fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
