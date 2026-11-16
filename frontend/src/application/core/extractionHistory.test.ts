@@ -5,7 +5,7 @@ import { ContentHistory, CONTENT_HISTORY_MAX_BYTES, EXTRACTION_HISTORY_MAX_BYTES
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { calculatedProperty, declaration, modelWorkbook } from '@test-support/modelLifecycleFixtures';
 import { extractSelection } from './extractSelection';
-import { prepareExtractionReplay, semantic } from './extractionHistory';
+import { prepareExtractionReplay, replayDelta, semantic } from './extractionHistory';
 
 const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`);
 function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
@@ -24,6 +24,27 @@ function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
 }
 
 describe('extraction history', () => {
+  it('normalizes empty metadata without discarding nonempty formatting or names', () => {
+    const { after } = extraction('cells');
+    const omitted = structuredClone(after);
+    const empty = structuredClone(after);
+    delete omitted.documents.source!.columnNames;
+    delete omitted.documents.source!.presentation.formatOverrides;
+    empty.documents.source!.columnNames = {};
+    empty.documents.source!.presentation.formatOverrides = { rows: {}, columns: {}, cells: {} };
+    expect(semantic(empty)).toEqual(semantic(omitted));
+    empty.documents.source!.columnNames = { column: 'Amount' };
+    empty.documents.source!.presentation.formatOverrides.cells.cell = { horizontalAlignment: 'right' };
+    expect(semantic(empty).documents.source!.columnNames).toEqual({ column: 'Amount' });
+    expect(semantic(empty).documents.source!.presentation.formatOverrides?.cells.cell).toEqual({ horizontalAlignment: 'right' });
+  });
+
+  it('preserves independent changes and rejects conflicts in a replay delta', () => {
+    expect(replayDelta({ changed: 2, independent: 3 }, { changed: 2, independent: 1 }, { changed: 1, independent: 1 }))
+      .toEqual({ ok: true, value: { changed: 1, independent: 3 } });
+    expect(replayDelta({ changed: 4 }, { changed: 2 }, { changed: 1 })).toEqual({ ok: false });
+  });
+
   it('allows undo after moving and resizing the extracted sheet but still rejects edited content', () => {
     const { before, after } = extraction('cells');
     const history = new ContentHistory();
@@ -34,6 +55,15 @@ describe('extraction history', () => {
     target.frame.size = { width: 400, height: 300 };
     expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true).ok).toBe(true);
     target.content.cells[cellIdentityKey(cellIdentityAt(target.content, 'A1')!)] = 'changed';
+    expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
+  });
+  it('rejects other changes to the extracted sheet after moving it', () => {
+    const { before, after } = extraction('cells');
+    const history = new ContentHistory();
+    history.recordExtraction(before, after, ids[5]);
+    const current = structuredClone(after);
+    current.documents[ids[0]!]!.frame.position = { x: 500, y: 600 };
+    current.documents[ids[0]!]!.name = 'Changed';
     expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo', true)).toEqual({ ok: false, reason: 'stale-extraction-history' });
   });
   it('replays when persistence omits empty source formatting and target column names', () => {

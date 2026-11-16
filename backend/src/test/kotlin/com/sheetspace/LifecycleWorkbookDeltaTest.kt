@@ -57,4 +57,31 @@ class LifecycleWorkbookDeltaTest {
         val edited = moved.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, mapOf(coordinate to "changed")))
         assertFailsWith<WorkbookApplicationException> { replayLifecycleWorkbook(after.replaceSheet(edited), after, before) }
     }
+
+    @Test
+    fun `undo preserves independent source changes and redo restores the extracted sheet`() {
+        val source = (createSheetDocument("Source") as SheetNameResult.Valid).value
+        val extracted = (createSheetDocument("Extracted") as SheetNameResult.Valid).value
+        val before = WorkbookState().addSheet(source)
+        val after = before.addSheet(extracted)
+        val movedSource = source.copy(frame = source.frame.copy(position = WorkspacePosition(20.0, 30.0)))
+        val movedExtracted = extracted.copy(frame = extracted.frame.copy(position = WorkspacePosition(40.0, 50.0)))
+        val current = after.replaceSheet(movedSource).replaceSheet(movedExtracted)
+
+        val undone = replayLifecycleWorkbook(current, after, before)
+        assertEquals(movedSource.frame, undone.documents.getValue(source.id).frame)
+        val redone = replayLifecycleWorkbook(undone, before, after)
+        assertEquals(movedSource.frame, redone.documents.getValue(source.id).frame)
+        assertEquals(extracted, redone.documents.getValue(extracted.id))
+    }
+
+    @Test
+    fun `moving a sheet does not conceal other changes when replay removes it`() {
+        val sheet = (createSheetDocument("Extracted") as SheetNameResult.Valid).value
+        val before = WorkbookState()
+        val after = before.addSheet(sheet)
+        val changed = sheet.copy(name = "Changed", frame = sheet.frame.copy(position = WorkspacePosition(20.0, 30.0)))
+
+        assertFailsWith<WorkbookApplicationException> { replayLifecycleWorkbook(after.replaceSheet(changed), after, before) }
+    }
 }
