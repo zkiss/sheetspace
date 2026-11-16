@@ -21,6 +21,15 @@ function props() {
 }
 
 describe('SheetFrame compact shell', () => {
+  it('shows the bound model as code beside the sheet name only when present', () => {
+    const interactions = props();
+    const view = render(<SheetFrame {...interactions} modelName="LongModelName">{() => null}</SheetFrame>);
+    const heading = screen.getByRole('heading', { name: 'Inputs: LongModelName' });
+    expect(heading.querySelector('code')).toHaveTextContent('LongModelName');
+    view.rerender(<SheetFrame {...interactions}>{() => null}</SheetFrame>);
+    expect(screen.getByRole('heading', { name: 'Inputs' }).querySelector('code')).toBeNull();
+  });
+
   it('shares the body scrollport with its grid and leaves wheel defaults eligible even at edges', () => {
     const interactions = props();
     const actions = { start: vi.fn(), pan: vi.fn(), zoom: vi.fn(), closeMenu: vi.fn(), clearSelection: vi.fn() };

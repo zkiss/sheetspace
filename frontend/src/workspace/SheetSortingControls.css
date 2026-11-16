@@ -36,6 +36,7 @@
 .sheet-sorting-dialog .sheet-sorting-level-actions button { width: 2.25rem; height: 2.25rem; min-height: 0; padding: 0; font-size: 1.1rem; }
 .sheet-sorting-dialog .sheet-sorting-level-actions button:hover:not(:disabled), .sheet-sorting-dialog .sheet-sorting-secondary:hover:not(:disabled) { background: #edf2f4; }
 .sheet-sorting-dialog button:disabled { opacity: .4; }
+.sheet-sorting-dialog [role="alert"] { color: #9b1c1c; font-size: .9rem; }
 .sheet-sorting-actions { padding-top: .25rem; }
 .sheet-sorting-actions span { flex: 1; }
 @media (max-width: 600px) {

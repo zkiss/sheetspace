@@ -15,8 +15,8 @@ function sortingFailure(reason: string): string {
     case 'pending-model-transition': return 'Sorting could not be applied. Wait for the pending workbook change and try again.';
     case 'pending-axis-creation': return 'Sorting could not be applied. Wait for the pending row or column and try again.';
     case 'pending-sheet-creation': return 'Sorting could not be applied. Wait for the pending sheet and try again.';
-    case 'blocked-persistence-prerequisite': return 'Sorting is blocked by an earlier save failure. Retry the failed save first.';
-    case 'persistence-failed': return 'Sorting could not be saved. Retry the failed save and try again.';
+    case 'blocked-persistence-prerequisite': return 'Sorting is blocked by an earlier save failure. Close this dialog, retry the failed save in the toolbar, then reopen sorting.';
+    case 'persistence-failed': return 'Sorting could not be saved. Close this dialog, retry the failed save in the toolbar, then reopen sorting.';
     default: return 'Sorting could not be applied. Refresh the workbook and try again.';
   }
 }

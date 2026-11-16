@@ -64,6 +64,7 @@ it('shows rejection and pending feedback without losing the draft', async () => 
   expect(close).not.toHaveBeenCalled();
   finish({ ok: false, reason: 'persistence-failed' });
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
+  expect(screen.getByRole('alert')).toHaveTextContent('Close this dialog, retry the failed save in the toolbar');
   expect(screen.getByLabelText('Column 1')).toHaveValue('s:column:1');
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
   expect(apply).toHaveBeenLastCalledWith('s', [{ columnId: 's:column:1', direction: 'ascending' }]);
