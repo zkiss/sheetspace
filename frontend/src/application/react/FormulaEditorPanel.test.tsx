@@ -120,10 +120,10 @@ describe('FormulaEditorPanel', () => {
   });
 
   it('offers the selected sheet’s columns after completing its name', async () => {
-    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Revenue', 'Cost'] : [] };
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget@2026!' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Revenue', 'Cost'] : [] };
     function SheetEditor() {
       const [raw, setRaw] = useState('=@Bu');
-      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget@2026!']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
     }
     render(<SheetEditor />);
     const input = screen.getByRole('textbox', { name: 'Sheet formula' });
@@ -131,17 +131,17 @@ describe('FormulaEditorPanel', () => {
     input.focus();
     input.setSelectionRange(4, 4);
     fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
-    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget@2026!' }));
     await waitFor(() => expect(screen.getByRole('option', { name: 'Revenue' })).toBeInTheDocument());
-    expect(input).toHaveValue('=@Budget!');
+    expect(input).toHaveValue("=@'Budget@2026!'!");
     expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument();
   });
 
   it('inserts a qualified quoted column over the full partial name', () => {
-    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: () => 'budget', namedColumnNames: () => ['Sales total'] };
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Sales@2026' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Sales@total'] : ['Sales@decoy'] };
     function SheetEditor() {
-      const [raw, setRaw] = useState("=@Budget!'Sales t");
-      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+      const [raw, setRaw] = useState("=@'Sales@2026'!'Sales@t");
+      return <FormulaEditorPanel ariaLabel="Sheet formula" raw={raw} resolver={sheetResolver} propertyNames={['Sales@decoy']} sheetNames={['Sales@2026']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
     }
     render(<SheetEditor />);
     const input = screen.getByRole('textbox', { name: 'Sheet formula' });
@@ -149,8 +149,10 @@ describe('FormulaEditorPanel', () => {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
-    fireEvent.mouseDown(screen.getByRole('option', { name: 'Sales total' }));
+    expect(screen.queryByRole('option', { name: 'Sales@decoy' })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Sales@total' }));
 
-    expect(input).toHaveValue("=@Budget!'Sales total'");
+    expect(input).toHaveValue("=@'Sales@2026'!'Sales@total'");
+    expect(input).toHaveFocus();
   });
 });

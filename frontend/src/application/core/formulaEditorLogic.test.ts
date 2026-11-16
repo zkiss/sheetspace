@@ -95,6 +95,38 @@ describe('formula editor logic', () => {
     expect(applyFormulaCompletion(raw, completion!)).toBe(expected);
   });
 
+  it.each([
+    { raw: "=@'Sales@2026'!Re", name: 'Revenue', qualifier: 'Sales@2026', expected: "=@'Sales@2026'!Revenue" },
+    { raw: "=@Budget!'Sales@t", name: 'Sales@total', qualifier: 'Budget', expected: "=@Budget!'Sales@total'" },
+    { raw: "=@'Owner''s @Plan!'!$'Sales@tax'[$1]+2", prefix: "'Sales@", name: 'Sales@total', qualifier: "Owner's @Plan!", expected: "=@'Owner''s @Plan!'!$'Sales@total'[$1]+2" },
+    { raw: "=@'A!,+ [é]''@' ! 'X!,+ [é]''@'", name: "X!,+ [é]'@", qualifier: "A!,+ [é]'@", expected: "=@'A!,+ [é]''@' ! 'X!,+ [é]''@'" },
+    { raw: '=@Budget!$', name: 'Revenue', qualifier: 'Budget', expected: '=@Budget!$Revenue' },
+    { raw: '="x@!""y"+@Budget!Re', name: 'Revenue', qualifier: 'Budget', expected: '="x@!""y"+@Budget!Revenue' },
+  ])('uses decoded names and exact spans for $raw', ({ raw, name, qualifier, expected, prefix }) => {
+    const cursor = prefix ? raw.indexOf(prefix) + prefix.length : raw.length;
+    const lookup = vi.fn((sheet: string) => sheet === qualifier ? [name] : []);
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, {
+      sheetNames: ['Decoy'], propertyNames: ['Decoy'], propertyNamesForSheet: lookup,
+    });
+    expect(lookup).toHaveBeenCalledWith(qualifier);
+    expect(suggestions.map((item) => item.label)).toEqual([name]);
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe(expected);
+  });
+
+  it('replaces a quoted sheet name without duplicating its existing separator', () => {
+    const raw = "=@'Owner''s @Plan!' !A[1]";
+    const cursor = raw.indexOf('@Plan') + 2;
+    const suggestions = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: ["Owner's @Plan!"] });
+    expect(applyFormulaCompletion(raw, suggestions[0]!)).toBe(raw);
+  });
+
+  it('does not fall back to active columns for unknown quoted qualifiers', () => {
+    const raw = "=@'Unknown@sheet'!Re";
+    expect(formulaCompletions(raw, { start: raw.length, end: raw.length }, {
+      sheetNames: [], propertyNames: ['Revenue'], propertyNamesForSheet: () => [],
+    })).toEqual([]);
+  });
+
   it('formats grouped expressions without treating parentheses as function calls', () => {
     expect(formatFormula('=(1+2)*3', { start: 0, end: 0 }).raw).toBe('=(1 + 2) * 3');
   });
