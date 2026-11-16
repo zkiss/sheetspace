@@ -48,7 +48,7 @@ export function WorkspaceMinimap({ frames, surface, viewport, surfaceRef, disabl
   };
   const down = (event: PointerEvent<SVGSVGElement>) => {
     event.preventDefault(); event.stopPropagation();
-    if (disabled || event.button !== 0 || !projection || !surface) return;
+    if (drag.current || disabled || concealed || !visible || event.button !== 0 || !projection || !surface) return;
     const start = point(event);
     const current = begin();
     if (!current) return;

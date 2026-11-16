@@ -114,6 +114,31 @@ describe('workspace minimap integration', () => {
       expect(surface.dataset.viewportX).toBe(moved);
     } finally { vi.unstubAllGlobals(); }
   });
+  it.each(['inside', 'outside'])('keeps the real drag owner when a second touch starts %s', (location) => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    try {
+      render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'near', name: 'Near' }), smallSheetDocument({ id: 'far', name: 'Far', position: { x: 4000, y: 0 } })])} />);
+      const map = screen.getByRole('img', { name: 'Workspace map' });
+      map.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 200, height: 130 });
+      Object.assign(map, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+      const outline = map.querySelector('.workspace-minimap-viewport')!;
+      const x = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+      const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+      const surface = screen.getByTestId('workspace-surface');
+      fireEvent.pointerDown(map, { button: 0, pointerId: 1, clientX: x, clientY: y });
+      fireEvent.pointerDown(map, { button: 0, pointerId: 2, clientX: location === 'inside' ? x : 190, clientY: y });
+      expect(Number(surface.dataset.viewportX)).toBe(0);
+      fireEvent.pointerUp(map, { pointerId: 2 });
+      fireEvent.pointerMove(map, { pointerId: 1, clientX: x + 20, clientY: y });
+      const moved = Number(surface.dataset.viewportX);
+      expect(moved).toBeLessThan(0);
+      expect(surface.dataset.viewportScale).toBe('1');
+      fireEvent.pointerUp(map, { pointerId: 1, clientX: x + 20, clientY: y });
+      expect(Number(surface.dataset.viewportX)).toBe(moved);
+      fireEvent.pointerDown(map, { button: 0, pointerId: 3, clientX: 190, clientY: y });
+      expect(Number(surface.dataset.viewportX)).not.toBe(moved);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('centers on a click inside the viewport without recentering after a drag', () => {
     vi.stubGlobal('PointerEvent', TestPointerEvent);
     try {
@@ -137,7 +162,7 @@ describe('workspace minimap integration', () => {
       expect(surface.dataset.viewportX).toBe(moved);
     } finally { vi.unstubAllGlobals(); }
   });
-  it('ignores captured minimap moves and release after a wheel zoom interrupts the drag', () => {
+  it.each([true, false])('ignores captured minimap moves and release after a wheel zoom interrupts the drag (moved: %s)', (moved) => {
     vi.stubGlobal('PointerEvent', TestPointerEvent);
     const callbacks = new Map<number, FrameRequestCallback>();
     let next = 0;
@@ -154,12 +179,12 @@ describe('workspace minimap integration', () => {
       const y = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
       const surface = screen.getByTestId('workspace-surface');
       fireEvent.pointerDown(map, { button: 0, pointerId: 3, clientX: x, clientY: y });
-      fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 10, clientY: y });
+      if (moved) fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 10, clientY: y });
       fireEvent.wheel(surface, { ctrlKey: true, deltaY: -100, clientX: 300, clientY: 200 });
       frame();
       const zoomed = { ...surface.dataset };
       expect(Number(zoomed.viewportScale)).toBeGreaterThan(1);
-      fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 30, clientY: y });
+      if (moved) fireEvent.pointerMove(map, { pointerId: 3, clientX: x + 30, clientY: y });
       fireEvent.pointerUp(map, { pointerId: 3, clientX: x + 30, clientY: y });
       expect(surface.dataset.viewportX).toBe(zoomed.viewportX);
       expect(surface.dataset.viewportScale).toBe(zoomed.viewportScale);
