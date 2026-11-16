@@ -72,7 +72,16 @@ export function FunctionEditor({ initial, savedName, functions, workbook, onCanc
   }
   const resolver = workbook ? workbookFormulaReferenceResolver(workbook, '') : { currentSheetId: '', sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined };
   const parameters = draft.parameters.map((parameter) => parameter.name).filter(Boolean);
-  return <form className="function-editor" aria-label={initial ? 'Edit function' : 'Create function'} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save') && !(event.target instanceof Element && event.target.closest('.formula-editor-panel'))) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
+  function dismiss() {
+    if (saving) return;
+    if (formulaMode === 'light') { onCancel(); return; }
+    if (document.activeElement instanceof Element && document.activeElement.closest('.formula-editor-actions')) formulaInput.current?.focus();
+    setFormulaMode('light');
+  }
+  return <form className="function-editor" aria-label={initial ? 'Edit function' : 'Create function'} onKeyDown={(event) => {
+    if (!matchesShortcut(event, 'editor-close')) return;
+    event.preventDefault(); event.stopPropagation(); dismiss();
+  }} onKeyDownCapture={(event) => { if (matchesShortcut(event, 'dialog-save') && !(event.target instanceof Element && event.target.closest('.formula-editor-panel'))) { event.preventDefault(); event.stopPropagation(); if (!saving) event.currentTarget.requestSubmit(); } }} onSubmit={submit}>
     <div className="function-editor-heading"><h2>{initial ? 'Edit function' : 'Create function'}</h2><p>Define a reusable formula and its inputs.</p></div>
     <label>Function name<input autoFocus disabled={saving} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
     <fieldset className="function-parameters" disabled={saving} ref={parametersRef}><legend>Parameters</legend>
@@ -91,13 +100,9 @@ export function FunctionEditor({ initial, savedName, functions, workbook, onCanc
     </fieldset>
     <div className="function-formula-field">
       <div className="function-formula-header"><span>Formula body</span><button className="function-secondary" type="button" disabled={saving} onClick={() => { setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light'); formulaInput.current?.focus(); }}>{formulaMode === 'light' ? 'Expand editor' : 'Collapse editor'}</button></div>
-      <div className={`function-formula-editor function-formula-editor-${formulaMode}`} onFocus={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) formulaBeforeEdit.current = draft.body; }} onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-        event.preventDefault(); event.stopPropagation();
-        if (!saving) { if (formulaMode === 'heavy') setFormulaMode('light'); else onCancel(); }
-      }}>
+      <div className={`function-formula-editor function-formula-editor-${formulaMode}`} onFocus={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) formulaBeforeEdit.current = draft.body; }}>
         <FormulaEditorPanel ariaLabel="Formula body" disabled={saving} cellMode={formulaMode} onToggleMode={() => setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light')}
-          onApply={() => setFormulaMode('light')} onEscape={() => { if (!saving) { if (formulaMode === 'heavy') setFormulaMode('light'); else onCancel(); } }} onCancel={() => { setDraft((current) => ({ ...current, body: formulaBeforeEdit.current })); setFormulaMode('light'); }}
+          onApply={() => setFormulaMode('light')} onEscape={dismiss} onCancel={() => { setDraft((current) => ({ ...current, body: formulaBeforeEdit.current })); setFormulaMode('light'); }}
           inputRef={formulaInput} onCommitAndNavigate={(request) => {
             setFormulaMode('light');
             const form = formulaInput.current?.form;

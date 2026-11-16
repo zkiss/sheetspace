@@ -233,7 +233,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       ? { start: modifierReferenceStart, end: modifierReferenceEnd } : null);
     return () => onReferenceModifierHover?.(null);
   }, [onReferenceModifierHover, modifierReferenceStart, modifierReferenceEnd]);
-  return <section aria-label={`${ariaLabel} editor`} className={`formula-editor-panel${cellMode ? ` sheet-grid-cell-formula-editor sheet-grid-cell-formula-editor-${cellMode}` : ''}`}
+  return <section aria-label={`${ariaLabel} editor`} className={`formula-editor-panel${cellMode ? ` sheet-grid-cell-formula-editor sheet-grid-cell-formula-editor-${cellMode}` : ''}`} onKeyDown={(event) => {
+    if (!completionOpen || !matchesShortcut(event, 'completion-dismiss')) return;
+    event.preventDefault(); event.stopPropagation(); setHoveredReference(undefined); setCompletionRequest(null);
+  }}
     data-editor-mode={cellMode ?? 'heavy'} data-workspace-sheet-editor={sheetId} data-workspace-navigation ref={panelRef} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     setCompletionRequest(null);
