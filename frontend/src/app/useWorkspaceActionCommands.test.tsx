@@ -9,7 +9,7 @@ import { useExtractionHandoff } from './useExtractionHandoff';
 import { cellRawContent } from '@workbook/read/queries';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 
-import { setup, type Props } from './useWorkspaceActionCommands.testSupport';
+import { setup, type Props } from '@test-support/workspaceActionCommands';
 
 function RenamePalette({ props }: { props: Props }) {
   const [open, setOpen] = useState(true);

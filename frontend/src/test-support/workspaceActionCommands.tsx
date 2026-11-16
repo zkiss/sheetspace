@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
+import { useWorkspaceActionCommands } from '@app/useWorkspaceActionCommands';
 
 export type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 export function setup(columnCount = 1) {

@@ -1,6 +1,6 @@
 import { act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { setup } from './useWorkspaceActionCommands.testSupport';
+import { setup } from '@test-support/workspaceActionCommands';
 
 describe('workspace palette actions', () => {
   it('opens Functions and sorting for the selected sheet from the palette', () => {
