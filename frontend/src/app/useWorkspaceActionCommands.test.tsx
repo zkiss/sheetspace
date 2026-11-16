@@ -9,26 +9,7 @@ import { useExtractionHandoff } from './useExtractionHandoff';
 import { cellRawContent } from '@workbook/read/queries';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 
-type Props = Parameters<typeof useWorkspaceActionCommands>[0];
-function setup(columnCount = 1) {
-  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount });
-  const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
-  const commands = { currentWorkbook: () => ({ documents: new Proxy({}, { get: () => sheet }) }), appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
-  const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
-  const clipboard = { canWrite: () => true, canRead: () => true, write: vi.fn().mockResolvedValue(undefined), read: vi.fn() };
-  const props = {
-    commands, controller, sheet, workbook: workbookWithSheets([sheet]), activeCell: cell, selection: null,
-    formatting: { descriptor: { valid: false } }, referencesVisible: true,
-    canUndo: false, canRedo: false, canRetryFailedSaves: false,
-    navigation: { canGoBack: false, canGoForward: false, traverse: vi.fn() }, closePalette: vi.fn(), openPanel: vi.fn(), onCreateSheet: vi.fn(),
-    onOpenDataModels: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), onEdit: vi.fn(), onClear: vi.fn(),
-    onSelectAxis: vi.fn(), onSelectAll: vi.fn(), onRowDeleted: vi.fn(), onColumnDeleted: vi.fn(), onToggleReferences: vi.fn(), onFeedback: vi.fn(),
-    onCopy: vi.fn(), onCut: vi.fn(), onPaste: vi.fn(), onCancelCut: vi.fn(), hasPendingCut: false, clipboardAccess: clipboard,
-  } as unknown as Props;
-  const hook = renderHook(() => useWorkspaceActionCommands(props));
-  const command = (id: string) => hook.result.current.commands.find((item) => item.id === id)!;
-  return { hook, command, props, commands, controller, clipboard, sheet, cell };
-}
+import { setup, type Props } from './useWorkspaceActionCommands.testSupport';
 
 function RenamePalette({ props }: { props: Props }) {
   const [open, setOpen] = useState(true);
@@ -44,28 +25,6 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
-  it('opens Functions and sorting for the selected sheet from the palette', () => {
-    const { command, hook, props, sheet } = setup();
-    props.onOpenFunctions = vi.fn();
-    props.onSortSheet = vi.fn();
-    hook.rerender();
-    expect(command('functions').unavailable).toBeUndefined();
-    expect(command('sort-sheet').unavailable).toBeUndefined();
-    act(() => command('functions').run());
-    act(() => command('sort-sheet').run());
-    expect(props.onOpenFunctions).toHaveBeenCalledOnce();
-    expect(props.onSortSheet).toHaveBeenCalledWith(sheet.id);
-    expect(props.closePalette).toHaveBeenCalledWith(false);
-  });
-
-  it('makes sorting unavailable without a selected sheet', () => {
-    const { command, hook, props } = setup();
-    props.sheet = undefined;
-    props.onSortSheet = vi.fn();
-    hook.rerender();
-    expect(command('sort-sheet').unavailable).toBe('Select a sheet first');
-  });
-
   it('rejects scattered extraction and endpoint-equal multi-column rename at execution', () => {
     const { command, hook, props, sheet, cell } = setup(3);
     props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!, sheet.content.columns[2]!] };
