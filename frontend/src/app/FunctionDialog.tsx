@@ -13,13 +13,14 @@ type Props = {
   functions: readonly CustomFunction[];
   workbook?: Workbook;
   saveStatus?: 'saved' | 'saving' | 'failed';
+  hasPendingSaves?: boolean;
   onClose: () => void;
   onRetry: () => void;
   onSave: (draft: FunctionDeclaration, previousName?: string) => Promise<FunctionResult>;
   onDelete: (name: string) => Promise<FunctionResult>;
 };
 
-export function FunctionDialog({ functions, workbook, saveStatus = 'saved', onClose, onRetry, onSave, onDelete }: Props) {
+export function FunctionDialog({ functions, workbook, saveStatus = 'saved', hasPendingSaves = saveStatus === 'saving', onClose, onRetry, onSave, onDelete }: Props) {
   const ref = useRef<HTMLElement>(null);
   const [draft, setDraft] = useState<CustomFunction | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,11 +31,11 @@ export function FunctionDialog({ functions, workbook, saveStatus = 'saved', onCl
   const [recovering, setRecovering] = useState(false);
   const recovery = useRef<((result: { ok: boolean; functions: readonly CustomFunction[] }) => void) | null>(null);
   useEffect(() => {
-    if (!recovering || saveStatus === 'saving') return;
+    if (!recovering || hasPendingSaves) return;
     recovery.current?.({ ok: saveStatus === 'saved', functions });
     recovery.current = null;
     setRecovering(false);
-  }, [recovering, saveStatus, functions]);
+  }, [recovering, saveStatus, hasPendingSaves, functions]);
   useEffect(() => () => {
     recovery.current?.({ ok: false, functions: [] });
     recovery.current = null;

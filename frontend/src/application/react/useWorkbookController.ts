@@ -491,7 +491,7 @@ export function useWorkbookController({
     formulaResults,
     retryStartupLoad: () => { if (replayFenceBlocked()) setMutationFailure('pending-model-transition'); else retryStartupLoad(); },
     creatingFrames,
-    creatingAxes: axisCreation.creatingAxes,
+    creatingAxes: axisCreation.creatingAxes, hasPendingSaves: functions.state.pending || creationSaving || savedAutosave.hasPendingSaves,
     saveStatus: Boolean(functions.state.error) && !functions.state.pending || creationFailed || savedAutosave.saveStatus === 'failed'
       ? 'failed'
       : functions.state.pending || creationSaving || savedAutosave.saveStatus === 'saving' ? 'saving' : 'saved',
