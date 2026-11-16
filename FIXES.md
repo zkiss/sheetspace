@@ -44,6 +44,10 @@ Hardening and assurance: preserve intended behavior, update meaningful automated
 - Treat empty formatting and column-name containers consistently during extraction history replay, including on the source sheet.
 - Permit extraction undo after moving or resizing the extracted sheet, while still rejecting content changes.
 
+## Maximise and restore
+
+- Show the workspace during both directions of the sheet transition so the expanding and shrinking borders remain visible.
+
 ## UI design and evaluation guidance
 
 - Add UI design standards to `constitution.md` covering task-oriented layout, visual hierarchy, familiar terminology, and accessibility.

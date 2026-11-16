@@ -1212,8 +1212,8 @@ export function Workspace({
          },
        } : undefined} /> : null}
       <WorkspaceSurface
-        concealBackground={modeActive && maximise.state.mode !== 'restoring'}
-        concealPeers={modeActive && maximise.state.mode !== 'restoring'}
+        concealBackground={maximise.state.mode === 'maximised'}
+        concealPeers={maximise.state.mode === 'maximised'}
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
             key={menuSheet.id}
