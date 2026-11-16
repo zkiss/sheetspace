@@ -15,8 +15,8 @@ class FunctionRecordAuthorityTest {
         SqliteWorkbookStore.inMemory().use { store ->
             var workbook = lifecycleBoundWorkbook(lifecycleWorkbook())
             workbook = workbook.removeSheet(workbook.sheetsInOrder.last().id)
-            workbook = define(workbook, "inner", "=x*2", listOf(CustomFunctionParameter("x", "float")))
-            workbook = define(workbook, "outer", "=inner(x)+1", listOf(CustomFunctionParameter("x", "float")))
+            workbook = define(workbook, "inner", "=@x*2", listOf(CustomFunctionParameter("x", "float")))
+            workbook = define(workbook, "outer", "=inner(@x)+1", listOf(CustomFunctionParameter("x", "float")))
             val sheet = workbook.sheetsInOrder.first()
             val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
             val first = sheet.tabularContent.rows.first()

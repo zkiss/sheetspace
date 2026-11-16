@@ -14,6 +14,7 @@ import type {
   FormulaNamedColumnPredicate,
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
+import { syntaxDiagnostic } from './syntaxDiagnostic';
 import { decodeStableId } from './stableId';
 import { completeUserReferenceStart, endpointFamily, makeFormulaReference, parseOpenEndpoint, parseEscapedColumnEndpoint, parseCanonicalPositionalEndpoint, qualifierPayloadSpan, readPublicRow, readPublicA1Token, referencePayloadSpans } from './syntaxReference';
 import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
@@ -533,13 +534,7 @@ export class FormulaParser {
   }
 
   private recordSyntaxDiagnostic(start: number, end: number): void {
-    if (this.input.length === 0) {
-      this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: { start: 0, end: 1 } });
-      return;
-    }
-    const boundedStart = Math.min(Math.max(start, 0), this.input.length - 1);
-    const boundedEnd = Math.min(Math.max(end, boundedStart + 1), this.input.length);
-    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(boundedStart, boundedEnd) });
+    this.diagnostics.push(syntaxDiagnostic(this.input, start, end));
   }
 
   private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {
