@@ -33,8 +33,10 @@ export function SheetSortingControls({ sheet, labels, onApply, onClose }: {
   const [feedback, setFeedback] = useState('');
   const editor = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    editor.current?.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)')?.focus();
-  }, []);
+    if (!editor.current?.contains(document.activeElement) || document.activeElement?.matches(':disabled')) {
+      editor.current?.querySelector<HTMLElement>('select:not(:disabled), button:not(:disabled)')?.focus();
+    }
+  }, [draft.length]);
   const name = (id: string) => labels?.get(id) ?? sheet.columnNames?.[id] ?? columnIndexToLabel(sheet.content.columns.indexOf(id));
   const valid = <T extends SortCriterion,>(criteria: readonly T[]) => criteria.filter((criterion) => sheet.content.columns.includes(criterion.columnId));
   const criteria = valid(draft);
