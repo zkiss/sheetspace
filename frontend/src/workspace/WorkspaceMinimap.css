@@ -1,0 +1,24 @@
+.workspace-minimap {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 4;
+  width: min(200px, calc(100% - 2rem));
+  background: #fff;
+  border: 1px solid #b9c9d0;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px #31475426;
+  color: #405462;
+  cursor: default;
+  overflow: hidden;
+}
+.workspace-minimap-heading { display: flex; align-items: center; justify-content: space-between; padding: 3px 6px 3px 9px; font-size: 12px; font-weight: 600; }
+.workspace-minimap-heading button { padding: 0 5px; border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1.2; }
+.workspace-minimap svg { display: block; width: 100%; background: #edf3f5; cursor: crosshair; touch-action: none; }
+.workspace-minimap svg.dragging { cursor: grabbing; }
+.workspace-minimap-sheet { fill: #9eb8c4; stroke: #607d8b; stroke-width: 0.5; }
+.workspace-minimap-viewport { fill: #3981af20; stroke: #226a98; stroke-width: 2; }
+.workspace-minimap-hidden { width: auto; }
+.workspace-minimap-hidden button { border: 0; background: #fff; color: #405462; font-size: 12px; font-weight: 600; padding: 8px 10px; }
+.workspace-minimap-disabled { opacity: 0.55; }
+.workspace-minimap-disabled svg { cursor: default; }

@@ -2,7 +2,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
-import { isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget, isSheetMenuTarget } from './workspaceEventPolicy';
+import { eventTargetElement, isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget, isSheetMenuTarget } from './workspaceEventPolicy';
 
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
@@ -12,7 +12,8 @@ function consume(event: Event) {
   event.stopPropagation();
 }
 
-type Pan = { pointerId: number; x: number; y: number; button: number; space: boolean };
+type PanHandle = { move: (x: number, y: number) => void; end: () => void };
+type Pan = { pointerId: number; x: number; y: number; button: number; space: boolean; handle: PanHandle };
 type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
 
 /** Native capture runs before sheet handlers; non-passive wheel permits selective cancellation. */
@@ -20,7 +21,7 @@ export function useWorkspaceGestures(
   surfaceRef: RefObject<HTMLElement>,
   actions: {
     start: () => void | boolean;
-    panStart?: () => void;
+    panStart?: () => void | PanHandle;
     panEnd?: () => void;
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
@@ -49,7 +50,7 @@ export function useWorkspaceGestures(
     function endPan() {
       const previous = pan;
       pan = null;
-      if (previous) current.current.panEnd?.();
+      previous?.handle.end();
       setPanning(false);
       if (previous && surface!.hasPointerCapture?.(previous.pointerId)) {
         surface!.releasePointerCapture(previous.pointerId);
@@ -81,7 +82,7 @@ export function useWorkspaceGestures(
       if (pan?.space) endPan();
     }
     function pointerDown(event: PointerEvent) {
-      if (event.defaultPrevented || pan) return;
+      if (event.defaultPrevented || pan || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       suppressClick = false;
       const explicit = event.button === 1 || (event.button === 0 && space);
       if (!explicit && (event.button !== 0 || !isBackgroundTarget(event.target, surface!))) return;
@@ -91,10 +92,13 @@ export function useWorkspaceGestures(
       current.current.clearSelection();
       suppressClick = true;
       if (current.current.start() === false) return;
-      current.current.panStart?.();
+      const handle = current.current.panStart?.() ?? {
+        move: (x: number, y: number) => current.current.pan(x, y),
+        end: () => current.current.panEnd?.(),
+      };
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-        button: event.button, space: event.button === 0 && space };
+        button: event.button, space: event.button === 0 && space, handle };
       suppressClick = true;
       setPanning(true);
       surface!.setPointerCapture?.(event.pointerId);
@@ -105,7 +109,7 @@ export function useWorkspaceGestures(
       if (!(event.buttons & (pan.button === 1 ? 4 : 1))) { endPan(); return; }
       const delta = surfaceDeltaFromClient(pan, { x: event.clientX, y: event.clientY });
       pan = { ...pan, x: event.clientX, y: event.clientY };
-      current.current.pan(delta.x, delta.y);
+      pan.handle.move(delta.x, delta.y);
     }
     function pointerEnd(event: PointerEvent) {
       if (!pan || pan.pointerId !== event.pointerId) return;
@@ -119,7 +123,7 @@ export function useWorkspaceGestures(
       if (pan) consume(event);
     }
     function wheel(event: WheelEvent) {
-      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target) || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       if (!event.ctrlKey && !event.metaKey) {
         // Ordinary scrolling belongs to native sheet/control scrollports. Keep
         // background input inert, including with Space held and at sheet edges.
@@ -137,7 +141,7 @@ export function useWorkspaceGestures(
       );
     }
     function gesture(event: Event) {
-      if (event.defaultPrevented || isSheetMenuTarget(event.target)) return;
+      if (event.defaultPrevented || isSheetMenuTarget(event.target) || eventTargetElement(event.target)?.closest('[data-workspace-minimap]')) return;
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
       if (event.type !== 'gesturestart' && gestureScale === null) return;

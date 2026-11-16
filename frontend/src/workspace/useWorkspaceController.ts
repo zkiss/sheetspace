@@ -2,6 +2,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { sheetCreationPlacement } from './sheetCreationPlacement';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
+import { workspacePanHandle } from './workspacePanHandle';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import { useDisplayedWorkspaceViewport } from './useDisplayedWorkspaceViewport';
@@ -40,7 +41,7 @@ export function useWorkspaceController({
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
-  const previewGeneration = useRef(0);
+  const previewGeneration = useRef(0), minimapSession = useRef<number | null>(null);
   const panPreview = useRef<WorkspaceViewport | null>(null);
   const panSession = useRef(false);
   const panSessionId = useRef(0);
@@ -79,7 +80,7 @@ export function useWorkspaceController({
   }, []);
 
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    start: interruptNavigation, panStart: beginPanPreview, panEnd: () => finishPanPreview(true),
+    start: interruptNavigation, panStart: startCanvasPan,
     pan: panWorkspace, zoom: zoomWorkspaceBy, gestureStart: startZoomGesture,
     closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
@@ -218,6 +219,15 @@ export function useWorkspaceController({
     panPublication.current = { time: performance.now(), x: viewportRef.current.x, y: viewportRef.current.y };
   }
 
+  function startCanvasPan() {
+    beginPanPreview();
+    const generation = previewGeneration.current;
+    return workspacePanHandle(
+      () => !unmounted.current && generation === previewGeneration.current && panSession.current && panSessionId.current === generation,
+      panWorkspace, () => finishPanPreview(true),
+    );
+  }
+
   function finishPanPreview(endSession = false) {
     const stale = unmounted.current || (panSession.current && panSessionId.current !== previewGeneration.current);
     if (endSession) panSession.current = false;
@@ -241,11 +251,13 @@ export function useWorkspaceController({
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
     surface.dataset.viewportScale = String(next.scale);
+    surface.dispatchEvent(new CustomEvent('workspace-viewport', { detail: next }));
     const grid = surface.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
     if (grid) drawWorkspaceGrid(grid, activeViewportMotion.current ? displayedWorkspaceViewport(plane) ?? next : next);
   }
 
   function paintWorkspaceGrid(next: WorkspaceViewport) {
+    workspaceSurfaceRef.current?.dispatchEvent(new CustomEvent('workspace-viewport', { detail: next }));
     const grid = workspaceSurfaceRef.current?.querySelector<HTMLCanvasElement>('canvas.workspace-grid');
     if (grid) drawWorkspaceGrid(grid, next);
   }
@@ -509,19 +521,17 @@ export function useWorkspaceController({
       viewportMovementIsUser.current = false;
       return isUserMovement;
     },
-    createSheetAtViewportCenter,
-    handleWorkspaceContextMenu,
-    isPanningWorkspace,
-    navigationInterrupted,
-    navigationMotion,
-    navigateToTarget,
-    openSheetMenu,
-    panWorkspace,
-    pendingSheetMenu,
-    resetViewport,
-    restoreViewport,
-    viewport,
-    displayedViewport,
+    createSheetAtViewportCenter, handleWorkspaceContextMenu, isPanningWorkspace,
+    navigationInterrupted, navigationMotion, navigateToTarget, openSheetMenu, panWorkspace,
+    beginMinimapNavigation: () => { if (!interruptNavigation()) return null; beginPanPreview(); minimapSession.current = previewGeneration.current; return viewportRef.current; },
+    moveMinimapViewport: (next: WorkspaceViewport) => {
+      if (unmounted.current || minimapSession.current !== previewGeneration.current) return;
+      invalidateCreationSequence(); panPreview.current = next;
+      paintPanViewport(next);
+      if (!shouldRenderPanViewport || shouldRenderPanViewport(next)) setViewport(next);
+    },
+    endMinimapNavigation: () => { if (minimapSession.current === previewGeneration.current) finishPanPreview(true); else if (panSessionId.current === minimapSession.current) panSession.current = false; minimapSession.current = null; },
+    pendingSheetMenu, resetViewport, restoreViewport, viewport, displayedViewport,
     workspacePlaneRef, workspaceSurfaceRef, workspaceSurfaceSize,
     zoomWorkspace,
     zoomWorkspaceBy,
