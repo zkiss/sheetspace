@@ -23,6 +23,24 @@ describe('sorting values', () => {
 });
 
 describe('sheet sorting', () => {
+  it('sorts temporal rows chronologically and preserves precision-independent ties in both directions', () => {
+    const sheet = sheetDocument({ id: 's', name: 'S', rowCount: 4, columnCount: 1 });
+    const values: FormulaScalarValue[] = [
+      { kind: 'datetime', value: '2000-01-01 00:00:00.000' },
+      { kind: 'datetime', value: '1999-12-31 23:59' },
+      { kind: 'datetime', value: '2000-01-01 00:00' },
+      { kind: 'datetime', value: '2001-01-01 00:00' },
+    ];
+    const [column] = sheet.content.columns;
+    const rows = sheet.content.rows;
+    const sort = (direction: 'ascending' | 'descending') => sortedRowPermutation(
+      { ...sheet, sorting: [criterion(column!, direction)] },
+      (row) => values[rows.indexOf(row)]!,
+    );
+    expect(sort('ascending')).toEqual([rows[1], rows[0], rows[2], rows[3]]);
+    expect(sort('descending')).toEqual([rows[3], rows[0], rows[2], rows[1]]);
+  });
+
   it('validates criteria and keeps configuration independent and immutable', () => {
     const a = sheetDocument({ id: 'a', name: 'A', columnCount: 2 });
     const b = sheetDocument({ id: 'b', name: 'B' });

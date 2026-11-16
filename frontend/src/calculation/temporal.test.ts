@@ -17,6 +17,13 @@ describe('local temporal values', () => {
     expect(parseTemporalValue('9999-12-31T23:59:59.123400000', 'datetime')).toEqual({ kind: 'datetime', value: '9999-12-31 23:59:59.123400000' });
   });
 
+  it('rejects mixed date separators in both temporal kinds', () => {
+    for (const date of ['2024-01/02', '2024/01-02']) {
+      expect(parseTemporalValue(date, 'date')).toBeUndefined();
+      expect(parseTemporalValue(`${date} 12:30`, 'datetime')).toBeUndefined();
+    }
+  });
+
   it('roundtrips typed storage without confusing explicit text and ignores number formatting', () => {
     const value = parseTemporalValue('2024/02/29T12:30:00.100', 'datetime')!;
     const raw = encodeTemporalValue(value);

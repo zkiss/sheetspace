@@ -84,6 +84,23 @@ describe('logical formula functions', () => {
     expect(results.D2).toMatchObject({ kind: 'error', error: '#NAME!' });
   });
 
+  it('rejects visited temporal scalars and range values while retaining short-circuiting', () => {
+    const results = evaluate({
+      A1: '@date:2024-01-02', A2: '@datetime:2024-01-02 12:30',
+      B1: '=AND(TRUE,@A[1])', B2: '=OR(FALSE,@A[2])',
+      B3: '=AND(@A[1]:A[2])', B4: '=OR(@A[1]:A[2])',
+      B5: '=AND(FALSE,@A[1])', B6: '=OR(TRUE,@A[2])',
+      C1: 'FALSE', C2: '@date:2024-01-02',
+      D1: 'TRUE', D2: '@datetime:2024-01-02 12:30',
+      E1: '=AND(@C[1]:C[2])', E2: '=OR(@D[1]:D[2])',
+    });
+    for (const key of ['B1', 'B2', 'B3', 'B4']) {
+      expect(results[key]).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    }
+    for (const key of ['B5', 'E1']) expect(results[key]).toMatchObject({ kind: 'boolean', value: false });
+    for (const key of ['B6', 'E2']) expect(results[key]).toMatchObject({ kind: 'boolean', value: true });
+  });
+
   it('returns value errors for wrong argument counts and selected ranges', () => {
     const results = evaluate({
       A1: '=IF(TRUE, 1)',

@@ -2,9 +2,9 @@ export type TemporalKind = 'date' | 'datetime';
 export type TemporalValue = { kind: TemporalKind; value: string };
 
 export function parseTemporalValue(input: string, kind: TemporalKind): TemporalValue | undefined {
-  const match = /^(\d{4})[-/](\d{2})[-/](\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?$/.exec(input);
-  if (!match || (kind === 'date' ? match[4] !== undefined : match[4] === undefined)) return undefined;
-  const [, y, m, d, hour, minute, second, fraction] = match;
+  const match = /^(\d{4})([-/])(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?$/.exec(input);
+  if (!match || (kind === 'date' ? match[5] !== undefined : match[5] === undefined)) return undefined;
+  const [, y, , m, d, hour, minute, second, fraction] = match;
   const year = Number(y), month = Number(m), day = Number(d);
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

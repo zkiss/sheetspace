@@ -87,7 +87,7 @@ function inspectLogicalValue(
   if (value.kind === 'error') {
     return value;
   }
-  if (value.kind === 'number' || value.kind === 'text') {
+  if (value.kind !== 'boolean' && value.kind !== 'blank') {
     return expectedBoolean(value);
   }
   if (value.kind === 'boolean' && value.value === decisiveValue) {
