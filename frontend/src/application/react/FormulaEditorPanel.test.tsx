@@ -137,6 +137,29 @@ describe('FormulaEditorPanel', () => {
     expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument();
   });
 
+  it.each(['!', ' ! ', ' ! $'])('chains sheet completion across an existing %s separator', async (separator) => {
+    const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Budget' ? 'target' : undefined, namedColumnNames: (id) => id === 'target' ? ['Revenue', 'Cost'] : ['Decoy'] };
+    function SheetEditor() {
+      const [raw, setRaw] = useState(`=@Bu${separator}Revenue[1]`);
+      return <FormulaEditorPanel ariaLabel="Chained formula" raw={raw} resolver={sheetResolver} sheetNames={['Budget']} propertyNames={['Decoy']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={setRaw} />;
+    }
+    render(<SheetEditor />);
+    const input = screen.getByRole('textbox', { name: 'Chained formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(4, 4);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Budget' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Cost' })).toBeInTheDocument());
+    expect(screen.queryByRole('option', { name: 'Decoy' })).not.toBeInTheDocument();
+    expect(input).toHaveValue(`=@Budget${separator}Revenue[1]`);
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(`=@Budget${separator}`.length);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Cost' }));
+    await waitFor(() => expect(input).toHaveValue(`=@Budget${separator}Cost[1]`));
+    expect(input).toHaveFocus();
+    await waitFor(() => expect(input.selectionStart).toBe(`=@Budget${separator}Cost`.length));
+  });
+
   it('inserts a qualified quoted column over the full partial name', () => {
     const sheetResolver: FormulaReferenceResolver = { ...resolver, sheetByQualifier: (name) => name === 'Sales@2026' ? 'budget' : undefined, namedColumnNames: (id) => id === 'budget' ? ['Sales@total'] : ['Sales@decoy'] };
     function SheetEditor() {

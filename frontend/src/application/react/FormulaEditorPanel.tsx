@@ -102,7 +102,14 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     const next = applyFormulaCompletion(raw, completion); onRawChange(next); setCompletionRequest(null);
     requestAnimationFrame(() => {
       let position = completion.replacement.start + completion.insertText.length;
-      if (completion.kind === 'sheet' && next[position] === '!') position += 1;
+      if (completion.kind === 'sheet') {
+        const separator = next.slice(position).match(/^\s*!\s*\$?/);
+        if (separator) position += separator[0].length;
+        else {
+          const suffix = next.slice(position).match(/^\s*\$?/);
+          position += suffix?.[0].length ?? 0;
+        }
+      }
       input.current?.setSelectionRange(position, position);
       if (completion.kind === 'sheet') {
         setCompletionIndex(0); setCompletionChosen(false);
