@@ -198,13 +198,23 @@ type CompletionContext =
   | { kind: 'function'; replacement: FormulaSourceSpan }
   | { kind: 'reference'; replacement: FormulaSourceSpan; query: string; qualifier?: string; sheets: boolean; properties: boolean };
 
+function completionContinuation(raw: string, end: number, allowCall: boolean, allowReferenceSuffix = false): boolean {
+  const suffix = raw.slice(end).trimStart();
+  return suffix === '' || /^[+\-*/=<>),]/.test(suffix)
+    || (allowCall && suffix.startsWith('('))
+    || (allowReferenceSuffix && (suffix.startsWith('[') || suffix.startsWith(':')));
+}
+
 function referenceCompletionContext(raw: string, cursor: number): CompletionContext {
   const suppressed: CompletionContext = { kind: 'suppressed' };
   if (cursor < 1) return suppressed;
   let operand = true;
+  let depth = 0;
   for (let index = 1; index < raw.length;) {
-    if (index >= cursor && !(operand && /[A-Za-z]/.test(raw[index]!))) {
-      return operand ? { kind: 'function', replacement: { start: cursor, end: cursor } } : suppressed;
+    if (index >= cursor && !(index === cursor && operand && /[A-Za-z]/.test(raw[index]!))) {
+      const suffix = raw.slice(cursor).trimStart();
+      return operand && (suffix === '' || (depth > 0 && /^[),]/.test(suffix)))
+        ? { kind: 'function', replacement: { start: cursor, end: cursor } } : suppressed;
     }
     if (/\s/.test(raw[index]!)) { index += 1; continue; }
     if (raw[index] === '"') {
@@ -234,6 +244,7 @@ function referenceCompletionContext(raw: string, cursor: number): CompletionCont
         if (raw[first.start] === "'" && raw[cursor - 1] === "'" && raw[cursor] === "'") return suppressed;
         const suffix = raw.slice(first.end).trimStart();
         const anchored = raw[index + 1] === '$';
+        if (!qualified && !completionContinuation(raw, first.end, false, true)) return suppressed;
         return { kind: 'reference', replacement: { start: first.start, end: first.end }, query: decodedName(raw, first, cursor),
           sheets: qualified || (!anchored && !suffix.startsWith('[') && !suffix.startsWith(':')), properties: !qualified };
       }
@@ -244,6 +255,7 @@ function referenceCompletionContext(raw: string, cursor: number): CompletionCont
         const property = completionName(raw, start, cursor);
         if (cursor >= property.start && cursor <= property.end) {
           if (raw[property.start] === "'" && raw[cursor - 1] === "'" && raw[cursor] === "'") return suppressed;
+          if (!completionContinuation(raw, property.end, false, true)) return suppressed;
           return { kind: 'reference', replacement: { start: property.start, end: property.end }, query: decodedName(raw, property, cursor), qualifier: decodedName(raw, first), sheets: false, properties: true };
         }
         index = property.end;
@@ -269,14 +281,28 @@ function referenceCompletionContext(raw: string, cursor: number): CompletionCont
       continue;
     }
     if (/[+\-*/=<>(),]/.test(raw[index]!)) {
+      const operator = /^(?:<=|>=|<>)/.exec(raw.slice(index))?.[0] ?? raw[index]!;
+      if (cursor > index && cursor < index + operator.length) return suppressed;
+      if (operator === '(') depth += 1;
+      if (operator === ')') depth = Math.max(0, depth - 1);
       operand = raw[index] !== ')';
-      index += 1;
+      index += operator.length;
+      continue;
+    }
+    const number = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(raw.slice(index))?.[0];
+    if (number) {
+      if (cursor > index && cursor < index + number.length) return suppressed;
+      index += number.length;
+      operand = false;
       continue;
     }
     if (operand && /[A-Za-z]/.test(raw[index]!)) {
       const start = index;
       while (/[A-Za-z0-9_]/.test(raw[index] ?? '')) index += 1;
-      if (cursor >= start && cursor <= index) return { kind: 'function', replacement: { start, end: index } };
+      if (cursor >= start && cursor <= index) {
+        if (/^(?:TRUE|FALSE)$/i.test(raw.slice(start, index)) || !completionContinuation(raw, index, true)) return suppressed;
+        return { kind: 'function', replacement: { start, end: index } };
+      }
       operand = false;
       continue;
     }

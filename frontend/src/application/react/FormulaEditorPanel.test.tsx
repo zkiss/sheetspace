@@ -19,6 +19,19 @@ function Editor({ onApply = vi.fn(), onCancel = vi.fn(), onParentKeyDown = vi.fn
 }
 
 describe('FormulaEditorPanel', () => {
+  it.each(['=@Revenue[1]', '=123'])('does not open completion before an existing operand in %s', (raw) => {
+    const onRawChange = vi.fn();
+    render(<FormulaEditorPanel ariaLabel="Occupied formula" raw={raw} resolver={resolver} sheetNames={[]} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);
+    const input = screen.getByRole('textbox', { name: 'Occupied formula' }) as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(1, 1);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveValue(raw);
+    expect(input.selectionStart).toBe(1);
+    expect(onRawChange).not.toHaveBeenCalled();
+  });
+
   it.each(['=', '=@Budget!Revenue'])('does not complete before the formula marker in %s', (raw) => {
     const onRawChange = vi.fn();
     render(<FormulaEditorPanel ariaLabel="Marker formula" raw={raw} resolver={resolver} sheetNames={['Budget']} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);

@@ -262,6 +262,36 @@ describe('formula editor logic', () => {
     expect(builtInFormulaFunctions.has(sum!.insertText)).toBe(true);
   });
 
+  it.each([
+    '=|@Revenue[1]', '=1+|@Revenue[1]', '=|1', '=|.5', '=|"x"', '=|TRUE',
+    '=|(1)', '=|-1', '= | @Revenue[1]', '=| SUM(1)', '=1<|=2', '=1>|=2',
+    '=1<|>2', '=1e+|2', '=SU|@Revenue[1]', '=SU| "x"', '=@|1',
+    '=@Re|@Cost', '=@Budget!|1',
+  ])('does not insert into an occupied or ambiguous operand: %s', (marked) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    for (const automatic of [false, true]) {
+      expect(formulaCompletions(raw, { start: cursor, end: cursor }, {
+        sheetNames: ['Budget'], propertyNames: ['Revenue'], propertyNamesForSheet: () => ['Revenue'], automatic,
+      })).toEqual([]);
+    }
+  });
+
+  it.each([
+    ['=|', '=SUM'], ['=   |', '=   SUM'], ['=SUM(|)', '=SUM(SUM)'],
+    ['=SUM(1, |)', '=SUM(1, SUM)'], ['=1+|', '=1+SUM'],
+    ['=SU|', '=SUM'], ['=|SUM(1)', '=SUM(1)'],
+    ['=S|UM (1)+2', '=SUM (1)+2'], ['=SU| + @A[1]', '=SUM + @A[1]'],
+    ['=-SU|', '=-SUM'], ['=(SU|)', '=(SUM)'],
+  ])('completes a proven operand slot or whole identifier: %s', (marked, expected) => {
+    const cursor = marked.indexOf('|');
+    const raw = marked.replace('|', '');
+    const completions = formulaCompletions(raw, { start: cursor, end: cursor }, { sheetNames: [] });
+    const sum = completions.find((completion) => completion.label === 'SUM')!;
+    expect(sum).toBeDefined();
+    expect(applyFormulaCompletion(raw, sum)).toBe(expected);
+  });
+
   it('completes quoted sheets and model properties with escaped names', () => {
     const sheets = formulaCompletions('=@Ow', { start: 4, end: 4 }, { sheetNames: ["Owner's Plan"], propertyNames: ['Revenue'] });
     const properties = formulaCompletions("=@'Re + 1", { start: 5, end: 5 }, { sheetNames: [], propertyNames: ["Revenue's Net"] });
