@@ -116,3 +116,32 @@ it('uses Escape to leave the expanded editor, the draft, and the dialog in order
   fireEvent.keyDown(screen.getByRole('button', { name: 'Create function' }), { key: 'Escape' });
   expect(close).toHaveBeenCalledOnce();
 });
+
+it('dismisses formula completions before closing the expanded editor or discarding the draft', () => {
+  const close = vi.fn();
+  render(<FunctionDialog functions={[]} onClose={close} onRetry={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Create function' }));
+  fireEvent.change(screen.getByLabelText('Function name'), { target: { value: 'total' } });
+  fireEvent.click(screen.getByText('+ Add parameter'));
+  fireEvent.change(screen.getByLabelText('Parameter 1 name'), { target: { value: 'amount' } });
+  const input = screen.getByRole('textbox', { name: 'Formula body' });
+  fireEvent.change(input, { target: { value: '=SU' } });
+  fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+  expect(screen.getByRole('listbox', { name: 'Formula completions' })).toBeInTheDocument();
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.queryByRole('listbox', { name: 'Formula completions' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Function name')).toHaveValue('total');
+  expect(screen.getByLabelText('Parameter 1 name')).toHaveValue('amount');
+  expect(input).toHaveValue('=SU');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand editor' }));
+  fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+  expect(screen.getByRole('listbox', { name: 'Formula completions' })).toBeInTheDocument();
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.queryByRole('listbox', { name: 'Formula completions' })).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'heavy');
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.getByRole('region', { name: 'Formula body editor' })).toHaveAttribute('data-editor-mode', 'light');
+  expect(input).toHaveValue('=SU');
+  expect(screen.getByLabelText('Function name')).toHaveValue('total');
+  expect(close).not.toHaveBeenCalled();
+});

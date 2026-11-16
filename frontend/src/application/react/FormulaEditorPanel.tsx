@@ -12,7 +12,7 @@ import type { FormulaInspectionReference } from '@workbook/formula/formulaInspec
 import { referenceTextTokens } from '@application/core/referenceTextTokens';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onEscape, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   readOnly?: boolean;
   readOnlyText?: boolean;
@@ -20,6 +20,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
   parameters?: readonly string[];
+  onEscape?: () => void;
   onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }, destination: EventTarget | null) => void;
   onViewChange?: (view: FormulaEditorSelection & { scrollTop: number }) => void;
   cellMode?: 'light' | 'heavy';
@@ -184,6 +185,9 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       setHoveredReference(undefined);
       setCompletionRequest(null);
       return;
+    }
+    if (onEscape && matchesShortcut(event, 'editor-close')) {
+      event.preventDefault(); event.stopPropagation(); onEscape(); return;
     }
     if (cellMode === 'light' && matchesShortcut(event, 'editor-close')) {
       event.preventDefault(); event.stopPropagation(); onCancel(); return;

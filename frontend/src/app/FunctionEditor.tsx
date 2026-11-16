@@ -91,13 +91,13 @@ export function FunctionEditor({ initial, savedName, functions, workbook, onCanc
     </fieldset>
     <div className="function-formula-field">
       <div className="function-formula-header"><span>Formula body</span><button className="function-secondary" type="button" disabled={saving} onClick={() => { setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light'); formulaInput.current?.focus(); }}>{formulaMode === 'light' ? 'Expand editor' : 'Collapse editor'}</button></div>
-      <div className={`function-formula-editor function-formula-editor-${formulaMode}`} onFocus={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) formulaBeforeEdit.current = draft.body; }} onKeyDownCapture={(event) => {
+      <div className={`function-formula-editor function-formula-editor-${formulaMode}`} onFocus={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) formulaBeforeEdit.current = draft.body; }} onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
         event.preventDefault(); event.stopPropagation();
         if (!saving) { if (formulaMode === 'heavy') setFormulaMode('light'); else onCancel(); }
       }}>
         <FormulaEditorPanel ariaLabel="Formula body" disabled={saving} cellMode={formulaMode} onToggleMode={() => setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light')}
-          onApply={() => setFormulaMode('light')} onCancel={() => { setDraft((current) => ({ ...current, body: formulaBeforeEdit.current })); setFormulaMode('light'); }}
+          onApply={() => setFormulaMode('light')} onEscape={() => { if (!saving) { if (formulaMode === 'heavy') setFormulaMode('light'); else onCancel(); } }} onCancel={() => { setDraft((current) => ({ ...current, body: formulaBeforeEdit.current })); setFormulaMode('light'); }}
           inputRef={formulaInput} onCommitAndNavigate={(request) => {
             setFormulaMode('light');
             const form = formulaInput.current?.form;
