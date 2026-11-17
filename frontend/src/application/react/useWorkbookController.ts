@@ -29,7 +29,7 @@ import { deleteColumn } from '@application/core/deleteColumn'; import { addDataM
 import { appendModelEntry, materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { settleSorting } from '@application/core/settleSorting';
 import { admitLocalRecord, replayLocalRecord } from '@application/core/localRecordReplay';
-import { prepareCellInput } from '@application/core/cellInputPreparation';
+import { prepareCellInputMode, type CellInputMode } from '@application/core/cellInputPreparation';
 import { EntryAdmissionRejected, ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
 import { settleSheetCreation } from './settleSheetCreation';
@@ -267,16 +267,16 @@ export function useWorkbookController({
     resolvedApiClient,
     setWorkbook,
   });
-  function updateCellContent(sheetId: string, cellKey: CellKey, raw: string): CellWriteResult {
+  function updateCellContent(sheetId: string, cellKey: CellKey, raw: string, mode: CellInputMode = 'auto'): CellWriteResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
-    const localSheetId = sheetId;
-    const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
+    const currentSheet = findSheetById(optimisticWorkbook.current, sheetId);
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
     const cell = cellIdentityAt(currentSheet.content, cellKey);
     if (!cell) return { ok: false, reason: 'invalid-cell' };
-    const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId, cellRawContent(currentSheet, cellKey));
-    return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw: stored }] }, true, true));
+    const prepared = prepareCellInputMode(raw, mode, optimisticWorkbook.current, sheetId, cellRawContent(currentSheet, cellKey));
+    if (!prepared.ok) return { ok: false, reason: 'invalid-temporal-value', message: prepared.message };
+    return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId, ...cell, raw: prepared.raw }] }, true, true));
   }
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {
     const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] }, true, true);

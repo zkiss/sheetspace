@@ -17,6 +17,24 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 
 
 describe('useCellEditing edit persistence', () => {
+    it('commits a mode-only change and retains a rejected temporal draft across suspension', () => {
+      const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '"2024-02-29"' } });
+      const { commands, result } = renderCellEditing(sheet);
+      const target = cellTargetAt(sheet, 'A1')!;
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell).toMatchObject({ draft: '2024-02-29', mode: 'text' });
+      act(() => result.current.updateEditingCellMode('date'));
+      commands.updateCellContent.mockReturnValueOnce({ ok: false, reason: 'invalid-temporal-value', message: 'Correct the date' });
+      act(() => result.current.commitActiveEdit());
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', '2024-02-29', 'date');
+      expect(result.current.editingCell).toMatchObject({ mode: 'date', validationMessage: 'Correct the date' });
+      act(() => result.current.selectCell(cellTargetAt(sheet, 'B1')!));
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell).toMatchObject({ draft: '2024-02-29', mode: 'date', validationMessage: 'Correct the date' });
+      act(() => result.current.cancelActiveEdit());
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell).toMatchObject({ draft: '2024-02-29', mode: 'text' });
+    });
     it('retains an invalid formula draft through editor handoff and commits its correction', () => {
       const base = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
       const raw = prepareUserFormula('=@Missing!A[1]+3', workbookWithSheets([base]), base.id);

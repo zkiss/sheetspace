@@ -1,9 +1,38 @@
-import { classifyTemporalInput, decodeTemporalValue, encodeTemporalValue } from '@workbook/core/temporal';
+import { classifyTemporalInput, decodeTemporalValue, encodeTemporalValue, parseTemporalValue } from '@workbook/core/temporal';
 import { classifyCellValue } from '@calculation/formulaValue';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type { Workbook } from '@workbook/core/model';
 import { prepareFormulaEdit, prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { requireStoredFormula } from '@workbook/formula/storedFormula';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+
+export type CellInputMode = 'auto' | 'text' | 'date' | 'datetime';
+
+export function openCellInput(raw: string, workbook: Workbook, sheetId: string): { text: string; mode: CellInputMode } {
+  const temporal = decodeTemporalValue(raw);
+  if (temporal) return { text: temporal.value, mode: temporal.kind };
+  const text = decodeCellTextLiteral(raw);
+  if (text !== undefined) return { text, mode: 'text' };
+  return { text: raw.startsWith('=') ? projectStoredFormula(raw, workbook, sheetId).text : raw, mode: 'auto' };
+}
+
+export function prepareCellInputMode(text: string, mode: CellInputMode, workbook: Workbook, sheetId: string, original?: string):
+  | { ok: true; raw: string }
+  | { ok: false; message: string } {
+  if (!text) return { ok: true, raw: '' };
+  if (mode === 'text') return { ok: true, raw: encodeCellTextLiteral(text) };
+  if (mode === 'date' || mode === 'datetime') {
+    const value = parseTemporalValue(text, mode);
+    return value ? { ok: true, raw: encodeTemporalValue(value) }
+      : { ok: false, message: mode === 'date'
+        ? 'Enter a valid date as YYYY-MM-DD.'
+        : 'Enter a valid local date and time as YYYY-MM-DD HH:mm, without a timezone.' };
+  }
+  const temporal = classifyTemporalInput(text);
+  if (temporal.kind === 'valid') return { ok: true, raw: encodeTemporalValue(temporal.value) };
+  if (temporal.kind === 'invalid') return { ok: false, message: 'Enter a valid date as YYYY-MM-DD or a local date and time as YYYY-MM-DD HH:mm.' };
+  return { ok: true, raw: prepareCellInput(text, workbook, sheetId, original) };
+}
 
 /** Prepare fresh editor text, never interpreting its spelling as trusted storage. */
 export function prepareCellInput(text: string, workbook: Workbook, sheetId: string, original?: string): string {

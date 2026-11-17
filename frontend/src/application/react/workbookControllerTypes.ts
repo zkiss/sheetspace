@@ -6,6 +6,7 @@ import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import type { CalculationRequest } from '@calculation/workbookCalculation';
 import type { AffectedWorkbookEntities, CellPersistenceWrite, CellWriteResult, MovePreparationFailureReason, PastePreparationFailureReason, WorkbookOperationFailureReason, WorkbookOperationResult } from '@application/core/userActions';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import type { ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
@@ -56,7 +57,7 @@ export type WorkbookCommands = {
   redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
   setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
-  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
+  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string, mode?: CellInputMode) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
 

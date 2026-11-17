@@ -1,8 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf, cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
-import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { openCellInput, type CellInputMode } from '@application/core/cellInputPreparation';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
 import { projectSelection, pruneAxisSelection } from '@workbook/read/selection';
@@ -82,7 +81,7 @@ export function useCellEditing({
   const nextSessionId = useRef(1);
 
   function draftKey(session: CellEditSession) {
-    return `${session.target.sheetId}:${session.target.cell.rowId}:${session.target.cell.columnId}:${session.draft}`;
+    return JSON.stringify([session.target.sheetId, session.target.cell.rowId, session.target.cell.columnId, session.draft, session.mode ?? 'auto']);
   }
 
   useEffect(() => {
@@ -118,11 +117,14 @@ export function useCellEditing({
 
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
-    const currentEditValue = decodeCellTextLiteral(currentRaw) ?? (currentCell?.startsWith('=') ? projectStoredFormula(currentCell, workbook, sheet.id).text : currentRaw);
-    if (currentEditValue !== session.draft) {
+    const currentInput = openCellInput(currentRaw, workbook, sheet.id);
+    if (currentInput.text !== session.draft || currentInput.mode !== (session.mode ?? 'auto')) {
       const draftSignature = draftKey(session);
       if (!committedDrafts.current.has(draftSignature)) {
-        const outcome = commands.updateCellContent(session.target.sheetId, key, session.draft);
+        const outcome = session.mode && session.mode !== 'auto'
+          ? commands.updateCellContent(session.target.sheetId, key, session.draft, session.mode)
+          : commands.updateCellContent(session.target.sheetId, key, session.draft);
+        if (outcome && !outcome.ok && outcome.message) dispatch({ type: 'validation', session, message: outcome.message });
         if (!outcome || outcome.ok) committedDrafts.current.add(draftSignature);
         return outcome;
       }
@@ -157,10 +159,13 @@ export function useCellEditing({
       ? active
       : undefined;
     const raw = cellRawContent(sheet, key);
+    const opened = openCellInput(raw ?? '', workbook, sheet.id);
     const session = {
       target,
       readOnly,
-      draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? (raw.startsWith('=') ? projectStoredFormula(raw, workbook, sheet.id).text : raw) : ''),
+      draft: initialValue ?? transfer?.draft ?? opened.text,
+      mode: initialValue !== undefined ? 'auto' as const : transfer?.mode ?? opened.mode,
+      validationMessage: transfer?.validationMessage,
       selection: transfer?.selection,
       scrollTop: transfer?.scrollTop,
       sessionId: nextSessionId.current++,
@@ -389,6 +394,11 @@ export function useCellEditing({
       if (!session || session.readOnly) return;
       committedDrafts.current.clear();
       dispatch({ type: 'update-draft', session, draft });
+    },
+    updateEditingCellMode: (mode: CellInputMode, session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (!session || session.readOnly) return;
+      committedDrafts.current.clear();
+      dispatch({ type: 'update-mode', session, mode });
     },
     updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number, session = stateRef.current.editing ?? activeSessionRef.current) => {
       if (!session) return;

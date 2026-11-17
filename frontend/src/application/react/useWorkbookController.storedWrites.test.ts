@@ -9,6 +9,16 @@ import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 describe('trusted controller writes', () => {
+  it('writes temporal modes through the controller and rejects invalid values without mutation', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'A1', '2024-02-29 12:30:01.123400000', 'datetime'); });
+    expect(cellRawContent(result.current.workbook.documents.sheet, 'A1')).toBe('@datetime:2024-02-29 12:30:01.123400000');
+    act(() => { expect(result.current.commands.updateCellContent(sheet.id, 'A1', '2023-02-29', 'date')).toMatchObject({ ok: false, reason: 'invalid-temporal-value' }); });
+    expect(cellRawContent(result.current.workbook.documents.sheet, 'A1')).toBe('@datetime:2024-02-29 12:30:01.123400000');
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'B1', '@date:2024-02-29'); });
+    expect(cellRawContent(result.current.workbook.documents.sheet, 'B1')).toBe('"@date:2024-02-29"');
+  });
   it('preserves an unchanged reference when an editor corrects another part of a formula', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4' } });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));

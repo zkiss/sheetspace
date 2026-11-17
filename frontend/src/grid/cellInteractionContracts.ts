@@ -1,9 +1,10 @@
 import type { StableCellIdentity, StableCellRange } from '@workbook/core/model';
 import type { CellKey } from '@workbook/core/address';
 import type { CellWriteResult } from '@application/core/userActions';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
 
 export type CellContentCommands = {
-  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
+  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string, mode?: CellInputMode) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
 
@@ -50,7 +51,7 @@ export type ReferenceNavigationTarget =
 // Each direct-overlay mount carries a fresh identity, even when it resumes the
 // same target and draft. This lets the editing lifecycle reject callbacks from
 // an overlay that unmounted before a newer session opened for that target.
-export type CellEditSession = FormulaDraftSession<CellTarget> & { sessionId: number };
+export type CellEditSession = FormulaDraftSession<CellTarget> & { sessionId: number; mode?: CellInputMode; validationMessage?: string };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 

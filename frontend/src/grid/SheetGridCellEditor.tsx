@@ -5,6 +5,7 @@ import type { FormulaInspectionReference } from '@workbook/formula/formulaInspec
 import type { FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
+import type { CellWriteResult } from '@application/core/userActions';
 import './SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
@@ -37,9 +38,9 @@ export type CellFormulaEditorProps = FormulaContext & {
 export type SheetGridCellEditorInteraction = {
   FormulaEditor: ComponentType<CellFormulaEditorProps>;
   cancel: (session?: CellEditSession) => void;
-  commit: (session?: CellEditSession, restoreFocus?: boolean) => void;
+  commit: (session?: CellEditSession, restoreFocus?: boolean) => CellWriteResult | void;
   suspend?: (session: CellEditSession) => void;
-  commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
+  commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | void;
   updateValue: (value: string, session?: CellEditSession) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
   formulaContext?: FormulaContext;
@@ -148,14 +149,18 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     onToggleMode={() => setMode((current) => current === 'light' ? 'heavy' : 'light')}
     onRawChange={(value) => interaction.updateValue(value, editingCell)}
     onViewChange={(view) => interaction.updateView?.({ start: view.start, end: view.end }, view.scrollTop, editingCell)}
-    onApply={() => { hasFinishedEditing.current = true; interaction.commit(currentSession(), true); }}
+    onApply={() => { const result = interaction.commit(currentSession(), true); hasFinishedEditing.current = !result || result.ok; }}
     onCancel={() => { hasFinishedEditing.current = true; interaction.cancel(currentSession()); }}
-    onCommitAndNavigate={(request) => { hasFinishedEditing.current = true; interaction.commitAndNavigate(currentSession(), request); }}
+    onCommitAndNavigate={(request) => { const result = interaction.commitAndNavigate(currentSession(), request); hasFinishedEditing.current = !result || result.ok; }}
     onFocusLeave={(_, destination) => {
       if (hasFinishedEditing.current) return;
-      hasFinishedEditing.current = true;
-      if (isWorkspaceTransfer(destination)) interaction.suspend?.(currentSession());
-      else interaction.commit(currentSession());
+      if (isWorkspaceTransfer(destination)) {
+        hasFinishedEditing.current = true;
+        interaction.suspend?.(currentSession());
+      } else {
+        const result = interaction.commit(currentSession());
+        hasFinishedEditing.current = !result || result.ok;
+      }
     }}
   />, document.body);
 }

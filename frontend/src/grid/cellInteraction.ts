@@ -4,6 +4,7 @@ import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/
 import type { SelectionGesture, CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 import { formulaDraftKey } from './formulaDrafts';
 import { extendAxisSelection, projectSelection, pruneAxisSelection, toggleAxisMember } from '@workbook/read/selection';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
 
 export type CellInteractionState = {
   selection: CellTarget | null;
@@ -46,6 +47,7 @@ export type CellInteractionAction =
   | { type: 'restore-selection'; selection: CellSelection | null }
   | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
   | { type: 'update-draft'; session: CellEditSession; draft: string }
+  | { type: 'update-mode'; session: CellEditSession; mode: CellInputMode } | { type: 'validation'; session: CellEditSession; message: string }
   | { type: 'update-editor-state'; session: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
   // A final DOM snapshot may arrive after navigation has suspended this same
   // overlay.  The reducer owns that ordering decision, not a render-time ref.
@@ -275,7 +277,15 @@ export function cellInteractionReducer(
       }
     case 'update-draft': {
       if (!state.editing || !sameSession(state.editing, action.session)) return state;
-      const editing = { ...state.editing, draft: action.draft };
+      const editing = { ...state.editing, draft: action.draft, validationMessage: undefined };
+      return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
+    }
+    case 'update-mode':
+    case 'validation': {
+      if (!state.editing || !sameSession(state.editing, action.session) || state.editing.readOnly) return state;
+      const editing = action.type === 'update-mode'
+        ? { ...state.editing, mode: action.mode, validationMessage: undefined }
+        : { ...state.editing, draft: action.session.draft, mode: action.session.mode, selection: action.session.selection, scrollTop: action.session.scrollTop, validationMessage: action.message };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
     case 'update-editor-state': {

@@ -919,6 +919,8 @@ export function Workspace({
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     } else if (outcome && !outcome.ok && outcome.reason === 'invalid-cell-type') {
       setCalculatedCellFeedback('The value does not match the data model column type.');
+    } else if (outcome && !outcome.ok && outcome.reason === 'invalid-temporal-value') {
+      setCalculatedCellFeedback(outcome.message ?? 'Enter a valid date as YYYY-MM-DD.');
     }
   }
   const bindingMounted = useRef(true);
@@ -1445,8 +1447,13 @@ export function Workspace({
                         const outcome = onCommitEdit(session);
                         reportWriteOutcome(outcome);
                         if (restoreFocus && (!outcome || outcome.ok)) onRestoreGridFocus();
+                        return outcome;
                       },
-                      commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)),
+                      commitAndNavigate: (session, request) => {
+                        const outcome = onCommitEditAndNavigate(session, request);
+                        reportWriteOutcome(outcome);
+                        return outcome;
+                      },
                       suspend: onSuspendEdit, updateValue: onEditValueChange, updateView: onUpdateEditView,
                       formulaContext: {
                         resolver: formulaResolver,
