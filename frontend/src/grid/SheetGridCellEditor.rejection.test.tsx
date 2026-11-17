@@ -129,3 +129,37 @@ it('preserves a precise datetime through picker mounting, focus, and cancel', ()
   fireEvent.click(screen.getByText('Edit'));
   expect(screen.getByRole('textbox')).toHaveValue('2024-02-29 12:34:00.123456789');
 });
+
+it('retains an invalid draft across mode changes and picker keyboard focus', () => {
+  const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+  const workbook = workbookWithSheets([sheet]);
+  const updateCellContent = vi.fn().mockReturnValue({ ok: true, changed: true });
+  function Harness() {
+    const anchor = useRef<HTMLButtonElement>(null);
+    const editing = useCellEditing({ commands: { updateCellContent, writeCells: vi.fn() }, workbook });
+    return <><button ref={anchor} onClick={() => editing.startEditingCell(cellTargetAt(sheet, 'A1')!)}>Edit</button>
+      {editing.editingCell && <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" editingCell={editing.editingCell} interaction={{
+        FormulaEditor: FormulaEditorPanel, cancel: editing.cancelActiveEdit, commit: editing.commitActiveEdit,
+        commitAndNavigate: editing.commitEditAndNavigate, updateValue: editing.updateEditingCellValue, updateMode: editing.updateEditingCellMode,
+      }} />}</>;
+  }
+  render(<Harness />);
+  fireEvent.click(screen.getByText('Edit'));
+  const editor = screen.getByRole('textbox');
+  const selector = screen.getByRole('combobox', { name: 'Input type' });
+  fireEvent.change(editor, { target: { value: '2024-02-30 12:' } });
+  fireEvent.change(selector, { target: { value: 'datetime' } });
+  const picker = screen.getByLabelText('Choose date and time');
+  expect(picker).toHaveValue('');
+  fireEvent.blur(editor, { relatedTarget: picker });
+  fireEvent.keyDown(picker, { key: 'Enter' });
+  fireEvent.keyDown(picker, { key: 'Tab' });
+  expect(updateCellContent).not.toHaveBeenCalled();
+  fireEvent.change(selector, { target: { value: 'text' } });
+  fireEvent.change(selector, { target: { value: 'datetime' } });
+  expect(editor).toHaveValue('2024-02-30 12:');
+  fireEvent.change(screen.getByLabelText('Choose date and time'), { target: { value: '2024-02-29T12:30' } });
+  expect(editor).toHaveValue('2024-02-29 12:30');
+  fireEvent.keyDown(editor, { key: 'Enter' });
+  expect(updateCellContent).toHaveBeenCalledWith('inputs', 'A1', '2024-02-29 12:30', 'datetime');
+});

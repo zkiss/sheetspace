@@ -19,6 +19,17 @@ function Editor({ onApply = vi.fn(), onCancel = vi.fn(), onParentKeyDown = vi.fn
 }
 
 describe('FormulaEditorPanel', () => {
+  it('keeps formula mode free of pickers and disables temporal controls when read only', () => {
+    const change = vi.fn();
+    const { rerender } = render(<FormulaEditorPanel ariaLabel="Cell" raw="=1" resolver={resolver} sheetNames={[]} inputMode="auto" onInputModeChange={vi.fn()} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={change} />);
+    expect(screen.queryByLabelText('Choose date')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Choose date and time')).not.toBeInTheDocument();
+    rerender(<FormulaEditorPanel ariaLabel="Cell" raw="2024-02-29" resolver={resolver} sheetNames={[]} inputMode="date" readOnly onInputModeChange={vi.fn()} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={change} />);
+    expect(screen.getByRole('combobox', { name: 'Input type' })).toBeDisabled();
+    expect(screen.getByLabelText('Choose date')).toBeDisabled();
+    expect(change).not.toHaveBeenCalled();
+  });
+
   it.each(['=@Revenue[1]', '=123'])('does not open completion before an existing operand in %s', (raw) => {
     const onRawChange = vi.fn();
     render(<FormulaEditorPanel ariaLabel="Occupied formula" raw={raw} resolver={resolver} sheetNames={[]} onApply={vi.fn()} onCancel={vi.fn()} onRawChange={onRawChange} />);
