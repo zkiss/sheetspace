@@ -1,6 +1,15 @@
 export type TemporalKind = 'date' | 'datetime';
 export type TemporalValue = { kind: TemporalKind; value: string };
 
+export function classifyTemporalInput(input: string):
+  | { kind: 'valid'; value: TemporalValue }
+  | { kind: 'invalid' }
+  | { kind: 'not-temporal' } {
+  const value = parseTemporalValue(input, 'date') ?? parseTemporalValue(input, 'datetime');
+  if (value) return { kind: 'valid', value };
+  return /^\d{4}[-/](?=\d|[-/]|$)/.test(input) ? { kind: 'invalid' } : { kind: 'not-temporal' };
+}
+
 export function parseTemporalValue(input: string, kind: TemporalKind): TemporalValue | undefined {
   const match = /^(\d{4})([-/])(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?$/.exec(input);
   if (!match || (kind === 'date' ? match[5] !== undefined : match[5] === undefined)) return undefined;

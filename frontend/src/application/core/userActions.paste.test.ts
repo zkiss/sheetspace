@@ -11,6 +11,7 @@ import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cel
 import { classifyCellValue } from '@calculation/formulaValue';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+import { decodeTsv } from '@grid/clipboardPayload';
 
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
@@ -27,26 +28,49 @@ describe('paste preparation', () => {
     ]);
   });
 
+  it('infers a transport-quoted date while preserving external text envelopes', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3 });
+    const envelope = encodeCellTextLiteral('2024-02-29');
+    const decoded = decodeTsv(`"2024-02-29"\t"""2024-02-29"""\t@datetime:2024-02-29 00:00`);
+    if (!decoded.ok) throw new Error(decoded.reason);
+    const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+      ok: true, value: { kind: 'external', grid: decoded.value },
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.writes.map(({ raw }) => classifyCellValue(raw))).toEqual([
+      { kind: 'date', value: '2024-02-29' },
+      { kind: 'text', value: envelope },
+      { kind: 'text', value: '@datetime:2024-02-29 00:00' },
+    ]);
+  });
+
   it('rejects an entire paste containing an invalid or timezone-bearing date', () => {
-    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2 });
-    for (const value of ['2023-02-29', '2024-02-29T00:00Z', '2024-02-29 24:00', '2024-02-29Z', '2024-02-29+01:00', '2024-02-2912:00']) {
-      const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
-        ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 2, rows: [['2024-02-29', value]] } },
-      });
-      expect(result).toEqual({ ok: false, reason: 'invalid-temporal-value' });
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3, cells: { A1: 'old', B1: '2', C1: 'true' } });
+    const workbook = workbookWithSheets([sheet]);
+    const before = structuredClone(workbook);
+    for (const value of ['2023-02-29', '2024-02-29T00:00Z', '2024-02-29Z', '2024-02-29+01:00', '2024-02-2912:00', '2024-02-3', '2024-2-30', '2024-02-']) {
+      for (const position of [0, 1, 2]) {
+        const fields = ['2024-02-29', 'hello', '42'];
+        fields[position] = value;
+        const result = preparePasteCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+          ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 3, rows: [fields] } },
+        });
+        expect(result).toEqual({ ok: false, reason: 'invalid-temporal-value' });
+        expect(workbook).toEqual(before);
+      }
     }
   });
 
   it('retains temporal and date-looking text storage on internal copy and move', () => {
-    const values = ['@date:2024-02-29', '@datetime:2024-02-29 00:00:00.1200', encodeCellTextLiteral('2024-02-29')];
-    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 3, cells: { A1: values[0]!, B1: values[1]!, C1: values[2]! } });
+    const values = ['@date:2024-02-29', '@datetime:2024-02-29 00:00:00.1200', encodeCellTextLiteral('2024-02-29'), encodeCellTextLiteral('2024-02-3')];
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 4, cells: { A1: values[0]!, B1: values[1]!, C1: values[2]!, D1: values[3]! } });
     const workbook = workbookWithSheets([sheet]);
-    const source = { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 3 }, cells: [values.map((raw, index) => ({
+    const source = { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 4 }, cells: [values.map((raw, index) => ({
       identity: cellIdentityAt(sheet.content, `${String.fromCharCode(65 + index)}1`)!, raw,
     }))] };
     const destination = cellIdentityAt(sheet.content, 'A2')!;
     const copy = preparePasteCellWrites(workbook, sheet.id, destination, {
-      ok: true, value: { kind: 'internal', grid: { rowCount: 1, columnCount: 3, rows: [['2024-02-29', '2024-02-29 00:00:00.1200', '2024-02-29']] }, source },
+      ok: true, value: { kind: 'internal', grid: { rowCount: 1, columnCount: 4, rows: [['2024-02-29', '2024-02-29 00:00:00.1200', '2024-02-29', '2024-02-3']] }, source },
     });
     if (!copy.ok) throw new Error(copy.reason);
     expect(copy.writes.map((write) => write.raw)).toEqual(values);

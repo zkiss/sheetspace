@@ -1,4 +1,4 @@
-import { decodeTemporalValue, encodeTemporalValue, parseTemporalValue } from '@workbook/core/temporal';
+import { classifyTemporalInput, decodeTemporalValue, encodeTemporalValue } from '@workbook/core/temporal';
 import { classifyCellValue } from '@calculation/formulaValue';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type { Workbook } from '@workbook/core/model';
@@ -16,9 +16,9 @@ export function prepareCellInput(text: string, workbook: Workbook, sheetId: stri
 
 export function prepareExternalPasteInput(raw: string): string | undefined {
   if (!raw) return raw;
-  const temporal = parseTemporalValue(raw, 'date') ?? parseTemporalValue(raw, 'datetime');
-  if (temporal) return encodeTemporalValue(temporal);
-  if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(raw)) return undefined;
+  const temporal = classifyTemporalInput(raw);
+  if (temporal.kind === 'valid') return encodeTemporalValue(temporal.value);
+  if (temporal.kind === 'invalid') return undefined;
   if (decodeCellTextLiteral(raw) !== undefined || raw.startsWith('@date:') || raw.startsWith('@datetime:')
     || classifyCellValue(raw).kind === 'text') return encodeCellTextLiteral(raw);
   return raw;
