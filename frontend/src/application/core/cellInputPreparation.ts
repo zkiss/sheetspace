@@ -1,5 +1,4 @@
 import { classifyTemporalInput, decodeTemporalValue, encodeTemporalValue, parseTemporalValue } from '@workbook/core/temporal';
-import { classifyCellValue } from '@calculation/formulaValue';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type { Workbook } from '@workbook/core/model';
 import { prepareFormulaEdit, prepareUserFormula } from '@workbook/formula/formulaPreparation';
@@ -12,11 +11,7 @@ export function openCellInput(raw: string, workbook: Workbook, sheetId: string):
   const temporal = decodeTemporalValue(raw);
   if (temporal) return { text: temporal.value, mode: temporal.kind };
   const text = decodeCellTextLiteral(raw);
-  if (text !== undefined) {
-    const requiresLiteralMode = text.startsWith('=') || classifyTemporalInput(text).kind !== 'not-temporal'
-      || classifyCellValue(text).kind !== 'text';
-    return { text, mode: requiresLiteralMode ? 'text' : 'auto' };
-  }
+  if (text !== undefined) return { text, mode: 'text' };
   return { text: raw.startsWith('=') ? projectStoredFormula(raw, workbook, sheetId).text : raw, mode: 'auto' };
 }
 
@@ -43,8 +38,12 @@ export function prepareCellInput(text: string, workbook: Workbook, sheetId: stri
   if (text.startsWith('=')) return original?.startsWith('=')
     ? prepareFormulaEdit(text, requireStoredFormula(original), workbook, sheetId)
     : prepareUserFormula(text, workbook, sheetId);
-  if (text && (decodeCellTextLiteral(text) !== undefined || decodeTemporalValue(text) !== undefined || classifyCellValue(text).kind === 'text')) return encodeCellTextLiteral(text);
+  if (needsLiteralEscape(text)) return encodeCellTextLiteral(text);
   return text;
+}
+
+function needsLiteralEscape(text: string): boolean {
+  return decodeCellTextLiteral(text) !== undefined || text.startsWith('@date:') || text.startsWith('@datetime:');
 }
 
 export function prepareExternalPasteInput(raw: string): string | undefined {
@@ -52,7 +51,6 @@ export function prepareExternalPasteInput(raw: string): string | undefined {
   const temporal = classifyTemporalInput(raw);
   if (temporal.kind === 'valid') return encodeTemporalValue(temporal.value);
   if (temporal.kind === 'invalid') return undefined;
-  if (decodeCellTextLiteral(raw) !== undefined || raw.startsWith('@date:') || raw.startsWith('@datetime:')
-    || classifyCellValue(raw).kind === 'text') return encodeCellTextLiteral(raw);
+  if (raw.startsWith('=') || needsLiteralEscape(raw)) return encodeCellTextLiteral(raw);
   return raw;
 }

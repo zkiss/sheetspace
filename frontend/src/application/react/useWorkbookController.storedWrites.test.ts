@@ -21,7 +21,7 @@ describe('trusted controller writes', () => {
     });
     act(() => { result.current.controller.commands.updateCellContent(sheet.id, 'A1', 'hello'); });
     const savedSheet = result.current.controller.workbook.documents.sheet;
-    expect(cellRawContent(savedSheet, 'A1')).toBe('"hello"');
+    expect(cellRawContent(savedSheet, 'A1')).toBe('hello');
     act(() => result.current.editing.startEditingCell(cellTargetAt(savedSheet, 'A1')!));
     expect(result.current.editing.editingCell).toMatchObject({ draft: 'hello', mode: 'auto' });
     act(() => result.current.editing.updateEditingCellValue('=1+2'));
@@ -29,6 +29,37 @@ describe('trusted controller writes', () => {
     const raw = cellRawContent(result.current.controller.workbook.documents.sheet, 'A1')!;
     expect(projectStoredFormula(raw, result.current.controller.workbook, sheet.id).text).toBe('=1+2');
     expect(result.current.controller.formulaResults.sheet.A1).toMatchObject({ value: 3 });
+  });
+  it.each(['=1+2', '2024-02-29', '2023-02-29'])('retains explicit Text intent when editing to %s', (draft) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const initialWorkbook = workbookWithSheets([sheet]);
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook });
+      return { controller, editing: useCellEditing({ commands: controller.commands, workbook: controller.workbook }) };
+    });
+    act(() => { result.current.controller.commands.updateCellContent(sheet.id, 'A1', '03/04/2026', 'text'); });
+    act(() => result.current.editing.startEditingCell(cellTargetAt(result.current.controller.workbook.documents.sheet, 'A1')!));
+    expect(result.current.editing.editingCell).toMatchObject({ mode: 'text' });
+    act(() => result.current.editing.updateEditingCellValue(draft));
+    act(() => result.current.editing.commitActiveEdit());
+    expect(cellRawContent(result.current.controller.workbook.documents.sheet, 'A1')).toBe(`"${draft}"`);
+    act(() => result.current.editing.startEditingCell(cellTargetAt(result.current.controller.workbook.documents.sheet, 'A1')!));
+    expect(result.current.editing.editingCell).toMatchObject({ draft, mode: 'text' });
+  });
+  it('persists mode-only changes in both directions', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const initialWorkbook = workbookWithSheets([sheet]);
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook });
+      return { controller, editing: useCellEditing({ commands: controller.commands, workbook: controller.workbook }) };
+    });
+    act(() => { result.current.controller.commands.updateCellContent(sheet.id, 'A1', 'hello'); });
+    for (const [mode, raw] of [['text', '"hello"'], ['auto', 'hello']] as const) {
+      act(() => result.current.editing.startEditingCell(cellTargetAt(result.current.controller.workbook.documents.sheet, 'A1')!));
+      act(() => result.current.editing.updateEditingCellMode(mode));
+      act(() => result.current.editing.commitActiveEdit());
+      expect(cellRawContent(result.current.controller.workbook.documents.sheet, 'A1')).toBe(raw);
+    }
   });
   it('writes temporal modes through the controller and rejects invalid values without mutation', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });

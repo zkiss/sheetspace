@@ -25,7 +25,7 @@ describe('fresh cell input preparation', () => {
   });
 
   it('encodes text while preserving typed scalars and blank input', () => {
-    expect(prepareCellInput('hello', workbook, sheet.id)).toBe('"hello"');
+    expect(prepareCellInput('hello', workbook, sheet.id)).toBe('hello');
     expect(prepareCellInput('"hello"', workbook, sheet.id)).toBe('"""hello"""');
     expect(prepareCellInput('42', workbook, sheet.id)).toBe('42');
     expect(prepareCellInput('TRUE', workbook, sheet.id)).toBe('TRUE');

@@ -92,7 +92,7 @@ describe('useWorkbookController sheet creation', () => {
 
     await waitFor(() => expect(findSheetById(result.current.workbook, existing.id)?.revision).toBe(1));
     expect(cellRawContent(findSheetById(result.current.workbook, existing.id)!, 'A1')).toBe(
-      '"Saved independently"',
+      'Saved independently',
     );
     expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     expect(result.current.creatingFrames).toMatchObject([{ kind: 'creating', name: 'Creating' }]);
@@ -109,7 +109,7 @@ describe('useWorkbookController sheet creation', () => {
       'sheet-created',
     ]);
     expect(cellRawContent(findSheetById(result.current.workbook, existing.id)!, 'A1')).toBe(
-      '"Saved independently"',
+      'Saved independently',
     );
   });
 

@@ -94,7 +94,7 @@ describe('axis reorder history', () => {
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(true);
     act(() => result.current.commands.redo());
-    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('"second"');
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('second');
     act(() => result.current.commands.undo());
     act(() => result.current.commands.undo());
     expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined();
@@ -134,17 +134,17 @@ describe('axis reorder history', () => {
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(true);
     act(() => result.current.commands.redo());
-    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('"second"');
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('second');
     expect(result.current.canRedo).toBe(false);
     act(() => result.current.commands.undo());
-    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('"first"');
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('first');
     act(() => result.current.commands.undo());
     expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBeUndefined();
     expect(result.current.canUndo).toBe(false);
     expect(result.current.workbook.documents.s!.content.rows).toEqual([a, b, c]);
     act(() => result.current.commands.redo());
     act(() => result.current.commands.redo());
-    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('"second"');
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('second');
     expect(result.current.canRedo).toBe(false);
   });
 

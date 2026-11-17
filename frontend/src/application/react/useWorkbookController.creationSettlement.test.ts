@@ -58,7 +58,7 @@ it('does not overwrite a saved edit or revision when a conflicting receipt arriv
   const remote = { ...old, frame: { ...old.frame, position: { x: 42, y: 42 } }, revision: 1 };
   await act(async () => { response.resolve(creationReceipt(created, workbookWithSheets([remote], 1))); await response.promise; });
   await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
-  expect(cellRawContent(result.current.workbook.documents.old, 'A1')).toBe('"local"');
+  expect(cellRawContent(result.current.workbook.documents.old, 'A1')).toBe('local');
   expect(result.current.workbook.documents.old.revision).toBe(3);
   expect(result.current.workbook.documents.old.frame.position).toEqual({ x: 0, y: 0 });
   expect(result.current.workbook.documents.new).toBeUndefined();
@@ -68,8 +68,8 @@ it('does not overwrite a saved edit or revision when a conflicting receipt arriv
   act(() => { result.current.commands.updateCellContent('old', 'B1', 'after conflict'); });
   await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
   expect(writeCells.mock.calls[1][0]).toEqual([{ sheetId: 'old', revision: 3 }]);
-  expect(cellRawContent(result.current.workbook.documents.old, 'A1')).toBe('"local"');
-  expect(cellRawContent(result.current.workbook.documents.old, 'B1')).toBe('"after conflict"');
+  expect(cellRawContent(result.current.workbook.documents.old, 'A1')).toBe('local');
+  expect(cellRawContent(result.current.workbook.documents.old, 'B1')).toBe('after conflict');
 });
 
 it('keeps a malformed HTTP success unresolved through the real creation adapter', async () => {
