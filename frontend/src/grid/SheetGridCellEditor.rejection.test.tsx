@@ -93,4 +93,39 @@ it('writes a selected date through the real editing session and workbook control
   fireEvent.click(screen.getByText('Edit'));
   expect(screen.getByRole('combobox', { name: 'Input type' })).toHaveValue('date');
   expect(screen.getByRole('textbox')).toHaveValue('2024-02-29');
+  const picker = screen.getByLabelText('Choose date');
+  fireEvent.blur(screen.getByRole('textbox'), { relatedTarget: picker });
+  fireEvent.change(picker, { target: { value: '2025-03-01' } });
+  expect(screen.getByRole('textbox')).toHaveValue('2025-03-01');
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  expect(screen.getByTestId('raw')).toHaveTextContent('@date:2025-03-01');
+});
+
+it('preserves a precise datetime through picker mounting, focus, and cancel', () => {
+  const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '@datetime:2024-02-29 12:34:00.123456789' } });
+  const workbook = workbookWithSheets([sheet]);
+  function Harness() {
+    const anchor = useRef<HTMLButtonElement>(null);
+    const controller = useWorkbookController({ initialWorkbook: workbook });
+    const editing = useCellEditing({ commands: controller.commands, workbook: controller.workbook });
+    const currentSheet = controller.workbook.documents.inputs;
+    return <><button ref={anchor} onClick={() => editing.startEditingCell(cellTargetAt(currentSheet, 'A1')!)}>Edit</button>
+      <output data-testid="raw">{cellRawContent(currentSheet, 'A1')}</output>
+      {editing.editingCell && <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" editingCell={editing.editingCell} interaction={{
+        FormulaEditor: FormulaEditorPanel, cancel: editing.cancelActiveEdit, commit: editing.commitActiveEdit,
+        commitAndNavigate: editing.commitEditAndNavigate, updateValue: editing.updateEditingCellValue, updateMode: editing.updateEditingCellMode,
+      }} />}</>;
+  }
+  render(<Harness />);
+  fireEvent.click(screen.getByText('Edit'));
+  const editor = screen.getByRole('textbox');
+  const picker = screen.getByLabelText('Choose date and time');
+  expect(editor).toHaveValue('2024-02-29 12:34:00.123456789');
+  expect(picker).toHaveValue('');
+  expect(screen.getByText('Exact value is in the text above.')).toBeInTheDocument();
+  fireEvent.blur(editor, { relatedTarget: picker });
+  fireEvent.keyDown(editor, { key: 'Escape' });
+  expect(screen.getByTestId('raw')).toHaveTextContent('@datetime:2024-02-29 12:34:00.123456789');
+  fireEvent.click(screen.getByText('Edit'));
+  expect(screen.getByRole('textbox')).toHaveValue('2024-02-29 12:34:00.123456789');
 });

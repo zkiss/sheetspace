@@ -11,6 +11,7 @@ import './FormulaEditorPanel.css';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { referenceTextTokens } from '@application/core/referenceTextTokens';
 import type { CellInputMode } from '@application/core/cellInputPreparation';
+import { temporalPickerChange, temporalPickerProjection } from '@application/core/temporalPicker';
 
 /** The single rich formula surface used by workspace and model editing. */
 export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onEscape, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover, inputMode, onInputModeChange, validationMessage }: {
@@ -57,6 +58,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const validationId = useId();
   const inputModeShortcutId = useId();
   const literalMode = inputMode !== undefined && inputMode !== 'auto';
+  const pickerKind = inputMode === 'date' || inputMode === 'datetime' ? inputMode : undefined;
+  const picker = pickerKind ? temporalPickerProjection(raw, pickerKind) : undefined;
   const completionsList = useRef<HTMLUListElement>(null);
   const openingView = useRef(initialView);
   const openingRawLength = useRef(raw.length);
@@ -300,6 +303,18 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         reportView();
       }} onValueChange={updateRaw} ref={attachInput} spellCheck={false} value={raw} />
     </div>
+    {pickerKind && picker ? <div className="cell-temporal-picker">
+      <label>Choose {pickerKind === 'date' ? 'date' : 'date and time'}
+        <input aria-label={pickerKind === 'date' ? 'Choose date' : 'Choose date and time'} type={pickerKind === 'date' ? 'date' : 'datetime-local'}
+          disabled={disabled || readOnly} value={picker.value} step="any"
+          onKeyDown={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            const next = temporalPickerChange(event.target.value, pickerKind);
+            if (next !== undefined && !readOnly) onRawChange(next);
+          }} />
+      </label>
+      {picker.exactText ? <span>Exact value is in the text above.</span> : null}
+    </div> : null}
     {validationMessage ? <div className="cell-input-validation" id={validationId} role="alert">{validationMessage}</div> : null}
     {referenceFeedback ? <span role="status">{referenceFeedback}</span> : null}
     {!onReferenceNavigate && hoveredReference && analysis.references[hoveredReference.index] ? <FormulaEditorPopover anchor={() => hoveredReference.element.getBoundingClientRect()} className="formula-editor-hover-popover">
