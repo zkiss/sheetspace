@@ -62,11 +62,37 @@ it('tracks transform-only position and size without React commits or duplicate r
   expect(observe).toHaveBeenCalledWith(anchor.current);
   view.unmount();
   expect(frames.size).toBe(0);
-  expect(disconnect).toHaveBeenCalledOnce();
+  expect(disconnect).toHaveBeenCalledTimes(2);
   measure.mockClear();
   fireEvent.scroll(window);
   fireEvent.resize(window);
   expect(measure).not.toHaveBeenCalled();
+});
+
+it('clamps a growing validation panel and reclamps when the viewport shrinks', () => {
+  let panelHeight = 100;
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('sheet-grid-cell-formula-editor')
+      ? new DOMRect(0, 0, 200, panelHeight) : original.call(this);
+  });
+  vi.stubGlobal('innerWidth', 320);
+  vi.stubGlobal('innerHeight', 400);
+  const anchor = { current: document.createElement('div') };
+  vi.spyOn(anchor.current, 'getBoundingClientRect').mockReturnValue(new DOMRect(250, 370, 60, 24));
+  const interaction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+  const component = (validationMessage?: string) => <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
+    interaction={interaction} editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } },
+      draft: 'invalid', sessionId: 1, validationMessage }} />;
+  const view = render(component());
+  const panel = screen.getByRole('textbox').closest('section')!;
+  expect(panel).toHaveStyle({ left: '112px', top: '292px' });
+  panelHeight = 180;
+  view.rerender(component('Enter a valid date'));
+  expect(panel).toHaveStyle({ top: '212px', maxHeight: '384px', overflowY: 'auto' });
+  vi.stubGlobal('innerHeight', 300);
+  fireEvent.resize(window);
+  expect(panel).toHaveStyle({ top: '112px', maxHeight: '284px' });
 });
 
 it('keeps the portal mounted while an anchor ref is temporarily detached or replaced', () => {

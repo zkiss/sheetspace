@@ -83,12 +83,12 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       selection: { start: previous.selectionStart, end: previous.selectionEnd }, scrollTop: previous.scrollTop });
   }, []);
   const anchorElement = anchor.current;
-  const updatePosition = useCallback(() => {
+  const updatePosition = useCallback((force = false) => {
     // Ref replacement during a parent render must not unmount the focused portal.
     if (!anchor.current) return;
     const sheetBody = anchor.current.closest('[data-workspace-sheet-frame]')?.querySelector('.sheet-frame-body');
     const next = (mode === 'heavy' ? sheetBody ?? anchor.current : anchor.current).getBoundingClientRect();
-    if (sameRect(anchorRect.current, next)) return;
+    if (!force && sameRect(anchorRect.current, next)) return;
     anchorRect.current = next;
     // Geometry belongs to the DOM, not the controlled draft. Moving an anchor
     // must not render React (or trigger another layout-effect geometry read).
@@ -103,22 +103,30 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     let frame = 0;
     const trackAnchor = () => { updatePosition(); frame = requestAnimationFrame(trackAnchor); };
     frame = requestAnimationFrame(trackAnchor);
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    const observer = typeof ResizeObserver === 'undefined' || !anchor.current ? null : new ResizeObserver(updatePosition);
+    const onResize = () => updatePosition(true);
+    const onScroll = () => updatePosition();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, true);
+    const observer = typeof ResizeObserver === 'undefined' || !anchor.current ? null : new ResizeObserver(onScroll);
     if (anchor.current) observer?.observe(anchor.current);
     return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll, true);
       observer?.disconnect();
       cancelAnimationFrame(frame);
     };
   }, [anchor, updatePosition]);
+  useEffect(() => {
+    if (!isAnchored || !panelRef.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => updatePosition(true));
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [isAnchored, updatePosition]);
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor || !panelRef.current || !anchorRect.current) return;
     placeEditor(panelRef.current, editor, anchorRect.current, mode);
-  }, [isAnchored, editingCell.draft, mode]);
+  }, [isAnchored, editingCell.draft, editingCell.validationMessage, editingCell.mode, mode]);
 
   function currentSession(): CellEditSession {
     const editor = editorRef.current;
@@ -180,15 +188,17 @@ function isWorkspaceTransfer(destination: EventTarget | null) {
 function placeEditor(panel: HTMLElement, editor: HTMLTextAreaElement, rect: DOMRect, mode: 'light' | 'heavy') {
   const heavy = mode === 'heavy';
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - (heavy ? 368 : 208)));
-  const top = Math.max(8, Math.min(rect.top, window.innerHeight - (heavy ? 208 : 120)));
   panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
   panel.style.maxWidth = `calc(100vw - ${left + 8}px)`;
   panel.style.width = heavy ? `${Math.max(360, rect.width)}px` : cellEditorSizing(editor.value, rect.width).width;
-  panel.style.height = heavy ? `${Math.min(Math.max(200, rect.height), window.innerHeight - top - 8)}px` : 'auto';
+  panel.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`;
+  panel.style.overflowY = 'auto';
+  panel.style.height = heavy ? `${Math.min(Math.max(200, rect.height), Math.max(0, window.innerHeight - 16))}px` : 'auto';
   editor.style.maxHeight = heavy ? 'none' : CELL_EDITOR_MAX_HEIGHT;
   if (heavy) { editor.style.height = '100%'; editor.style.overflow = 'auto'; }
   else sizeEditorToContent(editor, rect.height);
+  const top = Math.max(8, Math.min(rect.top, window.innerHeight - panel.getBoundingClientRect().height - 8));
+  panel.style.top = `${top}px`;
 }
 
 function sameRect(left: DOMRect | null, right: DOMRect) {
