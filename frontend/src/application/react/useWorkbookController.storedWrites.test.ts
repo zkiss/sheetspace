@@ -7,8 +7,29 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkbookController } from './useWorkbookController';
 import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+import { useCellEditing } from '@grid/useCellEditing';
+import { cellTargetAt } from '@grid/cellInteraction';
 
 describe('trusted controller writes', () => {
+  it('edits ordinary saved text into a formula through the editing session and controller', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const initialWorkbook = workbookWithSheets([sheet]);
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook });
+      const editing = useCellEditing({ commands: controller.commands, workbook: controller.workbook });
+      return { controller, editing };
+    });
+    act(() => { result.current.controller.commands.updateCellContent(sheet.id, 'A1', 'hello'); });
+    const savedSheet = result.current.controller.workbook.documents.sheet;
+    expect(cellRawContent(savedSheet, 'A1')).toBe('"hello"');
+    act(() => result.current.editing.startEditingCell(cellTargetAt(savedSheet, 'A1')!));
+    expect(result.current.editing.editingCell).toMatchObject({ draft: 'hello', mode: 'auto' });
+    act(() => result.current.editing.updateEditingCellValue('=1+2'));
+    act(() => result.current.editing.commitActiveEdit());
+    const raw = cellRawContent(result.current.controller.workbook.documents.sheet, 'A1')!;
+    expect(projectStoredFormula(raw, result.current.controller.workbook, sheet.id).text).toBe('=1+2');
+    expect(result.current.controller.formulaResults.sheet.A1).toMatchObject({ value: 3 });
+  });
   it('writes temporal modes through the controller and rejects invalid values without mutation', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));

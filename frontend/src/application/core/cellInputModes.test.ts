@@ -31,6 +31,9 @@ describe('cell input modes', () => {
     expect(openCellInput('@datetime:2024-02-29 12:30:01.001000000', workbook, sheet.id))
       .toEqual({ text: '2024-02-29 12:30:01.001000000', mode: 'datetime' });
     expect(openCellInput('"2024-02-29"', workbook, sheet.id)).toEqual({ text: '2024-02-29', mode: 'text' });
+    expect(openCellInput('"=1+2"', workbook, sheet.id)).toEqual({ text: '=1+2', mode: 'text' });
+    expect(openCellInput('"42"', workbook, sheet.id)).toEqual({ text: '42', mode: 'text' });
+    expect(openCellInput('"hello"', workbook, sheet.id)).toEqual({ text: 'hello', mode: 'auto' });
     expect(openCellInput('42', workbook, sheet.id)).toEqual({ text: '42', mode: 'auto' });
   });
 });

@@ -12,7 +12,11 @@ export function openCellInput(raw: string, workbook: Workbook, sheetId: string):
   const temporal = decodeTemporalValue(raw);
   if (temporal) return { text: temporal.value, mode: temporal.kind };
   const text = decodeCellTextLiteral(raw);
-  if (text !== undefined) return { text, mode: 'text' };
+  if (text !== undefined) {
+    const requiresLiteralMode = text.startsWith('=') || classifyTemporalInput(text).kind !== 'not-temporal'
+      || classifyCellValue(text).kind !== 'text';
+    return { text, mode: requiresLiteralMode ? 'text' : 'auto' };
+  }
   return { text: raw.startsWith('=') ? projectStoredFormula(raw, workbook, sheetId).text : raw, mode: 'auto' };
 }
 
