@@ -40,6 +40,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   onReferenceNavigate?: (reference: FormulaInspectionReference) => void;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const inputModeSelect = useRef<HTMLSelectElement>(null);
   const highlight = useRef<HTMLPreElement>(null);
   const attachInput = useCallback((element: HTMLTextAreaElement | null) => {
     (input as { current: HTMLTextAreaElement | null }).current = element;
@@ -54,6 +55,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const [referenceFeedback, setReferenceFeedback] = useState('');
   const completionsId = useId();
   const validationId = useId();
+  const inputModeShortcutId = useId();
   const literalMode = inputMode !== undefined && inputMode !== 'auto';
   const completionsList = useRef<HTMLUListElement>(null);
   const openingView = useRef(initialView);
@@ -139,6 +141,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     setReferenceModifier(event.ctrlKey || event.metaKey);
     if (event.nativeEvent.isComposing) return;
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowUp' && inputModeSelect.current && !inputModeSelect.current.disabled) {
+      event.preventDefault(); event.stopPropagation();
+      setCompletionRequest(null); inputModeSelect.current.focus(); return;
+    }
     if (matchesShortcut(event, 'reference-navigate') && onReferenceNavigate) {
       event.preventDefault(); event.stopPropagation();
       const caret = event.currentTarget.selectionStart;
@@ -252,8 +258,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (input.current) onFocusLeave?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }, event.relatedTarget);
   }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
     {!cellMode ? <div className="formula-editor-heading"><strong>Formula editor</strong><span>{shortcutLabel('editor-apply')} applies · {shortcutLabel('editor-cancel')} cancels</span></div> : null}
-    {inputMode !== undefined ? <label className="cell-input-mode">Input type
-      <select aria-label="Input type" disabled={disabled || readOnly} value={inputMode} onChange={(event) => { setCompletionRequest(null); onInputModeChange?.(event.target.value as CellInputMode); }}>
+    {inputMode !== undefined ? <label className="cell-input-mode">Input type <span id={inputModeShortcutId} aria-label="Alt plus Up Arrow focuses input type">(Alt+↑)</span>
+      <select ref={inputModeSelect} aria-label="Input type" aria-keyshortcuts="Alt+ArrowUp" disabled={disabled || readOnly} value={inputMode} onChange={(event) => { setCompletionRequest(null); onInputModeChange?.(event.target.value as CellInputMode); }}>
         <option value="auto">Automatic</option><option value="text">Text</option><option value="date">Date</option><option value="datetime">DateTime</option>
       </select>
     </label> : null}
@@ -268,7 +274,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
           key={`${token.sourceSpan.start}-${token.sourceSpan.end}`} style={referenceColour ? { color: referenceColour } : undefined}>{raw.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>;
       })}{'\u200b'}</pre>
     <RawFormulaInput aria-label={ariaLabel} aria-autocomplete="list" aria-controls={completionOpen ? completionsId : undefined}
-      aria-invalid={validationMessage ? true : undefined} aria-describedby={validationMessage ? validationId : undefined}
+      aria-invalid={validationMessage ? true : undefined} aria-describedby={[inputMode !== undefined && !disabled && !readOnly ? inputModeShortcutId : '', validationMessage ? validationId : ''].filter(Boolean).join(' ') || undefined}
       aria-activedescendant={completionOpen && completionChosen ? `${completionsId}-${completionIndex}` : undefined}
       className={`formula-editor-input${cellMode ? ' sheet-grid-cell-editor' : ''}`} data-workspace-sheet-editor={sheetId}
       disabled={disabled} aria-readonly={readOnly} onFocus={reportView} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); onReferenceElementHover?.(undefined); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}

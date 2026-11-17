@@ -61,7 +61,7 @@ it('selects a cell input type, retains invalid input and commits the corrected t
   fireEvent.keyDown(editor, { key: 'Enter' });
   expect(updateCellContent).toHaveBeenCalledWith('inputs', 'A1', '2026-02-30', 'date');
   expect(editor).toHaveAttribute('aria-invalid', 'true');
-  expect(editor).toHaveAccessibleDescription('Enter a valid date as YYYY-MM-DD.');
+  expect(editor).toHaveAccessibleDescription('(Alt+↑) Enter a valid date as YYYY-MM-DD.');
   fireEvent.change(editor, { target: { value: '2026-02-28' } });
   expect(editor).not.toHaveAttribute('aria-invalid');
   fireEvent.keyDown(editor, { key: 'Tab' });

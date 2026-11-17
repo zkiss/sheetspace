@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { FormulaEditorPanel } from './FormulaEditorPanel';
 import { keymap, type Binding } from '@shared/keyboard/keymap';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
+import userEvent from '@testing-library/user-event';
 
 const resolver: FormulaReferenceResolver = {
   currentSheetId: 'sheet', sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined,
@@ -22,6 +24,38 @@ function setup(mode: 'light' | 'heavy' | 'model') {
 }
 
 describe('formula completion keyboard handling', () => {
+  it.each(['light', 'heavy'] as const)('reaches and changes input type from the %s editor without committing or changing the draft', async (mode) => {
+    const user = userEvent.setup();
+    const commit = vi.fn(); const apply = vi.fn(); const leave = vi.fn(); const change = vi.fn();
+    function Editor() {
+      const [raw, setRaw] = useState('=SUM(');
+      const [inputMode, setInputMode] = useState<CellInputMode>('auto');
+      return <FormulaEditorPanel ariaLabel="Formula" autoFocus cellMode={mode} inputMode={inputMode}
+        onInputModeChange={(value) => { change(value); setInputMode(value); }} onRawChange={setRaw} raw={raw}
+        onApply={apply} onCancel={() => {}} onFocusLeave={leave} onCommitAndNavigate={commit} resolver={resolver} sheetNames={[]} />;
+    }
+    render(<Editor />);
+    const input = screen.getByLabelText('Formula');
+    const select = screen.getByRole('combobox', { name: 'Input type' });
+    expect(input).toHaveFocus();
+    expect(input).toHaveAccessibleDescription('(Alt+↑)');
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
+    expect(select).toHaveFocus();
+    await user.selectOptions(select, 'date');
+    expect(change).toHaveBeenCalledWith('date');
+    expect(input).toHaveValue('=SUM(');
+    expect(commit).not.toHaveBeenCalled(); expect(apply).not.toHaveBeenCalled(); expect(leave).not.toHaveBeenCalled();
+    await user.tab();
+    expect(input).toHaveFocus();
+    if (mode === 'light') {
+      await user.tab();
+      expect(commit).toHaveBeenCalledWith({ key: 'Tab', shift: false });
+    } else {
+      await user.tab();
+      expect(input).toHaveValue('  =SUM(');
+      expect(commit).not.toHaveBeenCalled();
+    }
+  });
   it('uses rebound completion and navigation actions and displays their bindings', () => {
     const map = keymap as unknown as Record<string, Binding>;
     const originals = { ...map };
