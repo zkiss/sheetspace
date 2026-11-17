@@ -22,7 +22,7 @@ describe('portal editor shortcut priority wiring', () => {
       editor.setSelectionRange(raw.length - 1, raw.length - 1);
       fireEvent.keyDown(editor, { key: ' ', code: 'Space', ctrlKey: true });
       fireEvent.keyDown(editor, { key: 'ArrowDown' });
-      expect(screen.getByRole('option', { selected: true })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'SUM', selected: true })).toBeInTheDocument();
       editor.setSelectionRange(8, 8); editor.scrollTop = 12; updateView.mockClear();
       map[action === 'mode' ? 'toggle-editor-mode' : 'reference-navigate'] = [{ key: 'F9' }];
       map['completion-accept'] = [{ key: 'F9' }]; map['editor-commit-down'] = [{ key: 'F9' }];

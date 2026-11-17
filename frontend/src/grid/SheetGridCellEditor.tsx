@@ -6,6 +6,7 @@ import type { FormulaReferenceIdentity } from '@workbook/core/referenceIdentity'
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import type { CellWriteResult } from '@application/core/userActions';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
 import './SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
@@ -28,6 +29,8 @@ export type CellFormulaEditorProps = FormulaContext & {
   initialView: { start: number; end: number; scrollTop?: number };
   inputRef: Ref<HTMLTextAreaElement>; panelRef: RefObject<HTMLElement>;
   sheetId: string; raw: string; readOnly?: boolean;
+  inputMode: CellInputMode; validationMessage?: string;
+  onInputModeChange: (mode: CellInputMode) => void;
   onToggleMode: () => void; onRawChange: (value: string) => void;
   onViewChange: (view: { start: number; end: number; scrollTop: number }) => void;
   onApply: () => void; onCancel: () => void;
@@ -42,6 +45,7 @@ export type SheetGridCellEditorInteraction = {
   suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | void;
   updateValue: (value: string, session?: CellEditSession) => void;
+  updateMode?: (mode: CellInputMode, session?: CellEditSession) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
   formulaContext?: FormulaContext;
 };
@@ -133,6 +137,9 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     sheetId={editingCell.target.sheetId}
     raw={editingCell.draft}
     readOnly={editingCell.readOnly}
+    inputMode={editingCell.mode ?? 'auto'}
+    validationMessage={editingCell.validationMessage}
+    onInputModeChange={(next) => interaction.updateMode?.(next, currentSession())}
     resolver={interaction.formulaContext?.resolver ?? { currentSheetId: editingCell.target.sheetId, sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined }}
     sheetNames={interaction.formulaContext?.sheetNames ?? []}
     propertyNames={interaction.formulaContext?.propertyNames}
@@ -172,8 +179,8 @@ function isWorkspaceTransfer(destination: EventTarget | null) {
 
 function placeEditor(panel: HTMLElement, editor: HTMLTextAreaElement, rect: DOMRect, mode: 'light' | 'heavy') {
   const heavy = mode === 'heavy';
-  const left = heavy ? Math.max(8, Math.min(rect.left, window.innerWidth - 368)) : rect.left;
-  const top = heavy ? Math.max(8, Math.min(rect.top, window.innerHeight - 208)) : rect.top;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - (heavy ? 368 : 208)));
+  const top = Math.max(8, Math.min(rect.top, window.innerHeight - (heavy ? 208 : 120)));
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
   panel.style.maxWidth = `calc(100vw - ${left + 8}px)`;
@@ -206,6 +213,6 @@ function cellEditorSizing(value: string, minimumWidth: number) {
   const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 1), 64);
   return {
     multiline: lines.length > 1, visibleLineCount,
-    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(${minimumWidth}px, ${visibleColumnCount}ch))`,
+    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(200px, ${minimumWidth}px, ${visibleColumnCount}ch))`,
   };
 }

@@ -100,6 +100,7 @@ export function Workspace({
   onSuspendEdit,
   onCreateSheet,
   onEditValueChange,
+  onEditModeChange,
   onUpdateEditView,
   onNavigateCell,
   onNavigateKeyboardCell,
@@ -150,6 +151,7 @@ export function Workspace({
   onSuspendEdit?: (session: CellEditSession) => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) => void;
   onEditValueChange: (value: string) => void;
+  onEditModeChange?: (mode: import('@application/core/cellInputPreparation').CellInputMode, session?: import('@grid/cellInteractionContracts').CellEditSession) => void;
   onUpdateEditView?: (selection: { start: number; end: number }, scrollTop: number) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
@@ -1454,7 +1456,7 @@ export function Workspace({
                         reportWriteOutcome(outcome);
                         return outcome;
                       },
-                      suspend: onSuspendEdit, updateValue: onEditValueChange, updateView: onUpdateEditView,
+                      suspend: onSuspendEdit, updateValue: onEditValueChange, updateMode: onEditModeChange, updateView: onUpdateEditView,
                       formulaContext: {
                         resolver: formulaResolver,
                         sheetNames: sheets.map((entry) => entry.name),

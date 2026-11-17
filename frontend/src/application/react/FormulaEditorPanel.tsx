@@ -10,12 +10,16 @@ import { FormulaEditorPopover } from './FormulaEditorPopover';
 import './FormulaEditorPanel.css';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { referenceTextTokens } from '@application/core/referenceTextTokens';
+import type { CellInputMode } from '@application/core/cellInputPreparation';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onEscape, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], parameters, onApply, onCancel, onEscape, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover, inputMode, onInputModeChange, validationMessage }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   readOnly?: boolean;
   readOnlyText?: boolean;
+  inputMode?: CellInputMode;
+  onInputModeChange?: (mode: CellInputMode) => void;
+  validationMessage?: string;
   onReferenceElementHover?: (reference: FormulaInspectionReference | undefined, element?: HTMLElement) => void;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
@@ -49,15 +53,17 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const [referenceModifier, setReferenceModifier] = useState(false);
   const [referenceFeedback, setReferenceFeedback] = useState('');
   const completionsId = useId();
+  const validationId = useId();
+  const literalMode = inputMode !== undefined && inputMode !== 'auto';
   const completionsList = useRef<HTMLUListElement>(null);
   const openingView = useRef(initialView);
   const openingRawLength = useRef(raw.length);
   const selection = () => ({ start: input.current?.selectionStart ?? raw.length, end: input.current?.selectionEnd ?? raw.length });
-  const analysis = useMemo(() => readOnlyText ? {
+  const analysis = useMemo(() => readOnlyText || literalMode ? {
     result: { kind: 'not-formula' as const, raw }, tokens: referenceTextTokens(raw, inspectionReferences ?? []),
     references: [], referenceIdentities: [], diagnostics: [],
-  } : analyzeFormulaEditor(raw, resolver, parameters), [raw, resolver, readOnlyText, inspectionReferences, parameters]);
-  const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
+  } : analyzeFormulaEditor(raw, resolver, parameters), [raw, resolver, readOnlyText, literalMode, inspectionReferences, parameters]);
+  const formattingAvailable = !literalMode && formatFormula(raw, { start: 0, end: 0 }).available;
   useLayoutEffect(() => {
     if (!autoFocus || !input.current) return;
     input.current.focus({ preventScroll: true });
@@ -82,7 +88,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     element.addEventListener('input', restoreValue);
     return () => { element.removeEventListener('beforeinput', preventEdit); element.removeEventListener('input', restoreValue); };
   }, [readOnly, raw]);
-  const completions = !readOnly && completionRequest
+  const completions = !readOnly && !literalMode && completionRequest
     ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, propertyNamesForSheet: (qualifier) => {
       const sheetId = resolver.sheetByQualifier(qualifier);
       return sheetId ? resolver.namedColumnNames?.(sheetId) ?? [] : [];
@@ -161,7 +167,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     }
     if (matchesShortcut(event, 'editor-apply')) { event.preventDefault(); event.stopPropagation(); onApply(); return; }
     if (matchesShortcut(event, 'editor-cancel')) { event.preventDefault(); event.stopPropagation(); onCancel(); return; }
-    if (matchesShortcut(event, 'editor-complete')) {
+    if (!literalMode && matchesShortcut(event, 'editor-complete')) {
       event.preventDefault(); event.stopPropagation();
       setCompletionRequest({ selection: selection(), automatic: false });
       setCompletionIndex(0); setCompletionChosen(false); return;
@@ -246,6 +252,11 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (input.current) onFocusLeave?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }, event.relatedTarget);
   }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
     {!cellMode ? <div className="formula-editor-heading"><strong>Formula editor</strong><span>{shortcutLabel('editor-apply')} applies · {shortcutLabel('editor-cancel')} cancels</span></div> : null}
+    {inputMode !== undefined ? <label className="cell-input-mode">Input type
+      <select aria-label="Input type" disabled={disabled || readOnly} value={inputMode} onChange={(event) => { setCompletionRequest(null); onInputModeChange?.(event.target.value as CellInputMode); }}>
+        <option value="auto">Automatic</option><option value="text">Text</option><option value="date">Date</option><option value="datetime">DateTime</option>
+      </select>
+    </label> : null}
     <div className="formula-editor-input-wrap">
       <pre aria-hidden="true" className="formula-editor-highlight" ref={highlight}>{analysis.tokens.map((token) => {
         const referenceIndex = readOnlyText
@@ -257,6 +268,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
           key={`${token.sourceSpan.start}-${token.sourceSpan.end}`} style={referenceColour ? { color: referenceColour } : undefined}>{raw.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>;
       })}{'\u200b'}</pre>
     <RawFormulaInput aria-label={ariaLabel} aria-autocomplete="list" aria-controls={completionOpen ? completionsId : undefined}
+      aria-invalid={validationMessage ? true : undefined} aria-describedby={validationMessage ? validationId : undefined}
       aria-activedescendant={completionOpen && completionChosen ? `${completionsId}-${completionIndex}` : undefined}
       className={`formula-editor-input${cellMode ? ' sheet-grid-cell-editor' : ''}`} data-workspace-sheet-editor={sheetId}
       disabled={disabled} aria-readonly={readOnly} onFocus={reportView} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); onReferenceElementHover?.(undefined); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}
@@ -282,6 +294,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         reportView();
       }} onValueChange={updateRaw} ref={attachInput} spellCheck={false} value={raw} />
     </div>
+    {validationMessage ? <div className="cell-input-validation" id={validationId} role="alert">{validationMessage}</div> : null}
     {referenceFeedback ? <span role="status">{referenceFeedback}</span> : null}
     {!onReferenceNavigate && hoveredReference && analysis.references[hoveredReference.index] ? <FormulaEditorPopover anchor={() => hoveredReference.element.getBoundingClientRect()} className="formula-editor-hover-popover">
       <ReferenceHover modelOnly={modelOnly} reference={analysis.references[hoveredReference.index]} resolver={resolver} values={referenceValues} />

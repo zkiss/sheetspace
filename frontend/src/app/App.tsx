@@ -73,6 +73,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     restoreSelection,
     startEditingCell,
     updateEditingCellValue,
+    updateEditingCellMode,
     updateEditingCellView,
   } = useCellEditing({
     commands,
@@ -178,6 +179,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onSuspendEdit={suspendActiveEdit}
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
+        onEditModeChange={updateEditingCellMode}
         onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
