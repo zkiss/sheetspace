@@ -5,11 +5,12 @@ import { SheetGridCellEditor } from './SheetGridCellEditor';
 
 it('allows selection and mode switching while blocking mutations of a calculated formula', () => {
   const anchor = { current: document.createElement('div') };
-  const interaction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+  const interaction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn(), updateMode: vi.fn() };
   render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" interaction={interaction}
     editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1+2', sessionId: 1, readOnly: true }} />);
   const input = screen.getByRole('textbox') as HTMLTextAreaElement;
   expect(input).toHaveAttribute('aria-readonly', 'true');
+  expect(screen.getByRole('combobox', { name: 'Input type' })).toBeDisabled();
   expect(input).not.toHaveAttribute('readonly');
   input.setSelectionRange(1, 3);
   fireEvent.keyDown(input, { key: 'F2' });
@@ -22,5 +23,6 @@ it('allows selection and mode switching while blocking mutations of a calculated
   }
   fireEvent.change(input, { target: { value: 'changed' } });
   expect(interaction.updateValue).not.toHaveBeenCalled();
+  expect(interaction.updateMode).not.toHaveBeenCalled();
   expect(interaction.commit).not.toHaveBeenCalled();
 });
