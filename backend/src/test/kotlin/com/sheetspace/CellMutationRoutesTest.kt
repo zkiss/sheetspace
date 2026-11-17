@@ -1,6 +1,8 @@
 package com.sheetspace
 
 import io.ktor.client.request.patch
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.nio.file.Files
@@ -23,6 +25,7 @@ class CellMutationRoutesTest {
                         "A1" to "@date:2024-02-29",
                         "B1" to "@datetime:2024-02-29 00:00:00.120000000",
                         "C1" to "\"2024-02-29\"",
+                        "D1" to "=@${sheet.content.columns[1]}[${sheet.content.rows[0]}]",
                     )
                     val writes = values.map { (address, raw) ->
                         val column = address[0] - 'A'
@@ -33,6 +36,22 @@ class CellMutationRoutesTest {
                     }
                     assertEquals(HttpStatusCode.OK, response.status)
                     assertEquals(values, client.loadWorkbook().sheets.single().cells)
+                    val bundle = client.get("/api/workbook/bundle").bodyAsText()
+                    val script = Files.createTempFile("sheetspace-temporal-test-", ".cjs")
+                    try {
+                        val compile = ProcessBuilder(
+                            "../frontend/node_modules/.bin/esbuild", "src/test/typescript/temporalRoundtrip.ts",
+                            "--bundle", "--platform=node", "--tsconfig=../frontend/tsconfig.json", "--outfile=$script",
+                        ).redirectErrorStream(true).start()
+                        val diagnostics = compile.inputStream.bufferedReader().readText()
+                        assertEquals(0, compile.waitFor(), diagnostics)
+                        val check = ProcessBuilder("node", script.toString()).redirectErrorStream(true).start()
+                        check.outputStream.bufferedWriter().use { it.write(bundle) }
+                        val output = check.inputStream.bufferedReader().readText()
+                        assertEquals(0, check.waitFor(), output)
+                    } finally {
+                        Files.deleteIfExists(script)
+                    }
                 }
             }
         } finally {

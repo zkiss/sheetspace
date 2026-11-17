@@ -29,7 +29,7 @@ describe('paste preparation', () => {
 
   it('rejects an entire paste containing an invalid or timezone-bearing date', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2 });
-    for (const value of ['2023-02-29', '2024-02-29T00:00Z', '2024-02-29 24:00']) {
+    for (const value of ['2023-02-29', '2024-02-29T00:00Z', '2024-02-29 24:00', '2024-02-29Z', '2024-02-29+01:00', '2024-02-2912:00']) {
       const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
         ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 2, rows: [['2024-02-29', value]] } },
       });

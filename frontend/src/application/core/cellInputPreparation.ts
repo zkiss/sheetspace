@@ -18,7 +18,7 @@ export function prepareExternalPasteInput(raw: string): string | undefined {
   if (!raw) return raw;
   const temporal = parseTemporalValue(raw, 'date') ?? parseTemporalValue(raw, 'datetime');
   if (temporal) return encodeTemporalValue(temporal);
-  if (/^\d{4}[-/]\d{2}[-/]\d{2}(?:$|[ T])/.test(raw)) return undefined;
+  if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(raw)) return undefined;
   if (decodeCellTextLiteral(raw) !== undefined || raw.startsWith('@date:') || raw.startsWith('@datetime:')
     || classifyCellValue(raw).kind === 'text') return encodeCellTextLiteral(raw);
   return raw;
